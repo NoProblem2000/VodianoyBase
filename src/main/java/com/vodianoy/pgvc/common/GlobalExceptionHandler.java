@@ -1,0 +1,53 @@
+package com.vodianoy.pgvc.common;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/** Turns exceptions into {@link ApiError} responses. */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiError> handleApi(ApiException e) {
+        return respond(e.getStatus(), e.getMessage());
+    }
+
+    @ExceptionHandler(CannotGetJdbcConnectionException.class)
+    public ResponseEntity<ApiError> handleNoConnection(CannotGetJdbcConnectionException e) {
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, "Cannot connect to the database: " + rootMessage(e));
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ApiError> handleDatabase(DataAccessException e) {
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, rootMessage(e));
+    }
+
+    @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class})
+    public ResponseEntity<ApiError> handleBadRequest(Exception e) {
+        return respond(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception e) {
+        log.error("Unexpected error", e);
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, rootMessage(e));
+    }
+
+    static String rootMessage(Throwable e) {
+        Throwable root = NestedExceptionUtils.getMostSpecificCause(e);
+        return root.getMessage() == null ? root.getClass().getSimpleName() : root.getMessage();
+    }
+
+    private static ResponseEntity<ApiError> respond(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(new ApiError(status.value(), status.getReasonPhrase(), message));
+    }
+}
