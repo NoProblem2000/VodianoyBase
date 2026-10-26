@@ -1,0 +1,14 @@
+# build output
+target/
+frontend/node_modules/
+frontend/dist/
+
+# local runtime configuration (contains passwords)
+pgvc-environments.json
+pgvc-environments.json.tmp
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.log
