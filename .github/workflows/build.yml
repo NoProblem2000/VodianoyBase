@@ -1,0 +1,58 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Build & test (PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['11', '16']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+
+      - name: Build jar and run tests
+        env:
+          PGVC_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          PGVC_TEST_USER: postgres
+          PGVC_TEST_PASSWORD: postgres
+        run: mvn -B verify
+
+      - name: Upload pg-git-vc.jar
+        if: matrix.postgres == '16'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-git-vc
+          path: target/pg-git-vc.jar
