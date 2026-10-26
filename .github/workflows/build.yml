@@ -54,6 +54,14 @@ jobs:
           set -o pipefail
           mvn -B -ntp verify 2>&1 | tee build.log
 
+      - name: Smoke-test the executable jar
+        if: matrix.postgres == '16'
+        env:
+          PGVC_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          PGVC_TEST_USER: postgres
+          PGVC_TEST_PASSWORD: postgres
+        run: .github/scripts/smoke-jar.sh
+
       - name: Report test summary
         if: always()
         run: python3 .github/scripts/test-summary.py "PostgreSQL ${{ matrix.postgres }}"
