@@ -58,8 +58,11 @@ class OfflineMigrationServiceIntegrationTest {
         c2 = s.vc.executeAndCommitSql(dev, new ExecuteMigrationRequest("Notes", "bob",
                 "CREATE TABLE sales.notes (id int PRIMARY KEY, body text DEFAULT 'tricky $pgvc$ ''quoted''');", null, false)).commit();
         c3 = s.vc.executeAndCommitSql(dev, new ExecuteMigrationRequest("Widen amount", "bob", """
-                DROP VIEW sales.v_big_orders; DROP VIEW sales.v_orders;
+                DROP VIEW sales.v_big_orders; DROP VIEW sales.v_orders; DROP MATERIALIZED VIEW billing.mv_totals;
                 ALTER TABLE sales.orders ALTER COLUMN amount TYPE numeric(14,2);
+                CREATE MATERIALIZED VIEW billing.mv_totals AS
+                    SELECT customer_id, sum(amount) AS total FROM sales.orders GROUP BY customer_id;
+                CREATE UNIQUE INDEX mv_totals_customer_idx ON billing.mv_totals (customer_id);
                 CREATE VIEW sales.v_orders AS
                     SELECT o.id, o.amount, c.email FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id;
                 CREATE VIEW sales.v_big_orders AS SELECT * FROM sales.v_orders WHERE amount > 100;

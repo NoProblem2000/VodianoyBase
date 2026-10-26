@@ -186,6 +186,8 @@ public class EnvironmentManagerService implements DisposableBean {
         // do not fail (or block) when the database is down at pool creation; errors surface on first use
         config.setInitializationFailTimeout(-1);
         config.setDataSourceProperties(driverProperties(env));
+        // keep the connection on statement errors with SQLSTATE 0A000 (see PgErrorExceptionOverride)
+        config.setExceptionOverrideClassName(PgErrorExceptionOverride.class.getName());
         HikariDataSource dataSource = new HikariDataSource(config);
         TransactionTemplate tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         return new EnvironmentConnection(dataSource, new JdbcTemplate(dataSource), tx);

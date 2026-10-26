@@ -28,7 +28,7 @@ for log in typecheck.log npm.log; do
 done
 
 if [ -f build.log ]; then
-  grep -E "^\[ERROR\]|COMPILATION ERROR|Tests run:.*Fail|FAILURE!|expected|Caused by|Exception" build.log \
+  grep -E "^\[ERROR\]|COMPILATION ERROR|Tests run:.*Fail|FAILURE!|expected|Caused by|Exception|overridden by rollback|ERROR: " build.log \
     | grep -vE "^\[ERROR\] *$|Re-run Maven|For more information|Help 1|full stack trace|-e switch|-X switch|^\[ERROR\] -> \[Help" \
     | head -150 > "$tmp"
   emit "maven" "$tmp"

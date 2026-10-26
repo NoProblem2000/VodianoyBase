@@ -228,4 +228,18 @@ class VersionControlServiceIntegrationTest {
         assertThatThrownBy(() -> vc.getRollbackPlan("dev", c3.hash()))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("not an ancestor"));
     }
+
+    @Test
+    void postgresFeatureNotSupportedErrorIsReportedAndTheConnectionSurvives() {
+        baseline();
+        // SQLSTATE 0A000: the column is read by sales.v_orders
+        assertThatThrownBy(() -> vc.executeAndCommitSql("dev", new ExecuteMigrationRequest("alter under view", "bob",
+                "ALTER TABLE sales.orders ALTER COLUMN amount TYPE numeric(20,2);", null, false)))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("used by a view");
+
+        CommitResult next = vc.executeAndCommitSql("dev", new ExecuteMigrationRequest("next", "bob",
+                "ALTER TABLE sales.orders ADD COLUMN coupon text;", null, false));
+        assertThat(next.changes()).extracting(ChangeItem::getObjectName).containsExactly("sales.orders.coupon");
+    }
 }
