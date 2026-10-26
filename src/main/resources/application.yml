@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: pg-git-vc
+  main:
+    banner-mode: off
+
+server:
+  # Local developer tool: listen on localhost only (override with --server.address=0.0.0.0).
+  address: 127.0.0.1
+  port: 8765
+
+pgvc:
+  environments-file: ./pgvc-environments.json
+  connect-timeout-seconds: 5
+  max-pool-size: 4
+
+logging:
+  level:
+    root: WARN
+    com.vodianoy: INFO
+    org.springframework.boot.web.embedded.tomcat: INFO

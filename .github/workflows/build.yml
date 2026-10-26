@@ -1,0 +1,78 @@
+name: build
+
+on:
+  push:
+    branches-ignore: ['draft/**']
+  pull_request:
+
+jobs:
+  build:
+    name: Build & test (PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['11', '16']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund 2>&1 | tee ../npm.log
+          npm run typecheck 2>&1 | tee ../typecheck.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Build jar and run tests
+        env:
+          PGVC_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          PGVC_TEST_USER: postgres
+          PGVC_TEST_PASSWORD: postgres
+        run: |
+          set -o pipefail
+          mvn -B -ntp verify 2>&1 | tee build.log
+
+      - name: Smoke-test the executable jar
+        if: matrix.postgres == '16'
+        env:
+          PGVC_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          PGVC_TEST_USER: postgres
+          PGVC_TEST_PASSWORD: postgres
+        run: .github/scripts/smoke-jar.sh
+
+      - name: Report test summary
+        if: always()
+        run: python3 .github/scripts/test-summary.py "PostgreSQL ${{ matrix.postgres }}"
+
+      - name: Report failures as annotations
+        if: failure()
+        run: .github/scripts/annotate-failures.sh
+
+      - name: Upload pg-git-vc.jar
+        if: success() && matrix.postgres == '16'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-git-vc
+          path: target/pg-git-vc.jar
