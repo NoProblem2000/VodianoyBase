@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Handle, PanOnScrollMode, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
+import {
+  BaseEdge,
+  Handle,
+  PanOnScrollMode,
+  Position,
+  ReactFlow,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EnvironmentHead, GraphCommit } from '../api/types';
 import { LANE_COLORS, layoutGraph } from '../lib/graphLayout';
@@ -61,6 +71,24 @@ function CommitNodeView({ data }: NodeProps<CommitFlowNode>) {
 
 const nodeTypes = { commit: CommitNodeView };
 
+/**
+ * Git-style edge: the line stays in the child's lane and only bends into the parent's lane right above the parent,
+ * so a branch visibly starts at its real parent commit (smoothstep would bend half-way and point at a wrong commit).
+ */
+function LaneEdgeView({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
+  let path: string;
+  if (Math.abs(sourceX - targetX) < 1) {
+    path = `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
+  } else {
+    const bendStart = Math.max(sourceY, targetY - 22);
+    const mid = (bendStart + targetY) / 2;
+    path = `M ${sourceX},${sourceY} L ${sourceX},${bendStart} C ${sourceX},${mid} ${targetX},${mid} ${targetX},${targetY}`;
+  }
+  return <BaseEdge id={id} path={path} style={style} />;
+}
+
+const edgeTypes = { lane: LaneEdgeView };
+
 interface Props {
   commits: GraphCommit[];
   environments: EnvironmentHead[];
@@ -119,7 +147,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           id: `wip->${activeHead}`,
           source: WORKING_TREE_ID,
           target: activeHead,
-          type: 'smoothstep',
+          type: 'lane',
           animated: true,
           style: { stroke: '#f59e0b', strokeWidth: 2 },
         });
@@ -153,7 +181,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           id: `${c.hash}->${c.parentHash}`,
           source: c.hash,
           target: c.parentHash,
-          type: 'smoothstep',
+          type: 'lane',
           style: { stroke: color(r.lane), strokeWidth: 2 },
         });
       }
@@ -167,6 +195,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
