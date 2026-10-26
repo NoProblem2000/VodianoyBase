@@ -54,6 +54,10 @@ jobs:
           set -o pipefail
           mvn -B -ntp verify 2>&1 | tee build.log
 
+      - name: Report test summary
+        if: always()
+        run: python3 .github/scripts/test-summary.py "PostgreSQL ${{ matrix.postgres }}"
+
       - name: Report failures as annotations
         if: failure()
         run: .github/scripts/annotate-failures.sh
