@@ -38,7 +38,7 @@
 4. Первые шаги в интерфейсе:
    - **Environments** (верхняя панель) → заполните имя, JDBC URL (`jdbc:postgresql://host:5432/db`), пользователя и
      пароль → **Test connection** → **Save**. Список сохранится в `pgvc-environments.json` рядом с местом запуска.
-   - **Set up version control** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
+   - **Initialize version control** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
    - Вверху графа появится **Working Tree** со всей текущей схемой — подпишите и нажмите **Commit Changes**
      (это базовый коммит).
    - Дальше меняйте схему в DBeaver / pgAdmin (Mode A) или через **New SQL Migration** (Mode B).
