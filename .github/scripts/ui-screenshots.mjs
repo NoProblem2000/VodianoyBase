@@ -83,6 +83,43 @@ await step('10-explorer-filter', async () => {
   await shot('10-explorer-filter');
 });
 
+// ---- real actions through the UI
+const toast = (re) => page.getByRole('status').filter({ hasText: re }).first().waitFor({ timeout: 30000 });
+await step('11-commit-working-tree', async () => {
+  await page.getByLabel('Filter schema objects').fill('');
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByPlaceholder('your name').fill('alice');
+  await page.getByPlaceholder('What changed and why').fill('Customer phone, rename note to remark');
+  await page.getByRole('button', { name: 'Commit Changes' }).click();
+  await toast(/Committed/);
+  await shot('11-commit-working-tree');
+});
+await step('12-push-to-stage', async () => {
+  await page.getByRole('button', { name: /Sync \/ Push/ }).click();
+  await page.getByText('Commits to push').waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: /^Push \d+ commit/ }).click();
+  await toast(/Pushed/);
+  await shot('12-push-to-stage');
+});
+await step('13-mode-b-execute', async () => {
+  await page.getByRole('button', { name: /New SQL Migration/ }).click();
+  await page.locator('.monaco-editor').first().click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('CREATE TABLE sales.coupons (code text PRIMARY KEY, discount numeric NOT NULL);');
+  await page.getByPlaceholder('What does this migration do?').fill('Add coupons');
+  await page.getByRole('button', { name: /Execute & Commit/ }).click();
+  await toast(/Executed and committed/);
+  await shot('13-mode-b-execute');
+});
+await step('14-rollback', async () => {
+  await page.getByText('Index notes by customer').first().click();
+  await page.getByRole('button', { name: /Rollback DB to here/ }).click();
+  await page.getByText('Rollback script').waitFor();
+  await page.getByRole('button', { name: /Roll back database/ }).click();
+  await toast(/rolled back/);
+  await shot('14-rollback');
+});
+
 writeFileSync(`${out}/errors.txt`, errors.length ? errors.join('\n') + '\n' : 'no errors\n');
 await browser.close();
 console.log(errors.length ? errors.join('\n') : 'no browser errors');

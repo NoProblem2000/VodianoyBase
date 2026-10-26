@@ -29,6 +29,7 @@ export function SqlEditor({ value, onChange, readOnly = false, language = 'pgsql
         tabSize: 4,
         padding: { top: 8, bottom: 8 },
         renderLineHighlight: 'line',
+        wordWrap: readOnly ? 'on' : 'off',
       }}
     />
   );

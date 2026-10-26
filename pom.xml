@@ -104,7 +104,7 @@
                             <goal>npm</goal>
                         </goals>
                         <configuration>
-                            <arguments>install --no-audit --no-fund</arguments>
+                            <arguments>ci --no-audit --no-fund</arguments>
                         </configuration>
                     </execution>
                     <execution>

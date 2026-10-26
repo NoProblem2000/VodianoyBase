@@ -30,6 +30,9 @@ json -X POST $API/environments/dev/vc/execute -d '{"message":"Index notes by cus
 json -X POST $API/vc/push -d '{"sourceEnvironmentId":"dev","targetEnvironmentId":"stage"}' > /dev/null
 json -X POST $API/environments/dev/vc/execute -d '{"message":"Add February partition","author":"carol","upSql":"CREATE TABLE billing.events_2026_02 PARTITION OF billing.events FOR VALUES FROM ('"'"'2026-02-01'"'"') TO ('"'"'2026-03-01'"'"');"}' > /dev/null
 
+# a hotfix made directly on prod: its history diverges from dev (second lane in the graph)
+json -X POST $API/environments/prod/vc/execute -d '{"message":"Prod hotfix: index orders by status","author":"ops","upSql":"CREATE INDEX orders_status_hotfix_idx ON sales.orders (status);"}' > /dev/null
+
 # uncommitted changes made "in an external IDE" -> working tree + DDL audit log
 $PSQL -d demo_dev -c "ALTER TABLE sales.orders RENAME COLUMN note TO remark" \
   -c "ALTER TABLE sales.customers ADD COLUMN phone varchar(32)" \

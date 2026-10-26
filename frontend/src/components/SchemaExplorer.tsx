@@ -40,7 +40,7 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
       for (const [key, t] of Object.entries(snapshot.tables)) {
         const entry: Entry = { key, schema: t.schemaName, name: t.name, change: indicators.get(key), table: t };
         if (t.parentTable) {
-          result.partitions.push({ ...entry, hint: `of ${t.parentTable}` });
+          result.partitions.push({ ...entry, hint: `↳ ${t.parentTable.split('.').slice(1).join('.')}` });
         } else {
           result.tables.push({ ...entry, hint: t.partitioned ? 'partitioned' : undefined });
         }

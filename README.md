@@ -1,7 +1,7 @@
 # PgGitVisualizer (pg-git-vc)
 
 Контроль версий схемы PostgreSQL 11+ с визуальным графом коммитов в стиле GitKraken.
-Один исполняемый файл `pg-git-vc.jar` (Spring Boot 3 + встроенный React UI), без Docker.
+Один исполняемый файл `pg-git-vc-1.0.0.jar` (Spring Boot 3 + встроенный React UI), без Docker.
 
 Проект развивается по шагам; каждый шаг — отдельная ветка и Pull Request в `main`.
 
@@ -11,18 +11,62 @@
 | 2 | Интроспектор схемы PostgreSQL 11+ (`pg_catalog`) | готов |
 | 3 | Diff Engine, коммиты (Mode A / Mode B) и откат | готов |
 | 4 | Офлайн SQL-бандлы, синхронизация окружений, REST | готов |
+| 5 | Веб-интерфейс (React + TypeScript), ручное тестирование | готов |
 
-## Сборка и запуск
+## Быстрый старт: сборка и запуск
 
-Нужны JDK 17+ и Maven 3.9+. Node.js ставить не нужно — `frontend-maven-plugin` скачает его в `target/node`,
-соберёт React из `frontend/` и положит результат в `target/classes/static`.
+**Что нужно установить:** JDK 17 или новее и Maven 3.9+. Node.js ставить не нужно — Maven сам скачает его в
+`target/node`, соберёт React-интерфейс из `frontend/` и положит его внутрь jar. Docker не нужен.
 
-```bash
-mvn package                       # тесты + UI + target/pg-git-vc.jar
-java -jar target/pg-git-vc.jar    # http://localhost:8765
-```
+1. Соберите единый jar (первая сборка дольше — скачиваются зависимости и Node.js):
 
-`mvn package -DskipFrontend` собирает только бэкенд.
+   ```bash
+   mvn clean package
+   ```
+
+   Результат: `target/pg-git-vc-1.0.0.jar` — бэкенд и UI в одном файле. Чтобы пропустить тесты:
+   `mvn clean package -DskipTests`.
+
+2. Запустите:
+
+   ```bash
+   java -jar target/pg-git-vc-1.0.0.jar
+   ```
+
+3. Откройте в браузере http://localhost:8765.
+
+4. Первые шаги в интерфейсе:
+   - **Environments** (верхняя панель) → заполните имя, JDBC URL (`jdbc:postgresql://host:5432/db`), пользователя и
+     пароль → **Test connection** → **Save**. Список сохранится в `pgvc-environments.json` рядом с местом запуска.
+   - **Set up version control** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
+   - Вверху графа появится **Working Tree** со всей текущей схемой — подпишите и нажмите **Commit Changes**
+     (это базовый коммит).
+   - Дальше меняйте схему в DBeaver / pgAdmin (Mode A) или через **New SQL Migration** (Mode B).
+
+Порт можно сменить: `java -jar target/pg-git-vc-1.0.0.jar --server.port=9000`. По умолчанию приложение слушает
+только `127.0.0.1`.
+
+`mvn package -DskipFrontend` собирает только бэкенд. Для разработки UI с горячей перезагрузкой:
+запустите jar и затем `cd frontend && npm ci && npm run dev` (http://localhost:5173, `/api` проксируется на `:8765`).
+
+## Интерфейс (Шаг 5)
+
+React 18 + TypeScript + Vite + TailwindCSS, граф — `@xyflow/react`, редактор SQL — `@monaco-editor/react`
+(Monaco собран локально, без CDN), иконки — `lucide-react`, HTTP — `axios`. Тёмная палитра в стиле GitKraken.
+
+- **Верхняя панель:** переключатель окружения и окно **Environments** (добавить / изменить / проверить подключение);
+  **New SQL Migration (Mode B)** — Monaco-редактор UP/DOWN SQL, выполнение и коммит в одной транзакции;
+  **Export Offline .SQL** — бандл по диапазону коммитов с предпросмотром; **Sync / Push to Env** — сравнение
+  окружений и накат недостающих коммитов.
+- **Слева:** Schema Explorer (Tables / Partitions / Views / Sequences) с фильтром и индикаторами незакоммиченных
+  изменений — **A** (добавлено, зелёный), **M** (изменено, жёлтый), **R** (переименовано, синий), **D** (удалено,
+  красный); ниже **Live DDL Audit Log** (пользователь БД и время, обновляется каждые 5 секунд).
+- **В центре:** граф коммитов снизу вверх: короткий хеш, сообщение, автор, дата и цветные бейджи окружений, чей
+  `HEAD` указывает на коммит. Если есть незакоммиченные изменения, сверху пульсирует узел
+  **Working Tree (Uncommitted Changes)**. Разошедшиеся истории окружений рисуются отдельными линиями.
+- **Справа:** для Working Tree — список изменений, редактируемые UP/DOWN SQL, автор, сообщение и **Commit Changes**;
+  для коммита — детали, изменения, вкладки **UP / DOWN / DDL Trigger Log**, **Export Single Commit .SQL** и
+  **Rollback DB to here** (окно подтверждения с редактируемым скриптом отката).
 
 Настройки (`application.yml`, или `--ключ=значение` при запуске):
 
@@ -54,7 +98,7 @@ java -jar target/pg-git-vc.jar    # http://localhost:8765
 - Для каждого окружения создаётся свой пул соединений; `JdbcTemplate` и `TransactionTemplate` кэшируются и
   пересоздаются при изменении настроек.
 
-## REST API (Шаг 1)
+## REST API
 
 | Метод | Путь | Что делает |
 |---|---|---|
@@ -79,6 +123,7 @@ java -jar target/pg-git-vc.jar    # http://localhost:8765
 | POST | `/api/environments/{id}/vc/commit` | Mode A: закоммитить working tree (`message`, `author`, `upSql`, `downSql`, `expectedHead`) |
 | POST | `/api/environments/{id}/vc/execute` | Mode B: выполнить миграцию и закоммитить (`message`, `author`, `upSql`, `downSql`, `allowDirty`) |
 | GET | `/api/environments/{id}/vc/commits/{hash}` | коммит целиком: SQL, снимок схемы, история DDL |
+| GET | `/api/environments/{id}/vc/commits/{hash}/changes` | список изменений коммита относительно родителя |
 | GET | `/api/environments/{id}/vc/rollback-plan?target={hash}` | SQL, который выполнит откат до коммита |
 | POST | `/api/environments/{id}/vc/rollback` | откат (`targetHash`, `customRollbackSql`, `allowDirty`, `skipVerification`) |
 | GET | `/api/vc/graph` | общий граф коммитов всех окружений и `HEAD` каждого (бейджи) |
@@ -210,4 +255,5 @@ PGVC_TEST_USER=postgres PGVC_TEST_PASSWORD=... mvn test   # + интеграци
 ```
 
 Интеграционные тесты создают свои базы (`pgvc_step*`) и роль, поэтому нужен суперпользователь.
-CI (`.github/workflows/build.yml`) прогоняет всё на PostgreSQL 11 и 16.
+CI (`.github/workflows/build.yml`) прогоняет всё на PostgreSQL 11 и 16, проверяет типы TypeScript, запускает собранный
+jar и проходит основные сценарии UI в браузере (Playwright): коммит, push, Mode B и откат.

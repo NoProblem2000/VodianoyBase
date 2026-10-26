@@ -93,7 +93,7 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
           <label>
             <span className="label">Target database is at (exclusive)</span>
             <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
-              <option value={EMPTY}>empty history (new database)</option>
+              <option value={EMPTY}>empty (new database)</option>
               {history.map((c) => (
                 <option key={c.hash} value={c.hash}>
                   {shortHash(c.hash)} · {firstLine(c.message)}
