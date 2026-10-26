@@ -2,7 +2,7 @@
 # Starts the built pg-git-vc.jar, checks that the UI and the REST API are served, initializes _pgvc through the API.
 set -euo pipefail
 workdir=$(mktemp -d)
-cp target/pg-git-vc.jar "$workdir/"
+cp target/pg-git-vc-*.jar "$workdir/pg-git-vc.jar"
 cd "$workdir"
 java -jar pg-git-vc.jar --server.port=18765 > app.log 2>&1 &
 pid=$!

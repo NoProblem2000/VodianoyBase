@@ -2,8 +2,11 @@ name: build
 
 on:
   push:
-    branches-ignore: ['draft/**']
+    branches-ignore: ['draft/**', 'ci-artifacts']
   pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -62,6 +65,24 @@ jobs:
           PGVC_TEST_PASSWORD: postgres
         run: .github/scripts/smoke-jar.sh
 
+      - name: UI screenshots (Playwright)
+        if: matrix.postgres == '16' && github.event_name == 'push'
+        env:
+          PGVC_TEST_USER: postgres
+          PGVC_TEST_PASSWORD: postgres
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          .github/scripts/ui-demo.sh
+          mkdir -p /tmp/pw && cd /tmp/pw && npm init -y > /dev/null && npm install --no-audit --no-fund playwright@1.49.1 > /dev/null
+          npx playwright install --with-deps chromium > /dev/null
+          cp $GITHUB_WORKSPACE/.github/scripts/ui-screenshots.mjs . && node ui-screenshots.mjs /tmp/ui-artifacts/screenshots
+          cp "$(cat /tmp/ui-demo-workdir)/app.log" /tmp/ui-artifacts/app.log
+          cp $GITHUB_WORKSPACE/frontend/package-lock.json /tmp/ui-artifacts/ 2>/dev/null || true
+          cd /tmp/ui-artifacts && git init -q && git checkout -q -b ci-artifacts
+          git -c user.name=ci -c user.email=ci@localhost add -A
+          git -c user.name=ci -c user.email=ci@localhost commit -q -m "UI screenshots for ${GITHUB_SHA}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-artifacts
+
       - name: Report test summary
         if: always()
         run: python3 .github/scripts/test-summary.py "PostgreSQL ${{ matrix.postgres }}"
@@ -75,4 +96,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pg-git-vc
-          path: target/pg-git-vc.jar
+          path: target/pg-git-vc-*.jar

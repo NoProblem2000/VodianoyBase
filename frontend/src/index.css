@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-kraken-bg font-sans text-[13px] text-gray-200 antialiased;
+    color-scheme: dark;
+  }
+
+  :focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-teal-400;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-2 border-solid border-transparent bg-kraken-raised bg-clip-padding;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-kraken-line bg-kraken-raised px-3
+      text-[13px] text-gray-200 transition-colors hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed
+      disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-teal-400 bg-teal-400 font-semibold text-teal-950 hover:border-teal-300 hover:bg-teal-300;
+  }
+
+  .btn-danger {
+    @apply border-red-800 bg-transparent text-red-300 hover:border-red-600 hover:bg-red-950;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-gray-400 hover:border-transparent hover:bg-kraken-raised hover:text-gray-100;
+  }
+
+  .input {
+    @apply h-8 w-full rounded-md border border-kraken-line bg-kraken-bg px-2.5 text-[13px] text-gray-100 placeholder:text-gray-500
+      focus:border-teal-400 focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1 block text-xs text-gray-400;
+  }
+
+  .panel-title {
+    @apply text-xs font-semibold text-gray-400;
+  }
+}
+
+/* React Flow: dark canvas, invisible handles */
+.react-flow {
+  background: transparent;
+}
+
+.react-flow__handle {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  pointer-events: none;
+}
+
+.react-flow__attribution {
+  background: transparent !important;
+  opacity: 0.35;
+}
+
+.react-flow__attribution a {
+  color: #9ca3af !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-wip-ring,
+  .react-flow__edge.animated path {
+    animation: none;
+  }
+}

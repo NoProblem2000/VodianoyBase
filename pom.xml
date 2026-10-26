@@ -13,7 +13,7 @@
 
     <groupId>com.vodianoy</groupId>
     <artifactId>pg-git-vc</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>PgGitVisualizer</name>
     <description>Version control with a visual commit graph for PostgreSQL 11+ schemas</description>
 
@@ -62,7 +62,6 @@
     </dependencies>
 
     <build>
-        <finalName>pg-git-vc</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
