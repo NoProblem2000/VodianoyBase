@@ -10,6 +10,7 @@
 | 1 | Backend core, менеджер окружений, инициализатор `_pgvc` | готов |
 | 2 | Интроспектор схемы PostgreSQL 11+ (`pg_catalog`) | готов |
 | 3 | Diff Engine, коммиты (Mode A / Mode B) и откат | готов |
+| 4 | Офлайн SQL-бандлы, синхронизация окружений, REST | готов |
 
 ## Сборка и запуск
 
@@ -80,6 +81,14 @@ java -jar target/pg-git-vc.jar    # http://localhost:8765
 | GET | `/api/environments/{id}/vc/commits/{hash}` | коммит целиком: SQL, снимок схемы, история DDL |
 | GET | `/api/environments/{id}/vc/rollback-plan?target={hash}` | SQL, который выполнит откат до коммита |
 | POST | `/api/environments/{id}/vc/rollback` | откат (`targetHash`, `customRollbackSql`, `allowDirty`, `skipVerification`) |
+| GET | `/api/vc/graph` | общий граф коммитов всех окружений и `HEAD` каждого (бейджи) |
+| GET | `/api/vc/compare?source=dev&target=prod` | сравнение историй и схем двух окружений |
+| POST | `/api/vc/push` | онлайн-накат: `sourceEnvironmentId`, `targetEnvironmentId`, `targetCommitHash`, `allowDirty`, `skipVerification` |
+| GET | `/api/migrations/export?source=dev[&from=..][&to=..]` | скачать офлайн `.sql`-бандл (`Content-Disposition: attachment`) |
+| GET | `/api/migrations/preview?source=dev[&from=..][&to=..]` | тот же бандл в JSON (коммиты, имя файла, SQL) |
+
+Контроллеры: `EnvironmentController` (окружения), `VcController` (`_pgvc`, схема, коммиты, откат, граф, сравнение,
+push), `MigrationExportController` (офлайн-бандлы).
 
 Пример:
 
@@ -163,6 +172,34 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
   коммит начнёт от целевого ветку.
 
 Хеш коммита — SHA-256 от родителя, автора, сообщения, времени, SQL и снимка схемы.
+
+## Офлайн-бандлы и синхронизация окружений (Шаг 4)
+
+**Офлайн-бандл** (`OfflineMigrationService.generateOfflineSqlScript(source, from, to)`) — один `.sql` файл для
+площадок без сетевого доступа. Содержит коммиты после `from` (не включая; без `from` — с самого начала) до `to`
+(включая; без `to` — до `HEAD` источника). Всё внутри `BEGIN; ... COMMIT;`:
+
+1. создаёт схему `_pgvc` и её таблицы, если их нет (event triggers — только если скрипт выполняет суперпользователь,
+   иначе выводится `NOTICE`, остальное применяется);
+2. блок `DO $$ ... $$` проверяет `HEAD` целевой базы: он должен быть равен `from` (или история пуста, если `from` не
+   задан), иначе `RAISE EXCEPTION 'Migration mismatch: expected HEAD %, but found %'`; повторное применение даёт
+   `Migration already applied`;
+3. выполняет `up_sql` коммитов по порядку;
+4. записывает коммиты (`schema_snapshot`, `up_sql`, `down_sql` — в dollar-quoting, без ручного экранирования) и
+   сдвигает `HEAD` на `to`.
+
+При любой ошибке ничего не применяется. Применение: `psql -v ON_ERROR_STOP=1 -d <db> -f <файл>` или DBeaver.
+
+**Онлайн-синхронизация** (`VersionControlService`):
+
+- `compareEnvironments(source, target)` — отношение историй (`SAME`, `TARGET_BEHIND`, `TARGET_AHEAD`, `DIVERGED`,
+  `TARGET_EMPTY`, `TARGET_NOT_INITIALIZED`), общий предок, коммиты для наката, есть ли на цели незакоммиченные
+  изменения, и diff живой схемы цели со схемой `HEAD` источника.
+- `pushCommitsToEnvironment(source, target, commit)` — в одной транзакции цели выполняет недостающие `up_sql`,
+  записывает коммиты с теми же хешами, сдвигает `HEAD` и проверяет, что схема цели совпала со снимком последнего
+  коммита. При необходимости сначала устанавливает `_pgvc`. Откажет, если цель впереди или истории разошлись, или если
+  на цели есть незакоммиченные изменения (можно разрешить).
+- `getGlobalGraph()` — коммиты всех окружений в одном графе с `HEAD` каждого окружения.
 
 ## Тесты
 

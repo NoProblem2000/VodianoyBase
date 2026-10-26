@@ -1,0 +1,188 @@
+package com.vodianoy.pgvc.migration;
+
+import com.vodianoy.pgvc.common.ApiException;
+import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
+import com.vodianoy.pgvc.storage.CommitNode;
+import com.vodianoy.pgvc.support.TestDatabases;
+import com.vodianoy.pgvc.support.TestDatabases.Services;
+import com.vodianoy.pgvc.vcs.CommitRequest;
+import com.vodianoy.pgvc.vcs.ExecuteMigrationRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.SQLException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static com.vodianoy.pgvc.support.TestDatabases.envId;
+import static com.vodianoy.pgvc.support.TestDatabases.query;
+import static com.vodianoy.pgvc.support.TestDatabases.recreate;
+import static com.vodianoy.pgvc.support.TestDatabases.sql;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/** Offline bundles generated from a real history and applied to other databases (JDBC, psql, non-superuser). */
+@EnabledIfEnvironmentVariable(named = "PGVC_TEST_JDBC_URL", matches = ".+")
+class OfflineMigrationServiceIntegrationTest {
+
+    private static final String DEV = "pgvc_step4_bundle_dev";
+    private static final String OFFLINE = "pgvc_step4_offline";
+    private static final String DBA_ROLE = "pgvc_step4_dba";
+
+    @TempDir
+    Path dir;
+
+    private Services s;
+    private String dev;
+    private CommitNode c1;
+    private CommitNode c2;
+    private CommitNode c3;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        recreate(DEV);
+        recreate(OFFLINE);
+        sql(DEV, TestDatabases.fixture("rich-schema.sql"));
+        s = new Services(dir, DEV, OFFLINE);
+        dev = envId(DEV);
+        s.storage.initializeEnvironment(dev);
+        c1 = s.vc.commitWorkingTree(dev, new CommitRequest("Baseline", "alice", null, null, null)).commit();
+        c2 = s.vc.executeAndCommitSql(dev, new ExecuteMigrationRequest("Notes", "bob",
+                "CREATE TABLE sales.notes (id int PRIMARY KEY, body text DEFAULT 'tricky $pgvc$ ''quoted''');", null, false)).commit();
+        c3 = s.vc.executeAndCommitSql(dev, new ExecuteMigrationRequest("Widen amount", "bob", """
+                DROP VIEW sales.v_big_orders; DROP VIEW sales.v_orders; DROP MATERIALIZED VIEW billing.mv_totals;
+                ALTER TABLE sales.orders ALTER COLUMN amount TYPE numeric(14,2);
+                CREATE MATERIALIZED VIEW billing.mv_totals AS
+                    SELECT customer_id, sum(amount) AS total FROM sales.orders GROUP BY customer_id;
+                CREATE UNIQUE INDEX mv_totals_customer_idx ON billing.mv_totals (customer_id);
+                CREATE VIEW sales.v_orders AS
+                    SELECT o.id, o.amount, c.email FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id;
+                CREATE VIEW sales.v_big_orders AS SELECT * FROM sales.v_orders WHERE amount > 100;
+                """, null, false)).commit();
+    }
+
+    @AfterEach
+    void tearDown() {
+        s.close();
+    }
+
+    private String headOf(String db) throws SQLException {
+        return query(db, "SELECT commit_hash FROM _pgvc.refs WHERE ref_name = 'HEAD'");
+    }
+
+    private DatabaseSnapshot snapshotOf(CommitNode c) {
+        return s.vc.getCommit(dev, c.hash()).schemaSnapshot();
+    }
+
+    @Test
+    void scriptStructureFollowsTheSpecification() {
+        String script = s.offline.generateOfflineSqlScript(dev, c1.hash(), c3.hash());
+
+        assertThat(script.indexOf("BEGIN;")).isLessThan(script.indexOf("CREATE SCHEMA IF NOT EXISTS _pgvc;"));
+        assertThat(script).contains("CREATE TABLE IF NOT EXISTS _pgvc.commits")
+                .contains("CREATE TABLE IF NOT EXISTS _pgvc.refs")
+                .contains("RAISE EXCEPTION 'Migration mismatch: expected HEAD %, but found %'")
+                .contains("IF v_head IS DISTINCT FROM '" + c1.hash() + "' THEN")
+                .contains("::jsonb")
+                .contains("INSERT INTO _pgvc.refs (ref_name, commit_hash) VALUES ('HEAD', '" + c3.hash() + "')")
+                .endsWith("COMMIT;\n")
+                .doesNotContain("-- >>> 1/2 " + c1.hash());
+        assertThat(script.indexOf("-- >>> 1/2 " + c2.hash())).isLessThan(script.indexOf("-- >>> 2/2 " + c3.hash()));
+
+        OfflineBundle bundle = s.offline.generateBundle(dev, c1.hash(), c3.hash());
+        assertThat(bundle.commits()).extracting(CommitNode::hash).containsExactly(c2.hash(), c3.hash());
+        assertThat(bundle.fileName()).isEqualTo("pgvc-" + dev + "-" + c1.hash().substring(0, 8) + "-to-"
+                + c3.hash().substring(0, 8) + ".sql");
+    }
+
+    @Test
+    void fullBundleRebuildsTheHistoryOnAnEmptyDatabase() throws Exception {
+        sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, null, c3.hash()));
+
+        assertThat(headOf(OFFLINE)).isEqualTo(c3.hash());
+        assertThat(query(OFFLINE, "SELECT count(*) FROM _pgvc.commits")).isEqualTo("3");
+        assertThat(query(OFFLINE, "SELECT count(*) FROM _pgvc.ddl_audit_log")).isEqualTo("0");
+        assertThat(query(OFFLINE, "SELECT count(*) FROM pg_event_trigger WHERE evtname LIKE 'pgvc%'")).isEqualTo("2");
+        assertThat(query(OFFLINE, "SELECT down_sql FROM _pgvc.commits WHERE hash = '" + c3.hash() + "'"))
+                .isEqualTo(s.vc.getCommit(dev, c3.hash()).downSql());
+        assertThat(query(OFFLINE, "SELECT up_sql FROM _pgvc.commits WHERE hash = '" + c2.hash() + "'"))
+                .contains("tricky $pgvc$ ''quoted''");
+        assertThat(s.engine.diff(snapshotOf(c3), s.introspector.introspect(envId(OFFLINE))).isHasChanges()).isFalse();
+        // the target is a fully working environment afterwards
+        assertThat(s.vc.getWorkingTreeStatus(envId(OFFLINE)).diff().isHasChanges()).isFalse();
+    }
+
+    @Test
+    void headMismatchAbortsTheWholeBundle() throws Exception {
+        String tail = s.offline.generateOfflineSqlScript(dev, c2.hash(), c3.hash());
+
+        assertThatThrownBy(() -> sql(OFFLINE, tail))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("Migration mismatch: expected HEAD " + c2.hash() + ", but found <empty history>");
+        assertThat(query(OFFLINE, "SELECT to_regclass('_pgvc.commits')::text")).as("nothing left behind").isNull();
+
+        sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, null, c1.hash()));
+        assertThatThrownBy(() -> sql(OFFLINE, tail))
+                .hasMessageContaining("Migration mismatch: expected HEAD " + c2.hash() + ", but found " + c1.hash());
+        assertThatThrownBy(() -> sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, null, c1.hash())))
+                .hasMessageContaining("Migration already applied");
+    }
+
+    @Test
+    void incrementalBundlesAndRangeValidation() throws Exception {
+        sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, null, c1.hash()));
+        sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, c1.hash(), c2.hash()));
+        sql(OFFLINE, s.offline.generateOfflineSqlScript(dev, c2.hash(), c3.hash()));
+
+        assertThat(headOf(OFFLINE)).isEqualTo(c3.hash());
+        assertThat(s.engine.diff(snapshotOf(c3), s.introspector.introspect(envId(OFFLINE))).isHasChanges()).isFalse();
+
+        assertThatThrownBy(() -> s.offline.generateOfflineSqlScript(dev, c3.hash(), c1.hash()))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+        assertThatThrownBy(() -> s.offline.generateOfflineSqlScript(dev, c2.hash(), c2.hash()))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    void appliedByANonSuperuserWithoutEventTriggers() throws Exception {
+        String admin = TestDatabases.BASE_URL.substring(TestDatabases.BASE_URL.lastIndexOf('/') + 1);
+        sql(admin, "DROP ROLE IF EXISTS " + DBA_ROLE);
+        sql(admin, "CREATE ROLE " + DBA_ROLE + " LOGIN PASSWORD 'dba-pw'");
+        sql(OFFLINE, "GRANT CREATE ON DATABASE " + OFFLINE + " TO " + DBA_ROLE + "; GRANT CREATE ON SCHEMA public TO " + DBA_ROLE);
+
+        TestDatabases.sqlAs(OFFLINE, DBA_ROLE, "dba-pw", s.offline.generateOfflineSqlScript(dev, null, c3.hash()));
+
+        assertThat(headOf(OFFLINE)).isEqualTo(c3.hash());
+        assertThat(query(OFFLINE, "SELECT count(*) FROM pg_event_trigger WHERE evtname LIKE 'pgvc%'")).isEqualTo("0");
+    }
+
+    @Test
+    void psqlAppliesTheDownloadedFile() throws Exception {
+        Matcher m = Pattern.compile("jdbc:postgresql://([^:/]+)(?::(\\d+))?/.*").matcher(TestDatabases.BASE_URL);
+        Assumptions.assumeTrue(m.matches(), "unsupported JDBC URL for psql");
+        Path file = dir.resolve("bundle.sql");
+        Files.writeString(file, s.offline.generateOfflineSqlScript(dev, null, c3.hash()), StandardCharsets.UTF_8);
+
+        ProcessBuilder pb;
+        try {
+            pb = new ProcessBuilder("psql", "-h", m.group(1), "-p", m.group(2) == null ? "5432" : m.group(2),
+                    "-U", TestDatabases.USER, "-d", OFFLINE, "-v", "ON_ERROR_STOP=1", "-qX", "-f", file.toString());
+            pb.environment().put("PGPASSWORD", TestDatabases.PASSWORD);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(p.waitFor()).as(output).isZero();
+        } catch (java.io.IOException e) {
+            Assumptions.abort("psql is not installed: " + e.getMessage());
+        }
+        assertThat(headOf(OFFLINE)).isEqualTo(c3.hash());
+    }
+}

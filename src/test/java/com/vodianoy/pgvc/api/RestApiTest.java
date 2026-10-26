@@ -29,6 +29,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -265,5 +267,63 @@ class RestApiTest {
                 .andExpect(jsonPath("$.diff.hasChanges").value(false));
 
         mvc.perform(delete("/api/environments/vc-db")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void exportCompareAndPushThroughRest() throws Exception {
+        String base = System.getenv("PGVC_TEST_JDBC_URL");
+        Assumptions.assumeTrue(base != null && !base.isBlank(), "PGVC_TEST_JDBC_URL is not set");
+        String user = System.getenv().getOrDefault("PGVC_TEST_USER", "postgres");
+        String password = System.getenv().getOrDefault("PGVC_TEST_PASSWORD", "");
+        String prefix = base.substring(0, base.lastIndexOf('/') + 1);
+        try (Connection c = DriverManager.getConnection(base, user, password); Statement st = c.createStatement()) {
+            for (String db : new String[]{"pgvc_step4_rest_src", "pgvc_step4_rest_dst"}) {
+                st.execute("DROP DATABASE IF EXISTS " + db);
+                st.execute("CREATE DATABASE " + db);
+            }
+        }
+        add("{\"name\": \"Src\", \"jdbcUrl\": \"" + prefix + "pgvc_step4_rest_src\", \"username\": \"" + user
+                + "\", \"password\": \"" + password + "\"}");
+        add("{\"name\": \"Dst\", \"jdbcUrl\": \"" + prefix + "pgvc_step4_rest_dst\", \"username\": \"" + user
+                + "\", \"password\": \"" + password + "\"}");
+        mvc.perform(post("/api/environments/src/pgvc/initialize")).andExpect(status().isOk());
+        mvc.perform(post("/api/environments/src/vc/execute").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"Items\", \"upSql\": \"CREATE TABLE public.items (id int PRIMARY KEY);\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/migrations/export").param("source", "src"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", startsWith("attachment; filename=\"pgvc-src-initial-to-")))
+                .andExpect(header().string("Content-Type", startsWith("application/sql")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("CREATE TABLE public.items")))
+                .andExpect(content().string(org.hamcrest.Matchers.endsWith("COMMIT;\n")));
+        mvc.perform(get("/api/migrations/preview").param("source", "src"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commits", hasSize(1)))
+                .andExpect(jsonPath("$.sql", startsWith("-- ====")));
+        mvc.perform(get("/api/migrations/export").param("source", "src").param("from", "nope"))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(get("/api/vc/compare").param("source", "src").param("target", "dst"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.relation").value("TARGET_NOT_INITIALIZED"))
+                .andExpect(jsonPath("$.commitsToPush", hasSize(1)));
+        mvc.perform(post("/api/vc/push").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceEnvironmentId\": \"src\", \"targetEnvironmentId\": \"dst\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedCommits", hasSize(1)))
+                .andExpect(jsonPath("$.verified").value(true));
+        mvc.perform(get("/api/vc/compare").param("source", "src").param("target", "dst"))
+                .andExpect(jsonPath("$.relation").value("SAME"));
+        mvc.perform(get("/api/vc/graph"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commits", hasSize(1)))
+                .andExpect(jsonPath("$.commits[0].environments", hasSize(2)))
+                .andExpect(jsonPath("$.environments", hasSize(2)));
+        mvc.perform(get("/api/vc/compare").param("source", "src").param("target", "src"))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(delete("/api/environments/src")).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/environments/dst")).andExpect(status().isNoContent());
     }
 }

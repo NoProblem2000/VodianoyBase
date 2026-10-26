@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -19,6 +20,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException e) {
         return respond(e.getStatus(), e.getMessage());
+    }
+
+    /** A failed rollback must not hide the error that caused it. */
+    @ExceptionHandler(TransactionSystemException.class)
+    public ResponseEntity<ApiError> handleTransaction(TransactionSystemException e) {
+        Throwable original = e.getApplicationException();
+        if (original instanceof ApiException api) {
+            return handleApi(api);
+        }
+        if (original != null) {
+            return respond(HttpStatus.UNPROCESSABLE_ENTITY, rootMessage(original));
+        }
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, rootMessage(e));
     }
 
     @ExceptionHandler(CannotGetJdbcConnectionException.class)
