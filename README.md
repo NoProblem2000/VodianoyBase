@@ -9,6 +9,7 @@
 |---|---|---|
 | 1 | Backend core, менеджер окружений, инициализатор `_pgvc` | готов |
 | 2 | Интроспектор схемы PostgreSQL 11+ (`pg_catalog`) | готов |
+| 3 | Diff Engine, коммиты (Mode A / Mode B) и откат | готов |
 
 ## Сборка и запуск
 
@@ -73,6 +74,12 @@ java -jar target/pg-git-vc.jar    # http://localhost:8765
 | DELETE | `/api/environments/{id}/pgvc/audit-log[?upToId=N]` | очистить лог (целиком или до id включительно) |
 | GET | `/api/environments/{id}/schema/schemas` | пользовательские схемы, доступные для контроля версий |
 | GET | `/api/environments/{id}/schema/snapshot[?schemas=a,b]` | снимок схемы из `pg_catalog` (по умолчанию — все схемы) |
+| GET | `/api/environments/{id}/vc/working-tree` | незакоммиченные изменения: список изменений, UP/DOWN SQL, перехваченный DDL |
+| POST | `/api/environments/{id}/vc/commit` | Mode A: закоммитить working tree (`message`, `author`, `upSql`, `downSql`, `expectedHead`) |
+| POST | `/api/environments/{id}/vc/execute` | Mode B: выполнить миграцию и закоммитить (`message`, `author`, `upSql`, `downSql`, `allowDirty`) |
+| GET | `/api/environments/{id}/vc/commits/{hash}` | коммит целиком: SQL, снимок схемы, история DDL |
+| GET | `/api/environments/{id}/vc/rollback-plan?target={hash}` | SQL, который выполнит откат до коммита |
+| POST | `/api/environments/{id}/vc/rollback` | откат (`targetHash`, `customRollbackSql`, `allowDirty`, `skipVerification`) |
 
 Пример:
 
@@ -120,6 +127,42 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
   по нему видно, изменился ли объект на самом деле.
 - Все запросы выполняются в одной read-only транзакции `REPEATABLE READ` (согласованный снимок). Если транзакция
   на окружении уже открыта, интроспектор присоединяется к ней и видит незакоммиченный DDL.
+
+## Diff Engine и коммиты (Шаг 3)
+
+`SchemaDiffEngine` сравнивает снимок `HEAD` с живой схемой и возвращает `SchemaDiffResult`: список `ChangeItem`
+(`ADDED` / `MODIFIED` / `RENAMED` / `DELETED` для `SCHEMA`, `TABLE`, `PARTITION`, `COLUMN`, `CONSTRAINT`, `INDEX`,
+`VIEW`, `SEQUENCE`) и полные скрипты `upSql` / `downSql`.
+
+- **Переименования.** Таблица, view, sequence, индекс или constraint с тем же `oid`, но другим именем — это
+  `ALTER ... RENAME`, а не удаление + создание; колонка с тем же `attnum` — `RENAME COLUMN`. После переименования
+  таблицы сравниваются её колонки, ограничения и индексы. OID сравниваются только между снимками одной базы.
+- **Партиции.** Новая партиционированная таблица — `CREATE TABLE ... PARTITION BY <ключ>`, новая партиция —
+  `CREATE TABLE child PARTITION OF parent <границы>` (родители раньше детей); смена границ — `DETACH` + `ATTACH`.
+  Индекс партиционированной таблицы создаётся без `ON ONLY`, чтобы он появился и на всех партициях.
+- **Порядок DDL.** View (и materialized view), которые читают меняющуюся или удаляемую колонку / таблицу, в том числе
+  через другие view, удаляются в начале скрипта (`DROP VIEW IF EXISTS`, сначала зависимые) и создаются в конце
+  (`CREATE OR REPLACE VIEW`, сначала те, от кого зависят); индексы materialized view восстанавливаются. Зависимости
+  берутся из `pg_depend` с точностью до колонки, поэтому добавление колонки или индекса view не пересоздаёт.
+  FK удаляются раньше таблиц и добавляются после остальных ограничений.
+- **UP/DOWN каждого изменения.** У каждого `ChangeItem` свои `upSql` и `downSql` (обратное изменение получено
+  сравнением в обратную сторону). Выполнять нужно полные `upSql` / `downSql` результата — в них правильный порядок.
+
+`VersionControlService`:
+
+- `getWorkingTreeStatus` — изменения с последнего коммита и перехваченный триггерами DDL.
+- `commitWorkingTree` (Mode A) — сохраняет коммит с `upSql` / `downSql` из запроса (пользователь мог их поправить;
+  пустые заменяются сгенерированными) и снимком живой схемы, сдвигает `HEAD`, очищает `ddl_audit_log`.
+  Если передан `expectedHead`, а `HEAD` уже другой, коммит отклоняется.
+- `executeAndCommitSql` (Mode B) — в одной транзакции выполняет `upSql`, снимает новую схему, строит `downSql`
+  (если не передан), сохраняет коммит. Любая ошибка — полный откат. `BEGIN/COMMIT` внутри SQL запрещены. Если в базе
+  есть незакоммиченные изменения, миграция не выполняется (или включает их при `allowDirty`).
+- `rollbackToCommit` — в одной транзакции выполняет `down_sql` коммитов после целевого (от новых к старым) или
+  `customRollbackSql`, **проверяет, что схема совпала со снимком целевого коммита**, сдвигает `HEAD`, очищает лог.
+  При ошибке или расхождении ничего не меняется. Коммиты после целевого остаются в истории (как `git reset`), новый
+  коммит начнёт от целевого ветку.
+
+Хеш коммита — SHA-256 от родителя, автора, сообщения, времени, SQL и снимка схемы.
 
 ## Тесты
 

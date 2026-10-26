@@ -196,4 +196,74 @@ class RestApiTest {
 
         mvc.perform(delete("/api/environments/schema-db")).andExpect(status().isNoContent());
     }
+
+    @Test
+    void versionControlThroughRest() throws Exception {
+        String base = System.getenv("PGVC_TEST_JDBC_URL");
+        Assumptions.assumeTrue(base != null && !base.isBlank(), "PGVC_TEST_JDBC_URL is not set");
+        String user = System.getenv().getOrDefault("PGVC_TEST_USER", "postgres");
+        String password = System.getenv().getOrDefault("PGVC_TEST_PASSWORD", "");
+        String url = base.substring(0, base.lastIndexOf('/') + 1) + "pgvc_step3_rest";
+        try (Connection c = DriverManager.getConnection(base, user, password); Statement st = c.createStatement()) {
+            st.execute("DROP DATABASE IF EXISTS pgvc_step3_rest");
+            st.execute("CREATE DATABASE pgvc_step3_rest");
+        }
+        add("{\"name\": \"Vc Db\", \"jdbcUrl\": \"" + url + "\", \"username\": \"" + user + "\", \"password\": \""
+                + password + "\"}");
+        mvc.perform(post("/api/environments/vc-db/pgvc/initialize")).andExpect(status().isOk());
+
+        try (Connection c = DriverManager.getConnection(url, user, password); Statement st = c.createStatement()) {
+            st.execute("CREATE TABLE public.items (id int PRIMARY KEY, name text)");
+        }
+        String head0 = "";
+        mvc.perform(get("/api/environments/vc-db/vc/working-tree"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.head").isEmpty())
+                .andExpect(jsonPath("$.diff.hasChanges").value(true))
+                .andExpect(jsonPath("$.diff.changes[0].changeType").value("ADDED"))
+                .andExpect(jsonPath("$.diff.changes[0].objectType").value("TABLE"))
+                .andExpect(jsonPath("$.diff.changes[0].upSql", startsWith("CREATE TABLE public.items")))
+                .andExpect(jsonPath("$.diff.changes[0].downSql").value("DROP TABLE public.items;"))
+                .andExpect(jsonPath("$.diff.changes[0].pairKey").doesNotExist())
+                .andExpect(jsonPath("$.auditLog[0].commandTag").value("CREATE TABLE"));
+
+        String commit1 = mvc.perform(post("/api/environments/vc-db/vc/commit").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"Items\", \"author\": \"rest\", \"expectedHead\": \"" + head0 + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commit.parentHash").isEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String hash1 = commit1.replaceAll(".*\"hash\":\"([0-9a-f]{64})\".*", "$1");
+
+        mvc.perform(post("/api/environments/vc-db/vc/execute").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"Price\", \"author\": \"rest\", \"upSql\": \"ALTER TABLE public.items ADD COLUMN price numeric;\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commit.parentHash").value(hash1))
+                .andExpect(jsonPath("$.changes[0].objectName").value("public.items.price"));
+
+        mvc.perform(post("/api/environments/vc-db/vc/execute").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"Bad\", \"upSql\": \"ALTER TABLE public.nope ADD COLUMN x int;\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("nope")));
+
+        mvc.perform(get("/api/environments/vc-db/vc/commits/" + hash1))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schemaSnapshot.tables['public.items'].columns.name.dataType").value("text"));
+
+        mvc.perform(get("/api/environments/vc-db/vc/rollback-plan").param("target", hash1))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commitsToRevert", hasSize(1)))
+                .andExpect(jsonPath("$.rollbackSql", org.hamcrest.Matchers.containsString("DROP COLUMN price")));
+
+        mvc.perform(post("/api/environments/vc-db/vc/rollback").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetHash\": \"" + hash1 + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.newHead").value(hash1))
+                .andExpect(jsonPath("$.verified").value(true));
+
+        mvc.perform(get("/api/environments/vc-db/vc/working-tree"))
+                .andExpect(jsonPath("$.head").value(hash1))
+                .andExpect(jsonPath("$.diff.hasChanges").value(false));
+
+        mvc.perform(delete("/api/environments/vc-db")).andExpect(status().isNoContent());
+    }
 }

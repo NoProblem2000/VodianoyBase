@@ -128,6 +128,55 @@ public class PgVcStorageService {
         return requireInitialized(envId).update("DELETE FROM _pgvc.ddl_audit_log WHERE id <= ?", upToId);
     }
 
+    // ------------------------------------------------------------------ commits (used inside transactions)
+
+    private static final RowMapper<CommitRecord> COMMIT_RECORD = (rs, n) -> CommitRecord.builder()
+            .hash(rs.getString("hash"))
+            .parentHash(rs.getString("parent_hash"))
+            .author(rs.getString("author"))
+            .message(rs.getString("message"))
+            .createdAt(rs.getObject("created_at", OffsetDateTime.class))
+            .upSql(rs.getString("up_sql"))
+            .downSql(rs.getString("down_sql"))
+            .schemaSnapshotJson(rs.getString("schema_snapshot"))
+            .ddlLogHistoryJson(rs.getString("ddl_log_history"))
+            .build();
+
+    /**
+     * Serializes writers of the version history of one database until the end of the current transaction
+     * (pg_advisory_xact_lock). Call it inside a transaction of the environment.
+     */
+    public void lockHistory(String envId) {
+        requireInitialized(envId).execute("SELECT pg_advisory_xact_lock(hashtext('_pgvc.history'))");
+    }
+
+    public Optional<CommitRecord> findCommit(String envId, String hash) {
+        List<CommitRecord> rows = requireInitialized(envId).query("SELECT hash, parent_hash, author, message, created_at,"
+                + " up_sql, down_sql, schema_snapshot::text AS schema_snapshot, ddl_log_history::text AS ddl_log_history"
+                + " FROM _pgvc.commits WHERE hash = ?", COMMIT_RECORD, hash);
+        return rows.stream().findFirst();
+    }
+
+    public CommitRecord requireCommit(String envId, String hash) {
+        return findCommit(envId, hash).orElseThrow(() ->
+                ApiException.notFound("Commit " + hash + " not found in environment '" + envId + "'"));
+    }
+
+    /** Inserts a commit; returns false when a commit with this hash already exists. */
+    public boolean insertCommit(String envId, CommitRecord c) {
+        return requireInitialized(envId).update("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, created_at,"
+                        + " up_sql, down_sql, schema_snapshot, ddl_log_history)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb) ON CONFLICT (hash) DO NOTHING",
+                c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getCreatedAt(), c.getUpSql(),
+                c.getDownSql(), c.getSchemaSnapshotJson(), c.getDdlLogHistoryJson()) == 1;
+    }
+
+    /** Points HEAD at the given commit. */
+    public void setHead(String envId, String hash) {
+        requireInitialized(envId).update("INSERT INTO _pgvc.refs (ref_name, commit_hash) VALUES (?, ?)"
+                + " ON CONFLICT (ref_name) DO UPDATE SET commit_hash = EXCLUDED.commit_hash", HEAD_REF, hash);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private JdbcTemplate requireInitialized(String envId) {
