@@ -1,0 +1,185 @@
+package com.vodianoy.pgvc.migration;
+
+import com.vodianoy.pgvc.common.ApiException;
+import com.vodianoy.pgvc.environment.EnvironmentManagerService;
+import com.vodianoy.pgvc.storage.CommitRecord;
+import com.vodianoy.pgvc.storage.PgVcStorageService;
+import com.vodianoy.pgvc.vcs.CommitHistory;
+import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Service;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+
+import static com.vodianoy.pgvc.util.SqlIdentifiers.literal;
+
+/**
+ * Builds self-registering .sql bundles for databases the application cannot reach (isolated sites): the script
+ * is executed with psql or DBeaver and records the commits in the target's own _pgvc schema.
+ */
+@Service
+@RequiredArgsConstructor
+public class OfflineMigrationService {
+
+    private static final String INSTALL_SCRIPT = readResource("db/pgvc-install.sql");
+
+    private final EnvironmentManagerService environments;
+    private final PgVcStorageService storage;
+    private final CommitHistory history;
+
+    /**
+     * Script with the commits after {@code fromCommitHash} (exclusive; null = from the first commit) up to
+     * {@code toCommitHash} (inclusive). Inside one {@code BEGIN; ... COMMIT;} it
+     * <ol>
+     *   <li>creates the _pgvc schema and its tables if they do not exist;</li>
+     *   <li>checks in a {@code DO} block that HEAD of the target equals {@code fromCommitHash}
+     *       (an empty history when null) and raises {@code Migration mismatch: expected HEAD %, but found %}
+     *       otherwise;</li>
+     *   <li>executes up_sql of every commit in order;</li>
+     *   <li>inserts every commit (with its schema_snapshot, up_sql, down_sql) and moves HEAD to {@code toCommitHash}.</li>
+     * </ol>
+     */
+    public String generateOfflineSqlScript(String sourceEnvId, String fromCommitHash, String toCommitHash) {
+        return generateBundle(sourceEnvId, fromCommitHash, toCommitHash).sql();
+    }
+
+    public OfflineBundle generateBundle(String sourceEnvId, String fromCommitHash, String toCommitHash) {
+        String from = blankToNull(fromCommitHash);
+        String to = blankToNull(toCommitHash);
+        if (to == null) {
+            to = storage.getHead(sourceEnvId).orElseThrow(() ->
+                    ApiException.badRequest("Environment '" + sourceEnvId + "' has no commits to export"));
+        }
+        if (to.equals(from)) {
+            throw ApiException.badRequest("The bundle would be empty: from and to are the same commit");
+        }
+        List<CommitRecord> commits = history.range(sourceEnvId, from, to);
+        String sourceName = environments.getEnvironment(sourceEnvId).getName();
+        String sql = render(sourceName, from, to, commits);
+        String fileName = "pgvc-" + sourceEnvId + "-" + (from == null ? "initial" : shortHash(from)) + "-to-"
+                + shortHash(to) + ".sql";
+        return new OfflineBundle(sourceEnvId, from, to, fileName, commits.stream().map(CommitRecord::toNode).toList(), sql);
+    }
+
+    // ------------------------------------------------------------------ rendering
+
+    static String render(String sourceName, String from, String to, List<CommitRecord> commits) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("-- =====================================================================\n");
+        sb.append("-- PgGitVisualizer offline migration bundle\n");
+        sb.append("-- Source environment : ").append(oneLine(sourceName)).append('\n');
+        sb.append("-- Generated at       : ")
+                .append(OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS)).append('\n');
+        sb.append("-- Required HEAD      : ").append(from == null ? "<empty history>" : from).append('\n');
+        sb.append("-- Resulting HEAD     : ").append(to).append('\n');
+        sb.append("-- Commits (").append(commits.size()).append("):\n");
+        for (CommitRecord c : commits) {
+            sb.append("--   ").append(shortHash(c.getHash())).append("  ").append(oneLine(c.getMessage()))
+                    .append("  (").append(oneLine(c.getAuthor())).append(")\n");
+        }
+        sb.append("--\n");
+        sb.append("-- Run it in one go, e.g.:  psql -v ON_ERROR_STOP=1 -d <database> -f <this file>\n");
+        sb.append("-- Everything runs in one transaction: on any error nothing is applied.\n");
+        sb.append("-- =====================================================================\n\n");
+
+        sb.append("BEGIN;\n\n");
+
+        section(sb, "1. Version-control schema _pgvc (created if missing)");
+        sb.append(INSTALL_SCRIPT.strip()).append("\n\n");
+        sb.append("LOCK TABLE _pgvc.refs IN EXCLUSIVE MODE;\n\n");
+
+        section(sb, "2. HEAD check: the target must be exactly at the commit this bundle starts from");
+        String expected = from == null ? "NULL" : literal(from);
+        String expectedText = literal(from == null ? "<empty history>" : from);
+        sb.append("DO $pgvc_check$\n");
+        sb.append("DECLARE\n");
+        sb.append("    v_head VARCHAR(64);\n");
+        sb.append("BEGIN\n");
+        sb.append("    SELECT commit_hash INTO v_head FROM _pgvc.refs WHERE ref_name = 'HEAD';\n");
+        sb.append("    IF v_head IS NOT DISTINCT FROM ").append(literal(to)).append(" THEN\n");
+        sb.append("        RAISE EXCEPTION 'Migration already applied: HEAD is already %', v_head;\n");
+        sb.append("    END IF;\n");
+        sb.append("    IF v_head IS DISTINCT FROM ").append(expected).append(" THEN\n");
+        sb.append("        RAISE EXCEPTION 'Migration mismatch: expected HEAD %, but found %', ").append(expectedText)
+                .append(", coalesce(v_head, '<empty history>');\n");
+        sb.append("    END IF;\n");
+        sb.append("END;\n");
+        sb.append("$pgvc_check$;\n\n");
+
+        section(sb, "3. Migrations (up_sql of every commit, oldest first)");
+        int i = 0;
+        for (CommitRecord c : commits) {
+            i++;
+            sb.append("-- >>> ").append(i).append('/').append(commits.size()).append(' ').append(c.getHash()).append('\n');
+            sb.append("-- >>> ").append(oneLine(c.getMessage())).append('\n');
+            sb.append(c.getUpSql().strip()).append("\n;\n\n");
+        }
+
+        section(sb, "4. Commit metadata and HEAD");
+        for (CommitRecord c : commits) {
+            sb.append("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, created_at, up_sql, down_sql,"
+                    + " schema_snapshot, ddl_log_history)\nVALUES (")
+                    .append(literal(c.getHash())).append(", ")
+                    .append(literal(c.getParentHash())).append(", ")
+                    .append(literal(c.getAuthor())).append(",\n        ")
+                    .append(dollarQuote(c.getMessage())).append(",\n        ")
+                    .append(literal(c.getCreatedAt().toString())).append("::timestamptz,\n        ")
+                    .append(dollarQuote(c.getUpSql())).append(",\n        ")
+                    .append(dollarQuote(c.getDownSql())).append(",\n        ")
+                    .append(dollarQuote(c.getSchemaSnapshotJson())).append("::jsonb,\n        ")
+                    .append(c.getDdlLogHistoryJson() == null ? "NULL" : dollarQuote(c.getDdlLogHistoryJson()) + "::jsonb")
+                    .append(")\nON CONFLICT (hash) DO NOTHING;\n\n");
+        }
+        sb.append("INSERT INTO _pgvc.refs (ref_name, commit_hash) VALUES ('HEAD', ").append(literal(to)).append(")\n")
+                .append("ON CONFLICT (ref_name) DO UPDATE SET commit_hash = EXCLUDED.commit_hash;\n\n");
+        sb.append("-- the DDL above is recorded in the commits, not pending changes\n");
+        sb.append("DELETE FROM _pgvc.ddl_audit_log;\n\n");
+        sb.append("COMMIT;\n");
+        return sb.toString();
+    }
+
+    private static void section(StringBuilder sb, String title) {
+        sb.append("-- ---------------------------------------------------------------------\n");
+        sb.append("-- ").append(title).append('\n');
+        sb.append("-- ---------------------------------------------------------------------\n");
+    }
+
+    /** Dollar-quoted literal whose tag does not occur in the value, so no escaping is needed. */
+    static String dollarQuote(String value) {
+        if (value == null) {
+            return "NULL";
+        }
+        String tag = "$pgvc$";
+        // the first occurrence of the closing tag must be the closing tag itself (also when the value ends in "$pgvc")
+        for (int n = 1; (value + tag).indexOf(tag) != value.length(); n++) {
+            tag = "$pgvc" + n + "$";
+        }
+        return tag + value + tag;
+    }
+
+    private static String oneLine(String s) {
+        return s == null ? "" : s.replaceAll("[\\r\\n]+", " ");
+    }
+
+    private static String shortHash(String hash) {
+        return hash.substring(0, Math.min(8, hash.length()));
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.strip();
+    }
+
+    private static String readResource(String path) {
+        try {
+            return new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Missing classpath resource " + path, e);
+        }
+    }
+}

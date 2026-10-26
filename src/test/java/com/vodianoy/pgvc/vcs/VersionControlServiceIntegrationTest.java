@@ -86,7 +86,7 @@ class VersionControlServiceIntegrationTest {
         environments.addEnvironment(Environment.builder().name("Replica").jdbcUrl(url(REPLICA)).username(USER).password(PASSWORD).build());
         storage = new PgVcStorageService(environments);
         introspector = new PostgresSchemaIntrospector(environments);
-        vc = new VersionControlService(environments, storage, introspector, engine, mapper);
+        vc = new VersionControlService(environments, storage, introspector, engine, mapper, new CommitHistory(storage));
         storage.initializeEnvironment("dev");
     }
 

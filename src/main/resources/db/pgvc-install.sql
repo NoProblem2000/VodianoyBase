@@ -1,5 +1,5 @@
 -- PgGitVisualizer: version-control metadata schema (_pgvc) for PostgreSQL 11+.
--- Idempotent: safe to run repeatedly. Must be executed by a SUPERUSER (event triggers).
+-- Idempotent: safe to run repeatedly. The DDL event triggers are installed only when run by a SUPERUSER.
 
 CREATE SCHEMA IF NOT EXISTS _pgvc;
 
@@ -87,8 +87,14 @@ $pgvc_fn$;
 REVOKE ALL ON FUNCTION _pgvc.fn_log_ddl_end() FROM PUBLIC;
 REVOKE ALL ON FUNCTION _pgvc.fn_log_sql_drop() FROM PUBLIC;
 
+-- Event triggers can only be created by a superuser. The application always initializes as a superuser; an offline
+-- bundle executed by a non-superuser still installs the metadata tables and just skips the triggers.
 DO $pgvc_install$
 BEGIN
+    IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+        RAISE NOTICE 'PgGitVisualizer: % is not a superuser, DDL event triggers were not installed', current_user;
+        RETURN;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtname = 'pgvc_ddl_trigger') THEN
         CREATE EVENT TRIGGER pgvc_ddl_trigger ON ddl_command_end
             EXECUTE PROCEDURE _pgvc.fn_log_ddl_end();

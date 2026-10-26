@@ -14,19 +14,31 @@ import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
 import com.vodianoy.pgvc.storage.AuditLogEntry;
 import com.vodianoy.pgvc.storage.CommitNode;
 import com.vodianoy.pgvc.storage.CommitRecord;
+import com.vodianoy.pgvc.storage.PgVcStatus;
 import com.vodianoy.pgvc.storage.PgVcStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -54,6 +66,7 @@ public class VersionControlService {
     private final PostgresSchemaIntrospector introspector;
     private final SchemaDiffEngine diffEngine;
     private final ObjectMapper objectMapper;
+    private final CommitHistory history;
 
     // ------------------------------------------------------------------ Mode A
 
@@ -205,6 +218,196 @@ public class VersionControlService {
         return new RollbackPlan(head, targetHash, chain.stream().map(CommitRecord::toNode).toList(), rollbackSql(chain));
     }
 
+    // ------------------------------------------------------------------ multi-environment sync
+
+    /** How the history and the schema of {@code targetEnvId} relate to {@code sourceEnvId}. */
+    public EnvironmentComparison compareEnvironments(String sourceEnvId, String targetEnvId) {
+        requireDifferent(sourceEnvId, targetEnvId);
+        String sourceHead = storage.getHead(sourceEnvId).orElse(null);
+        PgVcStatus target = requireReachable(targetEnvId);
+        String targetHead = target.initialized() ? target.head() : null;
+
+        HistoryRelation relation;
+        String commonAncestor = null;
+        List<CommitRecord> toPush = List.of();
+        if (!target.initialized()) {
+            relation = HistoryRelation.TARGET_NOT_INITIALIZED;
+            toPush = sourceHead == null ? List.of() : history.range(sourceEnvId, null, sourceHead);
+        } else if (Objects.equals(sourceHead, targetHead)) {
+            relation = HistoryRelation.SAME;
+            commonAncestor = sourceHead;
+        } else if (targetHead == null) {
+            relation = HistoryRelation.TARGET_EMPTY;
+            toPush = history.range(sourceEnvId, null, sourceHead);
+        } else {
+            Set<String> sourceAncestors = sourceHead == null ? Set.of() : history.ancestors(sourceEnvId, sourceHead);
+            if (sourceAncestors.contains(targetHead)) {
+                relation = HistoryRelation.TARGET_BEHIND;
+                commonAncestor = targetHead;
+                toPush = history.range(sourceEnvId, targetHead, sourceHead);
+            } else {
+                Set<String> targetAncestors = history.ancestors(targetEnvId, targetHead);
+                if (sourceHead != null && targetAncestors.contains(sourceHead)) {
+                    relation = HistoryRelation.TARGET_AHEAD;
+                    commonAncestor = sourceHead;
+                } else {
+                    relation = HistoryRelation.DIVERGED;
+                    commonAncestor = targetAncestors.stream().filter(sourceAncestors::contains).findFirst().orElse(null);
+                }
+            }
+        }
+
+        DatabaseSnapshot targetLive = introspector.introspect(targetEnvId);
+        boolean dirty = target.initialized()
+                ? diffEngine.diff(headSnapshot(targetEnvId, targetHead), targetLive).isHasChanges()
+                : !targetLive.isEmpty();
+        SchemaDiffResult schemaDiff = diffEngine.diff(targetLive, headSnapshot(sourceEnvId, sourceHead));
+        return new EnvironmentComparison(sourceEnvId, targetEnvId, sourceHead, targetHead, relation, commonAncestor,
+                toPush.stream().map(CommitRecord::toNode).toList(), dirty, schemaDiff);
+    }
+
+    public PushResult pushCommitsToEnvironment(String sourceEnvId, String targetEnvId, String targetCommitHash) {
+        return pushCommitsToEnvironment(new PushRequest(sourceEnvId, targetEnvId, targetCommitHash, false, false));
+    }
+
+    /**
+     * Applies the commits of the source that the target is missing, in one transaction of the target: up_sql of
+     * every commit, the commit rows (same hashes and snapshots) and HEAD; then checks that the target schema equals
+     * the snapshot of the last commit. Initializes _pgvc in the target first if needed.
+     */
+    public PushResult pushCommitsToEnvironment(PushRequest request) {
+        String sourceEnvId = request.sourceEnvironmentId();
+        String targetEnvId = request.targetEnvironmentId();
+        requireDifferent(sourceEnvId, targetEnvId);
+        String tip = isBlank(request.targetCommitHash())
+                ? storage.getHead(sourceEnvId).orElseThrow(() ->
+                        ApiException.badRequest("Environment '" + sourceEnvId + "' has no commits to push"))
+                : request.targetCommitHash().strip();
+        storage.requireCommit(sourceEnvId, tip);
+        if (!requireReachable(targetEnvId).initialized()) {
+            storage.initializeEnvironment(targetEnvId);
+        }
+
+        return environments.getTransactionTemplate(targetEnvId).execute(tx -> {
+            storage.lockHistory(targetEnvId);
+            String targetHead = storage.getHead(targetEnvId).orElse(null);
+            if (tip.equals(targetHead)) {
+                throw ApiException.badRequest("Environment '" + targetEnvId + "' is already at " + shortHash(tip));
+            }
+            if (targetHead != null && !history.ancestors(sourceEnvId, tip).contains(targetHead)) {
+                throw ApiException.conflict("Cannot push: HEAD " + shortHash(targetHead) + " of '" + targetEnvId
+                        + "' is not an ancestor of " + shortHash(tip) + " in '" + sourceEnvId
+                        + "' (the target is ahead or the histories diverged)");
+            }
+            List<CommitRecord> commits = history.range(sourceEnvId, targetHead, tip);
+
+            if (!request.allowDirty()) {
+                DatabaseSnapshot live = introspector.introspect(targetEnvId);
+                if (targetHead == null && !live.isEmpty()) {
+                    throw ApiException.conflict("'" + targetEnvId + "' has no version history but already contains"
+                            + " tables, views or sequences. Commit them there first, or allow pushing on top of them.");
+                }
+                if (targetHead != null) {
+                    SchemaDiffResult drift = diffEngine.diff(headSnapshot(targetEnvId, targetHead), live);
+                    if (drift.isHasChanges()) {
+                        throw ApiException.conflict("'" + targetEnvId + "' has uncommitted schema changes ("
+                                + summary(drift.getChanges()) + "). Commit them there first, or allow pushing anyway.");
+                    }
+                }
+            }
+
+            for (CommitRecord c : commits) {
+                try {
+                    environments.getJdbcTemplate(targetEnvId).execute(c.getUpSql());
+                } catch (DataAccessException e) {
+                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "Commit " + shortHash(c.getHash()) + " ("
+                            + c.getMessage() + ") failed on '" + targetEnvId + "': "
+                            + NestedExceptionUtils.getMostSpecificCause(e).getMessage() + ". Nothing was applied.");
+                }
+                storage.insertCommit(targetEnvId, c);
+            }
+            storage.setHead(targetEnvId, tip);
+            storage.clearAuditLog(targetEnvId);
+
+            boolean verify = !request.skipVerification();
+            if (verify) {
+                CommitRecord last = commits.get(commits.size() - 1);
+                SchemaDiffResult rest = diffEngine.diff(parseSnapshot(last.getSchemaSnapshotJson()),
+                        introspector.introspect(targetEnvId));
+                if (rest.isHasChanges()) {
+                    throw ApiException.conflict("After applying the commits the schema of '" + targetEnvId
+                            + "' differs from commit " + shortHash(tip) + ": " + summary(rest.getChanges())
+                            + ". Nothing was applied.");
+                }
+            }
+            log.info("Pushed {} commit(s) {} -> {}: HEAD {} -> {}", commits.size(), sourceEnvId, targetEnvId,
+                    shortHash(targetHead), shortHash(tip));
+            return new PushResult(sourceEnvId, targetEnvId, targetHead, tip,
+                    commits.stream().map(CommitRecord::toNode).toList(), verify);
+        });
+    }
+
+    /** Commits of all environments merged into one graph, with the HEAD of every environment. */
+    public GlobalGraph getGlobalGraph() {
+        List<Environment> envs = environments.listEnvironments();
+        String activeId = environments.getActiveEnvironment().map(Environment::getId).orElse(null);
+        record EnvState(GlobalGraph.EnvironmentHead head, List<CommitNode> commits) {
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(envs.size(), 8)));
+        try {
+            List<CompletableFuture<EnvState>> futures = envs.stream().map(env -> CompletableFuture.supplyAsync(() -> {
+                boolean active = env.getId().equals(activeId);
+                try {
+                    PgVcStatus st = storage.getStatus(env.getId());
+                    List<CommitNode> commits = st.reachable() && st.initialized()
+                            ? storage.getCommitGraph(env.getId()).commits() : List.of();
+                    return new EnvState(new GlobalGraph.EnvironmentHead(env.getId(), env.getName(), env.getColorBadge(),
+                            active, st.reachable(), st.initialized(), st.head(), st.error()), commits);
+                } catch (RuntimeException e) {
+                    return new EnvState(new GlobalGraph.EnvironmentHead(env.getId(), env.getName(), env.getColorBadge(),
+                            active, false, false, null, NestedExceptionUtils.getMostSpecificCause(e).getMessage()), List.of());
+                }
+            }, pool)).toList();
+
+            Map<String, CommitNode> byHash = new LinkedHashMap<>();
+            Map<String, List<String>> presence = new HashMap<>();
+            List<GlobalGraph.EnvironmentHead> heads = new ArrayList<>();
+            for (CompletableFuture<EnvState> f : futures) {
+                EnvState s = f.join();
+                heads.add(s.head());
+                for (CommitNode c : s.commits()) {
+                    byHash.putIfAbsent(c.hash(), c);
+                    presence.computeIfAbsent(c.hash(), k -> new ArrayList<>()).add(s.head().id());
+                }
+            }
+            List<GlobalGraph.Commit> commits = byHash.values().stream()
+                    .sorted(Comparator.comparing(CommitNode::createdAt, Comparator.nullsLast(Comparator.<OffsetDateTime>reverseOrder())))
+                    .map(c -> new GlobalGraph.Commit(c.hash(), c.parentHash(), c.author(), c.message(), c.createdAt(),
+                            presence.getOrDefault(c.hash(), List.of())))
+                    .toList();
+            return new GlobalGraph(commits, heads);
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    private PgVcStatus requireReachable(String envId) {
+        PgVcStatus status = storage.getStatus(envId);
+        if (!status.reachable()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Cannot connect to '" + envId + "': " + status.error());
+        }
+        return status;
+    }
+
+    private static void requireDifferent(String sourceEnvId, String targetEnvId) {
+        if (sourceEnvId == null || targetEnvId == null) {
+            throw ApiException.badRequest("Source and target environments are required");
+        }
+        if (sourceEnvId.equals(targetEnvId)) {
+            throw ApiException.badRequest("Source and target environments must be different");
+        }
+    }
+
     // ------------------------------------------------------------------ commits
 
     public CommitDetails getCommit(String envId, String hash) {
@@ -224,21 +427,14 @@ public class VersionControlService {
             throw ApiException.badRequest("The environment is already at commit " + shortHash(targetHash));
         }
         storage.requireCommit(envId, targetHash);
-        List<CommitRecord> chain = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        String current = head;
-        while (current != null && !current.equals(targetHash)) {
-            if (!seen.add(current)) {
-                throw ApiException.conflict("Cycle in the commit history at " + shortHash(current));
-            }
-            CommitRecord c = storage.requireCommit(envId, current);
-            chain.add(c);
-            current = c.getParentHash();
-        }
-        if (current == null) {
+        List<CommitRecord> chain;
+        try {
+            chain = new ArrayList<>(history.range(envId, targetHash, head));
+        } catch (ApiException e) {
             throw ApiException.conflict("Commit " + shortHash(targetHash) + " is not an ancestor of HEAD "
                     + shortHash(head) + ": only earlier commits of the current history can be restored");
         }
+        Collections.reverse(chain);
         return chain;
     }
 
