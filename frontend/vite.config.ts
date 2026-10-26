@@ -11,5 +11,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Monaco is bundled locally on purpose (no CDN), so the chunks are large
+    chunkSizeWarningLimit: 8000,
   },
 });

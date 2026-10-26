@@ -410,6 +410,16 @@ public class VersionControlService {
 
     // ------------------------------------------------------------------ commits
 
+    /** Schema changes a commit introduced: snapshot of its parent vs its own snapshot. */
+    public SchemaDiffResult getCommitChanges(String envId, String hash) {
+        CommitRecord c = storage.requireCommit(envId, hash);
+        DatabaseSnapshot before = c.getParentHash() == null ? DatabaseSnapshot.builder().build()
+                : storage.findCommit(envId, c.getParentHash())
+                        .map(p -> parseSnapshot(p.getSchemaSnapshotJson()))
+                        .orElseGet(() -> DatabaseSnapshot.builder().build());
+        return diffEngine.diff(before, parseSnapshot(c.getSchemaSnapshotJson()));
+    }
+
     public CommitDetails getCommit(String envId, String hash) {
         CommitRecord c = storage.requireCommit(envId, hash);
         return new CommitDetails(c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getCreatedAt(),

@@ -251,6 +251,11 @@ class RestApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.schemaSnapshot.tables['public.items'].columns.name.dataType").value("text"));
 
+        mvc.perform(get("/api/environments/vc-db/vc/commits/" + hash1 + "/changes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.changes[0].changeType").value("ADDED"))
+                .andExpect(jsonPath("$.changes[0].objectName").value("public.items"));
+
         mvc.perform(get("/api/environments/vc-db/vc/rollback-plan").param("target", hash1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.commitsToRevert", hasSize(1)))

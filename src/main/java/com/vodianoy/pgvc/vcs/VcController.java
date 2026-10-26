@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.vcs;
 
+import com.vodianoy.pgvc.diff.SchemaDiffResult;
 import com.vodianoy.pgvc.introspection.PostgresSchemaIntrospector;
 import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
 import com.vodianoy.pgvc.storage.AuditLogEntry;
@@ -109,6 +110,12 @@ public class VcController {
     @GetMapping("/environments/{envId}/vc/commits/{hash}")
     public CommitDetails commitDetails(@PathVariable String envId, @PathVariable String hash) {
         return versionControl.getCommit(envId, hash);
+    }
+
+    /** Schema changes introduced by a commit (parent snapshot vs commit snapshot). */
+    @GetMapping("/environments/{envId}/vc/commits/{hash}/changes")
+    public SchemaDiffResult commitChanges(@PathVariable String envId, @PathVariable String hash) {
+        return versionControl.getCommitChanges(envId, hash);
     }
 
     @GetMapping("/environments/{envId}/vc/rollback-plan")
