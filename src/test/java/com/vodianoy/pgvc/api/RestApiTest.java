@@ -11,7 +11,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.core.io.ClassPathResource;
+
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -19,6 +22,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -155,5 +159,41 @@ class RestApiTest {
                 .andExpect(jsonPath("$.deleted").isNumber());
 
         mvc.perform(delete("/api/environments/rest-db")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void schemaSnapshotThroughRest() throws Exception {
+        String base = System.getenv("PGVC_TEST_JDBC_URL");
+        Assumptions.assumeTrue(base != null && !base.isBlank(), "PGVC_TEST_JDBC_URL is not set");
+        String user = System.getenv().getOrDefault("PGVC_TEST_USER", "postgres");
+        String password = System.getenv().getOrDefault("PGVC_TEST_PASSWORD", "");
+        String url = base.substring(0, base.lastIndexOf('/') + 1) + "pgvc_step2_rest";
+        try (Connection c = DriverManager.getConnection(base, user, password); Statement st = c.createStatement()) {
+            st.execute("DROP DATABASE IF EXISTS pgvc_step2_rest");
+            st.execute("CREATE DATABASE pgvc_step2_rest");
+        }
+        try (Connection c = DriverManager.getConnection(url, user, password); Statement st = c.createStatement()) {
+            st.execute(new ClassPathResource("fixtures/rich-schema.sql").getContentAsString(StandardCharsets.UTF_8));
+        }
+
+        add("{\"name\": \"Schema Db\", \"jdbcUrl\": \"" + url + "\", \"username\": \"" + user + "\", \"password\": \""
+                + password + "\"}");
+
+        mvc.perform(get("/api/environments/schema-db/schema/schemas"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", contains("billing", "public", "sales")));
+        mvc.perform(get("/api/environments/schema-db/schema/snapshot").param("schemas", "sales"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schemas", contains("sales")))
+                .andExpect(jsonPath("$.timestamp", startsWith("20")))
+                .andExpect(jsonPath("$.tables['sales.orders'].columns.amount.dataType").value("numeric(12,2)"))
+                .andExpect(jsonPath("$.tables['sales.orders'].constraints.orders_customer_id_fkey.type").value("FOREIGN_KEY"))
+                .andExpect(jsonPath("$.views['sales.v_orders'].materialized").value(false))
+                .andExpect(jsonPath("$.sequences['sales.invoice_no'].incrementBy").value(5))
+                .andExpect(jsonPath("$.tables['billing.events']").doesNotExist());
+        mvc.perform(get("/api/environments/schema-db/schema/snapshot").param("schemas", "missing"))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(delete("/api/environments/schema-db")).andExpect(status().isNoContent());
     }
 }

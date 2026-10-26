@@ -8,6 +8,7 @@
 | Шаг | Содержание | Статус |
 |---|---|---|
 | 1 | Backend core, менеджер окружений, инициализатор `_pgvc` | готов |
+| 2 | Интроспектор схемы PostgreSQL 11+ (`pg_catalog`) | готов |
 
 ## Сборка и запуск
 
@@ -70,6 +71,8 @@ java -jar target/pg-git-vc.jar    # http://localhost:8765
 | GET | `/api/environments/{id}/pgvc/head` | текущий `HEAD` |
 | GET | `/api/environments/{id}/pgvc/audit-log` | перехваченные DDL с последнего коммита |
 | DELETE | `/api/environments/{id}/pgvc/audit-log[?upToId=N]` | очистить лог (целиком или до id включительно) |
+| GET | `/api/environments/{id}/schema/schemas` | пользовательские схемы, доступные для контроля версий |
+| GET | `/api/environments/{id}/schema/snapshot[?schemas=a,b]` | снимок схемы из `pg_catalog` (по умолчанию — все схемы) |
 
 Пример:
 
@@ -93,6 +96,31 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
 `SECURITY DEFINER`: DDL обычных разработчиков (не суперпользователей) логируется, а не падает с
 «permission denied», и в `db_user` записывается реальный пользователь (`session_user`).
 
+## Интроспекция схемы (Шаг 2)
+
+`PostgresSchemaIntrospector` читает живую схему только из `pg_catalog` (`information_schema` не видит партиций и OID)
+и собирает `DatabaseSnapshot` (пакет `model.schema`). Каждый запрос лежит отдельным файлом в
+`src/main/resources/db/introspection/`:
+
+| Файл | Что читает |
+|---|---|
+| `schemas.sql` | пользовательские схемы (без системных, временных, схем расширений и `_pgvc`) |
+| `tables.sql` | таблицы `relkind IN ('r','p')`: `oid`, `pg_get_partkeydef`, родитель через `pg_inherits`, границы `pg_get_expr(relpartbound)` |
+| `columns.sql` | `pg_attribute` (`attnum > 0 AND NOT attisdropped`): `format_type`, `DEFAULT` через `pg_get_expr(adbin)`, identity, generated (PG12+), collation |
+| `constraints.sql` | PK / FK / UNIQUE / CHECK / EXCLUDE через `pg_get_constraintdef`; унаследованные партициями пропускаются |
+| `indexes.sql` | `pg_index` (`relkind IN ('i','I')`) без индексов PK/UNIQUE/EXCLUDE (`conindid`) и без автоматически привязанных индексов партиций |
+| `sequences.sql` | `pg_sequence`: параметры и колонка-владелец; последовательности identity-колонок пропускаются |
+| `views.sql`, `view-dependencies.sql` | обычные и materialized view, `pg_get_viewdef`, зависимости от таблиц и колонок |
+
+Особенности модели:
+
+- Снимок охватывает **все** пользовательские схемы; ключи карт — полные имена `схема.объект`, у объектов есть `schemaName`.
+- `oid` (таблицы, view, индексы, sequences, constraints) и `attnum` (колонки) сохраняются, чтобы находить переименования.
+- `signature` — хеш каталожного представления объекта, который не меняется при переименовании таблиц и колонок:
+  по нему видно, изменился ли объект на самом деле.
+- Все запросы выполняются в одной read-only транзакции `REPEATABLE READ` (согласованный снимок). Если транзакция
+  на окружении уже открыта, интроспектор присоединяется к ней и видит незакоммиченный DDL.
+
 ## Тесты
 
 ```bash
@@ -101,5 +129,5 @@ PGVC_TEST_JDBC_URL=jdbc:postgresql://localhost:5432/postgres \
 PGVC_TEST_USER=postgres PGVC_TEST_PASSWORD=... mvn test   # + интеграционные тесты на реальном PostgreSQL
 ```
 
-Интеграционные тесты создают свои базы (`pgvc_step1_*`) и роль, поэтому нужен суперпользователь.
+Интеграционные тесты создают свои базы (`pgvc_step*`) и роль, поэтому нужен суперпользователь.
 CI (`.github/workflows/build.yml`) прогоняет всё на PostgreSQL 11 и 16.
