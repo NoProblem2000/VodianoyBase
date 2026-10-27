@@ -17,7 +17,8 @@
 
 Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases) —
 тогда нужна только Java 17+: `java -jar pg-git-vc-1.0.0.jar` и http://localhost:8765. Релиз собирается
-автоматически (`.github/workflows/release.yml`) при пуше тега `vX.Y.Z`, совпадающего с версией в `pom.xml`.
+автоматически (`.github/workflows/release.yml`): поднимите версию в `pom.xml`, добавьте заметки
+`.github/release/vX.Y.Z.md` и влейте в `main` — workflow соберёт jar, создаст тег `vX.Y.Z` и опубликует релиз.
 
 ## Быстрый старт: сборка и запуск
 
