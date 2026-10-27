@@ -27,7 +27,7 @@ const step = async (name, fn) => {
 };
 
 // the scenarios below use the English UI; the Russian UI is checked at the end
-await page.goto('http://127.0.0.1:18766/', { waitUntil: 'domcontentloaded' });
+await page.goto('http://127.0.0.1:18766/', { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.setItem('pgvc_lang', 'en'));
 await page.reload({ waitUntil: 'networkidle' });
 await step('01-main', async () => {
@@ -151,7 +151,7 @@ await step('17-about', async () => {
   await page.keyboard.press('Escape');
 });
 await step('18-ru-main', async () => {
-  await page.getByRole('button', { name: 'RU' }).click();
+  await page.getByRole('button', { name: 'RU', exact: true }).click();
   await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
   const stored = await page.evaluate(() => localStorage.getItem('pgvc_lang'));
   if (stored !== 'ru') throw new Error(`pgvc_lang is ${stored}`);
@@ -168,12 +168,12 @@ await step('19-ru-sync', async () => {
 });
 await step('20-ru-server-error', async () => {
   // validation error produced by the server: must come back in Russian (Accept-Language: ru)
-  await page.getByRole('button', { name: 'Управление окружениями' }).click();
+  await page.getByRole('button', { name: 'Управление окружениями', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить окружение' }).click();
-  await page.getByLabel('Имя').fill('Broken');
-  await page.getByLabel('JDBC URL').fill('jdbc:mysql://localhost/db');
+  await page.getByLabel('Имя', { exact: true }).fill('Broken');
+  await page.getByLabel('JDBC URL', { exact: true }).fill('jdbc:mysql://localhost/db');
   expectHttpError = true;
-  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'JDBC URL должен начинаться с jdbc:postgresql:' }).waitFor({ timeout: 10000 });
   expectHttpError = false;
   await shot('20-ru-server-error');
