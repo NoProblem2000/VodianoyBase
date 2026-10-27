@@ -262,8 +262,90 @@ public class VersionControlService {
                 ? diffEngine.diff(headSnapshot(targetEnvId, targetHead), targetLive).isHasChanges()
                 : !targetLive.isEmpty();
         SchemaDiffResult schemaDiff = diffEngine.diff(targetLive, headSnapshot(sourceEnvId, sourceHead));
+        boolean unconnected = relation == HistoryRelation.DIVERGED
+                || ((relation == HistoryRelation.TARGET_EMPTY || relation == HistoryRelation.TARGET_NOT_INITIALIZED)
+                && !targetLive.isEmpty());
+        CommitNode matching = unconnected && sourceHead != null
+                ? findMatchingCommit(sourceEnvId, sourceHead, targetLive).map(CommitRecord::toNode).orElse(null)
+                : null;
         return new EnvironmentComparison(sourceEnvId, targetEnvId, sourceHead, targetHead, relation, commonAncestor,
-                toPush.stream().map(CommitRecord::toNode).toList(), dirty, schemaDiff);
+                toPush.stream().map(CommitRecord::toNode).toList(), dirty, schemaDiff, matching);
+    }
+
+    /** How many commits of the source history (newest first) are compared with the target schema. */
+    private static final int MATCH_SEARCH_LIMIT = 200;
+
+    /** Newest commit in the history of {@code head} whose schema snapshot equals {@code schema}. */
+    private Optional<CommitRecord> findMatchingCommit(String envId, String head, DatabaseSnapshot schema) {
+        List<CommitRecord> chain = history.range(envId, null, head);
+        for (int i = chain.size() - 1, n = 0; i >= 0 && n < MATCH_SEARCH_LIMIT; i--, n++) {
+            CommitRecord c = chain.get(i);
+            if (!diffEngine.diff(parseSnapshot(c.getSchemaSnapshotJson()), schema).isHasChanges()) {
+                return Optional.of(c);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Baseline: makes a target environment whose schema already exists part of the source history without executing
+     * any migration. In one transaction of the target: checks that its live schema equals the snapshot of the chosen
+     * source commit, writes the source commits up to that commit (same hashes), points HEAD at it, deletes the target's
+     * own previous commits (unless asked to keep them) and clears its DDL audit log. Initializes _pgvc first if needed.
+     * Afterwards the target is "behind" the source and later commits can be pushed normally.
+     */
+    public LinkResult linkEnvironmentToHistory(LinkRequest request) {
+        String sourceEnvId = request.sourceEnvironmentId();
+        String targetEnvId = request.targetEnvironmentId();
+        requireDifferent(sourceEnvId, targetEnvId);
+        String sourceHead = storage.getHead(sourceEnvId).orElseThrow(() ->
+                ApiException.badRequest("Environment '" + sourceEnvId + "' has no commits to link to"));
+        String requested = isBlank(request.commitHash()) ? null : request.commitHash().strip();
+        if (requested != null) {
+            storage.requireCommit(sourceEnvId, requested);
+            if (!history.ancestors(sourceEnvId, sourceHead).contains(requested)) {
+                throw ApiException.badRequest("Commit " + shortHash(requested) + " is not in the current history of '"
+                        + sourceEnvId + "' (HEAD " + shortHash(sourceHead) + ")");
+            }
+        }
+        if (!requireReachable(targetEnvId).initialized()) {
+            storage.initializeEnvironment(targetEnvId);
+        }
+
+        return environments.getTransactionTemplate(targetEnvId).execute(tx -> {
+            storage.lockHistory(targetEnvId);
+            String previousHead = storage.getHead(targetEnvId).orElse(null);
+            DatabaseSnapshot live = introspector.introspect(targetEnvId);
+            CommitRecord commit = requested != null
+                    ? storage.requireCommit(sourceEnvId, requested)
+                    : findMatchingCommit(sourceEnvId, sourceHead, live).orElseThrow(() -> ApiException.conflict(
+                            "The schema of '" + targetEnvId + "' does not match any commit of '" + sourceEnvId
+                                    + "'. Choose the commit explicitly to see the differences."));
+            if (commit.getHash().equals(previousHead)) {
+                throw ApiException.badRequest("Environment '" + targetEnvId + "' is already at " + shortHash(previousHead));
+            }
+
+            SchemaDiffResult diff = diffEngine.diff(parseSnapshot(commit.getSchemaSnapshotJson()), live);
+            if (diff.isHasChanges() && !request.allowSchemaDifferences()) {
+                throw ApiException.conflict("The schema of '" + targetEnvId + "' differs from commit "
+                        + shortHash(commit.getHash()) + " (" + commit.getMessage() + "): " + summary(diff.getChanges())
+                        + ". Nothing was changed. Bring the schemas in line or link to another commit.");
+            }
+
+            List<CommitRecord> linked = history.range(sourceEnvId, null, commit.getHash());
+            for (CommitRecord c : linked) {
+                storage.insertCommit(targetEnvId, c);
+            }
+            storage.setHead(targetEnvId, commit.getHash());
+            int discarded = request.keepTargetCommits() ? 0
+                    : storage.deleteCommitsExcept(targetEnvId, linked.stream().map(CommitRecord::getHash).toList());
+            storage.clearAuditLog(targetEnvId);
+            log.info("Linked {} to the history of {} at {} (previous HEAD {}, {} own commit(s) deleted)", targetEnvId,
+                    sourceEnvId, shortHash(commit.getHash()), shortHash(previousHead), discarded);
+            return new LinkResult(sourceEnvId, targetEnvId, previousHead, commit.getHash(),
+                    linked.stream().map(CommitRecord::toNode).toList(), discarded,
+                    diff.isHasChanges() ? diff.getChanges() : List.of());
+        });
     }
 
     public PushResult pushCommitsToEnvironment(String sourceEnvId, String targetEnvId, String targetCommitHash) {

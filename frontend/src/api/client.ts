@@ -9,6 +9,7 @@ import type {
   EnvironmentInput,
   EnvironmentView,
   GlobalGraph,
+  LinkResult,
   OfflineBundle,
   PgVcStatus,
   PushResult,
@@ -83,6 +84,13 @@ export const api = {
     allowDirty: boolean;
     skipVerification: boolean;
   }) => post<PushResult>('/vc/push', body),
+  link: (body: {
+    sourceEnvironmentId: string;
+    targetEnvironmentId: string;
+    commitHash: string | null;
+    allowSchemaDifferences: boolean;
+    keepTargetCommits: boolean;
+  }) => post<LinkResult>('/vc/link', body),
 
   // offline bundles
   bundlePreview: (source: string, from: string | null, to: string | null) =>

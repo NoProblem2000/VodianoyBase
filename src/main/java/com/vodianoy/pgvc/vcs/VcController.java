@@ -27,7 +27,7 @@ import java.util.Map;
  *   <li>{@code /api/environments/{envId}/pgvc/*} - _pgvc initialization, status, commit graph, HEAD, DDL audit log;</li>
  *   <li>{@code /api/environments/{envId}/schema/*} - live schema read from pg_catalog;</li>
  *   <li>{@code /api/environments/{envId}/vc/*} - working tree, commits (Mode A / Mode B), rollback;</li>
- *   <li>{@code /api/vc/*} - all environments: merged graph, comparison, push.</li>
+ *   <li>{@code /api/vc/*} - all environments: merged graph, comparison, push, link (baseline).</li>
  * </ul>
  */
 @RestController
@@ -146,5 +146,14 @@ public class VcController {
     @PostMapping("/vc/push")
     public PushResult push(@RequestBody PushRequest request) {
         return versionControl.pushCommitsToEnvironment(request);
+    }
+
+    /**
+     * Baseline: links an environment whose schema already exists to the history of the source environment without
+     * executing migrations (its live schema must match the chosen commit).
+     */
+    @PostMapping("/vc/link")
+    public LinkResult link(@RequestBody LinkRequest request) {
+        return versionControl.linkEnvironmentToHistory(request);
     }
 }

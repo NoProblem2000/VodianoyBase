@@ -236,7 +236,13 @@ function Workspace() {
         />
       )}
       {modal.kind === 'sync' && graph && activeEnv && (
-        <SyncModal graph={graph} defaultSource={activeEnv.id} onDone={() => void afterChange()} onClose={closeModal} />
+        <SyncModal
+          graph={graph}
+          defaultSource={activeEnv.id}
+          onDone={() => void afterChange()}
+          onLinked={() => void data.refresh()}
+          onClose={closeModal}
+        />
       )}
       {modal.kind === 'rollback' && activeEnv && (
         <RollbackModal env={activeEnv} targetHash={modal.target} onDone={(r) => void afterChange(r.newHead)} onClose={closeModal} />

@@ -164,6 +164,18 @@ export interface EnvironmentComparison {
   commitsToPush: CommitNode[];
   targetHasUncommittedChanges: boolean;
   schemaDiff: SchemaDiffResult;
+  /** newest source commit whose schema equals the live target schema (only when the histories are not connected) */
+  matchingCommit: CommitNode | null;
+}
+
+export interface LinkResult {
+  sourceEnvironmentId: string;
+  targetEnvironmentId: string;
+  previousHead: string | null;
+  newHead: string;
+  linkedCommits: CommitNode[];
+  discardedCommits: number;
+  acceptedDifferences: ChangeItem[];
 }
 
 export interface PushResult {

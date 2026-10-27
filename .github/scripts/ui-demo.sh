@@ -4,10 +4,12 @@
 set -euo pipefail
 export PGPASSWORD="$PGVC_TEST_PASSWORD"
 PSQL="psql -h localhost -U $PGVC_TEST_USER -v ON_ERROR_STOP=1 -qX"
-for db in demo_dev demo_stage demo_prod; do
+for db in demo_dev demo_stage demo_prod demo_qa; do
   $PSQL -d postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
 done
 $PSQL -d demo_dev -f src/test/resources/fixtures/rich-schema.sql
+# QA already has the same schema and gets its own baseline: its history is not connected to dev (link scenario)
+$PSQL -d demo_qa -f src/test/resources/fixtures/rich-schema.sql
 
 workdir=$(mktemp -d)
 cp target/pg-git-vc-*.jar "$workdir/pg-git-vc.jar"
@@ -21,10 +23,13 @@ add_env() { json -X POST $API/environments -d "{\"name\":\"$1\",\"colorBadge\":\
 add_env Dev '#22c55e' demo_dev
 add_env Stage '#f59e0b' demo_stage
 add_env Prod '#ef4444' demo_prod
+add_env QA '#38bdf8' demo_qa
 
 json -X POST $API/environments/dev/pgvc/initialize > /dev/null
 json -X POST $API/environments/dev/vc/commit -d '{"message":"Baseline: sales, billing and partitioned events","author":"alice"}' > /dev/null
 json -X POST $API/vc/push -d '{"sourceEnvironmentId":"dev","targetEnvironmentId":"prod"}' > /dev/null
+json -X POST $API/environments/qa/pgvc/initialize > /dev/null
+json -X POST $API/environments/qa/vc/commit -d '{"message":"QA baseline","author":"qa"}' > /dev/null
 json -X POST $API/environments/dev/vc/execute -d '{"message":"Add customer notes","author":"bob","upSql":"CREATE TABLE sales.notes (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, customer_id bigint REFERENCES sales.customers(id), body text NOT NULL);"}' > /dev/null
 json -X POST $API/environments/dev/vc/execute -d '{"message":"Index notes by customer","author":"bob","upSql":"CREATE INDEX notes_customer_idx ON sales.notes (customer_id);"}' > /dev/null
 json -X POST $API/vc/push -d '{"sourceEnvironmentId":"dev","targetEnvironmentId":"stage"}' > /dev/null

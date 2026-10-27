@@ -1,7 +1,7 @@
 # PgGitVisualizer (pg-git-vc)
 
 Контроль версий схемы PostgreSQL 11+ с визуальным графом коммитов в стиле GitKraken.
-Один исполняемый файл `pg-git-vc-1.0.0.jar` (Spring Boot 3 + встроенный React UI), без Docker.
+Один исполняемый файл `pg-git-vc-1.1.0.jar` (Spring Boot 3 + встроенный React UI), без Docker.
 
 Проект развивается по шагам; каждый шаг — отдельная ветка и Pull Request в `main`.
 
@@ -12,11 +12,12 @@
 | 3 | Diff Engine, коммиты (Mode A / Mode B) и откат | готов |
 | 4 | Офлайн SQL-бандлы, синхронизация окружений, REST | готов |
 | 5 | Веб-интерфейс (React + TypeScript), ручное тестирование | готов |
+| 6 | Привязка существующих окружений к общей истории (baseline) | готов |
 
 ## Готовый jar
 
 Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases) —
-тогда нужна только Java 17+: `java -jar pg-git-vc-1.0.0.jar` и http://localhost:8765. Релиз собирается
+тогда нужна только Java 17+: `java -jar pg-git-vc-1.1.0.jar` и http://localhost:8765. Релиз собирается
 автоматически (`.github/workflows/release.yml`): поднимите версию в `pom.xml`, добавьте заметки
 `.github/release/vX.Y.Z.md` и влейте в `main` — workflow соберёт jar, создаст тег `vX.Y.Z` и опубликует релиз.
 
@@ -31,13 +32,13 @@
    mvn clean package
    ```
 
-   Результат: `target/pg-git-vc-1.0.0.jar` — бэкенд и UI в одном файле. Чтобы пропустить тесты:
+   Результат: `target/pg-git-vc-1.1.0.jar` — бэкенд и UI в одном файле. Чтобы пропустить тесты:
    `mvn clean package -DskipTests`.
 
 2. Запустите:
 
    ```bash
-   java -jar target/pg-git-vc-1.0.0.jar
+   java -jar target/pg-git-vc-1.1.0.jar
    ```
 
 3. Откройте в браузере http://localhost:8765.
@@ -49,8 +50,12 @@
    - Вверху графа появится **Working Tree** со всей текущей схемой — подпишите и нажмите **Commit Changes**
      (это базовый коммит).
    - Дальше меняйте схему в DBeaver / pgAdmin (Mode A) или через **New SQL Migration** (Mode B).
+   - Остальные окружения, где такая же схема уже есть (Stage, Prod…), **не коммитьте отдельно**, а привяжите к
+     истории первого: **Sync / Push to Env** → источник — первое окружение, цель — другое → **Link to …**
+     (см. «Привязка существующего окружения»). Если окружение уже закоммичено отдельно — тоже привяжите,
+     его собственные коммиты заменятся.
 
-Порт можно сменить: `java -jar target/pg-git-vc-1.0.0.jar --server.port=9000`. По умолчанию приложение слушает
+Порт можно сменить: `java -jar target/pg-git-vc-1.1.0.jar --server.port=9000`. По умолчанию приложение слушает
 только `127.0.0.1`.
 
 `mvn package -DskipFrontend` собирает только бэкенд. Для разработки UI с горячей перезагрузкой:
@@ -135,6 +140,7 @@ React 18 + TypeScript + Vite + TailwindCSS, граф — `@xyflow/react`, ред
 | POST | `/api/environments/{id}/vc/rollback` | откат (`targetHash`, `customRollbackSql`, `allowDirty`, `skipVerification`) |
 | GET | `/api/vc/graph` | общий граф коммитов всех окружений и `HEAD` каждого (бейджи) |
 | GET | `/api/vc/compare?source=dev&target=prod` | сравнение историй и схем двух окружений |
+| POST | `/api/vc/link` | привязка (baseline): `sourceEnvironmentId`, `targetEnvironmentId`, `commitHash`, `allowSchemaDifferences`, `keepTargetCommits` |
 | POST | `/api/vc/push` | онлайн-накат: `sourceEnvironmentId`, `targetEnvironmentId`, `targetCommitHash`, `allowDirty`, `skipVerification` |
 | GET | `/api/migrations/export?source=dev[&from=..][&to=..]` | скачать офлайн `.sql`-бандл (`Content-Disposition: attachment`) |
 | GET | `/api/migrations/preview?source=dev[&from=..][&to=..]` | тот же бандл в JSON (коммиты, имя файла, SQL) |
@@ -252,6 +258,26 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
   коммита. При необходимости сначала устанавливает `_pgvc`. Откажет, если цель впереди или истории разошлись, или если
   на цели есть незакоммиченные изменения (можно разрешить).
 - `getGlobalGraph()` — коммиты всех окружений в одном графе с `HEAD` каждого окружения.
+
+## Привязка существующего окружения (Шаг 6)
+
+Обычная ситуация: Dev, Stage и Prod уже существуют с одинаковой схемой. Если закоммитить каждое отдельно, у них
+будут разные коммиты (хеш включает автора и время), истории не связаны, и push невозможен («Diverged»). Push в
+окружение без истории тоже не подходит — он выполнил бы `CREATE TABLE` для уже существующих таблиц.
+
+Для этого есть привязка (baseline) — `linkEnvironmentToHistory`, `POST /api/vc/link`:
+
+- `compareEnvironments` для несвязанных историй (`DIVERGED`, или у цели нет истории, но схема уже есть) ищет
+  самый новый коммит источника, снимок которого совпадает с живой схемой цели (`matchingCommit`).
+- Привязка в одной транзакции цели: при необходимости устанавливает `_pgvc`; проверяет, что живая схема цели совпадает
+  со снимком выбранного коммита; записывает в цель коммиты источника до него (с теми же хешами); ставит `HEAD` на
+  этот коммит; удаляет прежние собственные коммиты цели (можно оставить — `keepTargetCommits`); очищает лог DDL.
+  **SQL миграций не выполняется.** Если схемы расходятся — ничего не меняется, в ответе список различий
+  (принять их осознанно можно флагом `allowSchemaDifferences`, тогда они останутся незакоммиченными изменениями цели).
+- После привязки цель просто «отстаёт» от источника, и более новые коммиты докатываются обычным push.
+
+В UI: **Sync / Push to Env** → при несвязанных историях появляется панель **Link … to the history of …** с найденным
+коммитом и кнопкой **Link to …**; после привязки окно сразу показывает коммиты для push.
 
 ## Тесты
 
