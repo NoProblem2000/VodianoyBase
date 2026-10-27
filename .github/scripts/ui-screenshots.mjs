@@ -7,10 +7,14 @@ mkdirSync(out, { recursive: true });
 const errors = [];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1600, height: 960 } });
-page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
 let expectHttpError = false; // set around a step that provokes a server-side validation error on purpose
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  if (expectHttpError && m.text().startsWith('Failed to load resource')) return;
+  errors.push(`console: ${m.text()}`);
+});
 page.on('response', (r) => r.status() >= 400 && !expectHttpError && errors.push(`http ${r.status()}: ${r.url()}`));
 
 const shot = async (name) => {
