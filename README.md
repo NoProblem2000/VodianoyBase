@@ -13,6 +13,12 @@
 | 4 | Офлайн SQL-бандлы, синхронизация окружений, REST | готов |
 | 5 | Веб-интерфейс (React + TypeScript), ручное тестирование | готов |
 
+## Готовый jar
+
+Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases) —
+тогда нужна только Java 17+: `java -jar pg-git-vc-1.0.0.jar` и http://localhost:8765. Релиз собирается
+автоматически (`.github/workflows/release.yml`) при пуше тега `vX.Y.Z`, совпадающего с версией в `pom.xml`.
+
 ## Быстрый старт: сборка и запуск
 
 **Что нужно установить:** JDK 17 или новее и Maven 3.9+. Node.js ставить не нужно — Maven сам скачает его в
