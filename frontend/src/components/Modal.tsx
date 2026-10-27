@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface Props {
   title: string;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function Modal({ title, subtitle, onClose, children, footer, width = 'max-w-3xl' }: Props) {
+  const { t } = useI18n();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -38,7 +40,7 @@ export function Modal({ title, subtitle, onClose, children, footer, width = 'max
             <h2 className="text-[15px] font-semibold text-gray-100">{title}</h2>
             {subtitle && <p className="mt-0.5 text-xs text-gray-400">{subtitle}</p>}
           </div>
-          <button className="btn btn-ghost h-7 px-1.5" onClick={onClose} aria-label="Close">
+          <button className="btn btn-ghost h-7 px-1.5" onClick={onClose} aria-label={t('common.close')}>
             <X size={16} />
           </button>
         </header>

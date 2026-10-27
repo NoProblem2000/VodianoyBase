@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 type ToastKind = 'success' | 'error';
 interface Toast {
@@ -20,6 +21,7 @@ export function useToast(): ToastApi {
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t: tr } = useI18n();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const dismiss = useCallback((id: number) => setToasts((all) => all.filter((t) => t.id !== id)), []);
@@ -55,7 +57,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-teal-400" />
             )}
             <span className="flex-1 whitespace-pre-wrap break-words text-[13px] leading-snug">{t.text}</span>
-            <button className="text-gray-500 hover:text-gray-200" onClick={() => dismiss(t.id)} aria-label="Dismiss">
+            <button className="text-gray-500 hover:text-gray-200" onClick={() => dismiss(t.id)} aria-label={tr('common.dismiss')}>
               <X size={14} />
             </button>
           </div>

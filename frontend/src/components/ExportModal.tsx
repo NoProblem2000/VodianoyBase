@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import type { EnvironmentHead, GlobalGraph, OfflineBundle } from '../api/types';
 import { ancestorsOf } from '../lib/graphLayout';
 import { firstLine, shortHash } from '../lib/format';
+import { useI18n } from '../i18n';
 import { Modal } from './Modal';
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 const EMPTY = '__empty__';
 
 export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onClose }: Props) {
+  const { t, tn } = useI18n();
   const sources = graph.environments.filter((e) => e.initialized && e.head);
   const [source, setSource] = useState(sources.some((s) => s.id === defaultSource) ? defaultSource : sources[0]?.id ?? '');
   const sourceHead = sources.find((s) => s.id === source)?.head ?? null;
@@ -55,25 +57,25 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
 
   return (
     <Modal
-      title="Export Offline .SQL"
-      subtitle="A self-contained script for an isolated database: run it with psql or DBeaver."
+      title={t('export.title')}
+      subtitle={t('export.subtitle')}
       onClose={onClose}
       width="max-w-3xl"
       footer={
         <>
           <span className="text-xs text-gray-500">
-            The script checks the target HEAD first; on any error nothing is applied.
+            {t('export.footer')}
           </span>
           <span className="flex-1" />
           <button className="btn" onClick={onClose}>
-            Close
+            {t('common.close')}
           </button>
           <a
             className={`btn btn-primary ${preview ? '' : 'pointer-events-none opacity-50'}`}
             href={preview ? api.bundleDownloadUrl(source, from === EMPTY ? null : from, to) : undefined}
             download
           >
-            <Download size={14} /> Download {preview?.fileName ?? '.sql'}
+            <Download size={14} /> {t('export.download', { file: preview?.fileName ?? '.sql' })}
           </a>
         </>
       }
@@ -81,7 +83,7 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
           <label>
-            <span className="label">Source environment</span>
+            <span className="label">{t('export.source')}</span>
             <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
               {sources.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -91,9 +93,9 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
             </select>
           </label>
           <label>
-            <span className="label">Target database is at (exclusive)</span>
+            <span className="label">{t('export.from')}</span>
             <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
-              <option value={EMPTY}>empty (new database)</option>
+              <option value={EMPTY}>{t('export.fromEmpty')}</option>
               {history.map((c) => (
                 <option key={c.hash} value={c.hash}>
                   {shortHash(c.hash)} · {firstLine(c.message)}
@@ -102,7 +104,7 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
             </select>
           </label>
           <label>
-            <span className="label">Export up to (inclusive)</span>
+            <span className="label">{t('export.to')}</span>
             <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
               {history.map((c) => (
                 <option key={c.hash} value={c.hash}>
@@ -114,17 +116,17 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
         </div>
         {targets.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-            Start from the HEAD of
-            {targets.map((t) => (
+            {t('export.startFrom')}
+            {targets.map((env) => (
               <button
-                key={t.id}
+                key={env.id}
                 className="rounded border border-kraken-line px-2 py-0.5 hover:bg-kraken-hover disabled:opacity-40"
-                disabled={!t.head || !history.some((c) => c.hash === t.head)}
-                onClick={() => t.head && setFrom(t.head)}
-                title={t.head ? `${t.name} is at ${shortHash(t.head)}` : `${t.name} has no history`}
+                disabled={!env.head || !history.some((c) => c.hash === env.head)}
+                onClick={() => env.head && setFrom(env.head)}
+                title={env.head ? t('export.envAt', { name: env.name, hash: shortHash(env.head) }) : t('export.envNoHistory', { name: env.name })}
               >
-                <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: t.colorBadge }} />
-                {t.name}
+                <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: env.colorBadge }} />
+                {env.name}
               </button>
             ))}
           </div>
@@ -137,7 +139,7 @@ export function ExportModal({ graph, defaultSource, initialFrom, initialTo, onCl
               <FileCode2 size={15} className="text-teal-400" />
               <span className="font-mono text-[12.5px]">{preview.fileName}</span>
               <span className="ml-auto text-xs text-gray-500">
-                {preview.commits.length} commit{preview.commits.length === 1 ? '' : 's'} ·{' '}
+                {tn('plural.commits', preview.commits.length)} ·{' '}
                 {(preview.sql.length / 1024).toFixed(1)} KB
               </span>
             </div>

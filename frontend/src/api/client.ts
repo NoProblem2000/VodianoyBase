@@ -1,5 +1,7 @@
 import axios from 'axios';
+import { getLang } from '../i18n';
 import type {
+  AboutInfo,
   AuditLogEntry,
   CommitDetails,
   CommitResult,
@@ -21,12 +23,18 @@ import type {
 
 const http = axios.create({ baseURL: '/api' });
 
+// server messages (errors, validation) come back in the UI language
+http.interceptors.request.use((config) => {
+  config.headers.set('Accept-Language', getLang());
+  return config;
+});
+
 // Turn backend errors ({status, error, message}) into Error(message)
 http.interceptors.response.use(
   (response) => response,
   (error) => {
     const message: string | undefined = error?.response?.data?.message;
-    return Promise.reject(new Error(message || error?.message || 'Request failed'));
+    return Promise.reject(new Error(message || error?.message || (getLang() === 'ru' ? 'Ошибка запроса' : 'Request failed')));
   },
 );
 
@@ -73,6 +81,8 @@ export const api = {
     id: string,
     body: { targetHash: string; customRollbackSql: string | null; allowDirty: boolean; skipVerification: boolean },
   ) => post<RollbackResult>(`/environments/${e(id)}/vc/rollback`, body),
+
+  about: () => get<AboutInfo>('/about'),
 
   // all environments
   graph: () => get<GlobalGraph>('/vc/graph'),

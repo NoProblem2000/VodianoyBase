@@ -239,3 +239,15 @@ export interface DatabaseSnapshot {
   views: Record<string, ViewModel>;
   sequences: Record<string, SequenceModel>;
 }
+
+export interface AboutInfo {
+  name: string;
+  version: string;
+  license: string;
+  licenseSpdx: string;
+  licenseUrl: string;
+  copyright: string;
+  repository: string;
+  /** full license text bundled into the jar (null in development without it) */
+  licenseText: string | null;
+}

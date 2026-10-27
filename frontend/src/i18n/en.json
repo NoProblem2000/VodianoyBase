@@ -1,0 +1,296 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "reset": "reset",
+    "edited": "edited",
+    "sqlEdited": "SQL edited",
+    "author": "Author",
+    "authorPlaceholder": "your name",
+    "commitMessage": "Commit message",
+    "emptyHistory": "empty history",
+    "upSql": "UP SQL",
+    "downSql": "DOWN SQL",
+    "up": "UP",
+    "down": "DOWN",
+    "writeMessage": "Write a commit message.",
+    "skipVerification": "Skip schema verification",
+    "loadingEditor": "Loading editor…",
+    "requestFailed": "Request failed",
+    "dismiss": "Dismiss"
+  },
+  "plural": {
+    "changes": {
+      "one": "{{count}} change",
+      "few": "{{count}} changes",
+      "many": "{{count}} changes",
+      "other": "{{count}} changes"
+    },
+    "uncommittedChanges": {
+      "one": "Review {{count}} uncommitted change",
+      "few": "Review {{count}} uncommitted changes",
+      "many": "Review {{count}} uncommitted changes",
+      "other": "Review {{count}} uncommitted changes"
+    },
+    "commits": {
+      "one": "{{count}} commit",
+      "few": "{{count}} commits",
+      "many": "{{count}} commits",
+      "other": "{{count}} commits"
+    },
+    "pushCommits": {
+      "one": "Push {{count}} commit",
+      "few": "Push {{count}} commits",
+      "many": "Push {{count}} commits",
+      "other": "Push {{count}} commits"
+    },
+    "schemas": {
+      "one": "{{count}} schema",
+      "few": "{{count}} schemas",
+      "many": "{{count}} schemas",
+      "other": "{{count}} schemas"
+    },
+    "newerCommits": {
+      "one": "After linking, {{count}} newer commit of {{source}} can be pushed to {{target}}.",
+      "few": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}.",
+      "many": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}.",
+      "other": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}."
+    }
+  },
+  "changeType": {
+    "ADDED": "Added",
+    "MODIFIED": "Modified",
+    "RENAMED": "Renamed",
+    "DELETED": "Deleted"
+  },
+  "objectType": {
+    "SCHEMA": "schema",
+    "TABLE": "table",
+    "PARTITION": "partition",
+    "COLUMN": "column",
+    "CONSTRAINT": "constraint",
+    "INDEX": "index",
+    "VIEW": "view",
+    "SEQUENCE": "sequence"
+  },
+  "time": {
+    "justNow": "just now"
+  },
+  "language": {
+    "label": "Interface language",
+    "ru": "Русский",
+    "en": "English"
+  },
+  "topBar": {
+    "currentEnvironment": "Current environment",
+    "noEnvironments": "No environments",
+    "environments": "Environments",
+    "manageEnvironments": "Manage environments",
+    "refresh": "Refresh",
+    "newMigration": "New SQL Migration (Mode B)",
+    "export": "Export Offline .SQL",
+    "sync": "Sync / Push to Env",
+    "about": "About & License"
+  },
+  "app": {
+    "cannotConnect": "Cannot connect to {{name}}: {{error}}",
+    "editConnection": "Edit connection",
+    "notInitialized": "Version control is not set up in {{name}} yet. Initializing creates the _pgvc schema and the DDL event triggers.",
+    "notInitializedNoSuperuser": "Version control is not set up in {{name}} yet. Initializing creates the _pgvc schema and the DDL event triggers and needs a SUPERUSER connection.",
+    "initialize": "Initialize version control",
+    "initializing": "Initializing…",
+    "initialized": "Version control initialized in {{name}}",
+    "commitGraph": "Commit graph",
+    "welcomeTitle": "Track your PostgreSQL schema like a git repository",
+    "welcomeText": "Add a database connection to start. Every schema change becomes a commit you can push to other environments or export for an isolated site.",
+    "addDatabase": "Add a database",
+    "noCommitsTitle": "No commits yet",
+    "noCommitsReady": "Change the schema in your IDE and the changes appear here as the working tree, or run a migration with New SQL Migration. The first commit records the current schema as the baseline.",
+    "noCommitsNotReady": "Initialize version control in the active environment to start recording commits.",
+    "inspectorHint": "Select the working tree to review and commit changes, or a commit to see its SQL, export it or roll back to it.",
+    "rollbackUnavailable": "The active environment is not available",
+    "rollbackAlreadyHere": "{{name}} is already at this commit",
+    "rollbackNotAncestor": "Not an earlier commit of the history of {{name}}"
+  },
+  "explorer": {
+    "title": "Schema Explorer",
+    "filter": "Filter objects",
+    "filterLabel": "Filter schema objects",
+    "noSchema": "No schema loaded.",
+    "tables": "Tables",
+    "partitions": "Partitions",
+    "views": "Views",
+    "sequences": "Sequences",
+    "partitioned": "partitioned",
+    "materialized": "materialized",
+    "notNull": "not null"
+  },
+  "audit": {
+    "title": "Live DDL Audit Log",
+    "polling": "Polling the event trigger log every 5 seconds",
+    "empty": "No DDL captured since the last commit."
+  },
+  "graph": {
+    "workingTree": "Working Tree (Uncommitted Changes)",
+    "badgeActive": "{{name}} (active environment) is at this commit",
+    "badge": "{{name}} is at this commit"
+  },
+  "workingTree": {
+    "title": "Working Tree",
+    "since": "{{env}} · since {{head}}",
+    "hint": "Generated from pg_catalog. Edit the SQL before committing if needed (for example add a USING clause). The changes are already in the database: committing records them, it does not execute anything.",
+    "changedObjects": "Changed objects",
+    "messagePlaceholder": "What changed and why",
+    "commit": "Commit Changes",
+    "committing": "Committing…",
+    "committed": "Committed {{hash}}: {{message}}",
+    "noChanges": "No schema changes"
+  },
+  "commit": {
+    "commit": "Commit",
+    "parent": "Parent",
+    "author": "Author",
+    "date": "Date",
+    "in": "In",
+    "copyHash": "Copy full hash",
+    "changes": "Changes",
+    "snapshot": "Snapshot",
+    "ddlLog": "DDL Trigger Log",
+    "loading": "Loading commit…",
+    "noChanges": "This commit did not change the schema.",
+    "noDdl": "No DDL was captured by the event triggers for this commit.",
+    "exportSingle": "Export Single Commit .SQL",
+    "rollback": "Rollback DB to here",
+    "rollbackTitle": "Revert the active environment to this commit"
+  },
+  "environments": {
+    "title": "Environments",
+    "subtitle": "Database connections are stored in pgvc-environments.json next to the application.",
+    "active": "active",
+    "add": "Add environment",
+    "name": "Name",
+    "namePlaceholder": "Dev, Test, Stage, Prod",
+    "color": "Badge color",
+    "jdbcUrl": "JDBC URL",
+    "user": "User",
+    "password": "Password",
+    "passwordUnchanged": "unchanged",
+    "defaultSchema": "Default schema",
+    "hint": "Version control tracks every user schema of the database; the default schema is only the search_path of the connection. Initializing version control needs a SUPERUSER (it installs DDL event triggers).",
+    "notInitialized": "Version control is not initialized in this database yet.",
+    "remove": "Remove",
+    "removeConfirm": "Remove {{name}} from the list? The database itself is not changed.",
+    "test": "Test connection",
+    "initialize": "Initialize version control",
+    "initialized": "Version control initialized: schema _pgvc and DDL event triggers installed",
+    "saved": "Saved {{name}}"
+  },
+  "migration": {
+    "title": "New SQL Migration (Mode B)",
+    "subtitle": "Runs on {{env}} in a single transaction; the resulting schema is recorded as a new commit.",
+    "template": "-- UP SQL: executed in one transaction together with the commit.\n-- If any statement fails, nothing is applied.\n\n",
+    "downGenerated": "DOWN SQL (generated if empty)",
+    "allowDirty": "Also include uncommitted changes that are already in the database",
+    "messagePlaceholder": "What does this migration do?",
+    "execute": "Execute & Commit",
+    "executing": "Executing…",
+    "done": "Executed and committed {{hash}} on {{env}}"
+  },
+  "export": {
+    "title": "Export Offline .SQL",
+    "subtitle": "A self-contained script for an isolated database: run it with psql or DBeaver.",
+    "footer": "The script checks the target HEAD first; on any error nothing is applied.",
+    "download": "Download {{file}}",
+    "source": "Source environment",
+    "from": "Target database is at (exclusive)",
+    "fromEmpty": "empty (new database)",
+    "to": "Export up to (inclusive)",
+    "startFrom": "Start from the HEAD of",
+    "envAt": "{{name}} is at {{hash}}",
+    "envNoHistory": "{{name}} has no history"
+  },
+  "rollback": {
+    "title": "Rollback {{env}} to {{hash}}",
+    "subtitle": "The script runs in one transaction; the resulting schema must match the snapshot of the target commit.",
+    "allowDirty": "Allow uncommitted changes",
+    "confirm": "Roll back database",
+    "rollingBack": "Rolling back…",
+    "warning": "Reverts {{commits}} on {{env}}. Dropped tables and columns lose their data. The commits stay in the history; HEAD moves to {{hash}}.",
+    "script": "Rollback script",
+    "done": "{{env}} rolled back to {{hash}} ({{commits}} reverted)"
+  },
+  "sync": {
+    "title": "Sync / Push to Environment",
+    "subtitle": "Applies the missing commits of the source to the target in one transaction and verifies the result.",
+    "allowDirty": "Push even if the target has uncommitted changes",
+    "pushing": "Pushing…",
+    "from": "From (source)",
+    "to": "To (target)",
+    "offline": "(offline)",
+    "upTo": "Up to commit",
+    "sourceHead": "source HEAD",
+    "comparing": "Comparing…",
+    "heads": "source {{source}} · target {{target}}",
+    "commonAncestor": " · common ancestor {{hash}}",
+    "targetDirty": "The target schema has changes that are not committed there.",
+    "commitsToPush": "Commits to push",
+    "schemaDiff": "Schema difference (target → source HEAD)",
+    "identical": "The schemas are identical.",
+    "pushed": "Pushed {{commits}} to {{env}}: now at {{hash}}",
+    "relation": {
+      "SAME": {
+        "label": "Up to date",
+        "text": "Both environments are at the same commit."
+      },
+      "TARGET_BEHIND": {
+        "label": "Behind",
+        "text": "The target is behind: the commits below can be pushed."
+      },
+      "TARGET_EMPTY": {
+        "label": "Empty history",
+        "text": "Version control is set up in the target but it has no commits yet."
+      },
+      "TARGET_NOT_INITIALIZED": {
+        "label": "Not initialized",
+        "text": "The target has no _pgvc schema yet; the push installs it first (needs a SUPERUSER)."
+      },
+      "TARGET_AHEAD": {
+        "label": "Ahead",
+        "text": "The target is ahead of the source: nothing to push."
+      },
+      "DIVERGED": {
+        "label": "Diverged",
+        "text": "The histories are not connected (e.g. each environment was committed separately): the push is not possible."
+      }
+    }
+  },
+  "link": {
+    "title": "Link {{target}} to the history of {{source}}",
+    "intro": "{{target}} already has a schema. Linking records that it is at a commit of {{source}}: {{noSql}}, only its version history is replaced. Afterwards the newer commits can be pushed as usual.",
+    "noSql": "no SQL is executed",
+    "matches": "The schema of {{target}} matches commit {{hash}} · {{message}}.",
+    "noMatch": "The schema of {{target}} does not match any commit of {{source}}. Choose the commit it should correspond to: linking shows the differences; bring the schemas in line or accept the differences explicitly.",
+    "commitOf": "Commit of {{source}}",
+    "matchesMark": "(matches)",
+    "button": "Link to {{hash}}",
+    "linking": "Linking…",
+    "allowDifferences": "Link even if the schemas differ (the differences stay as uncommitted changes of {{target}})",
+    "keepOwn": "Keep the previous commits of {{target}} (by default they are replaced)",
+    "done": "{{target}} linked to {{hash}}",
+    "doneReplaced": "{{target}} linked to {{hash}} ({{count}} own commit(s) replaced)"
+  },
+  "about": {
+    "title": "About & License",
+    "version": "Version",
+    "status": "Open-Source Database Version Control for PostgreSQL 11+",
+    "license": "License",
+    "licenseSummary": "You may use, modify and distribute this software freely, including for commercial purposes, as long as you keep the license and copyright notices. It is provided \"AS IS\", without warranties or conditions of any kind.",
+    "copyright": "Copyright",
+    "repository": "Source code",
+    "showLicense": "Show the full license text",
+    "hideLicense": "Hide the full license text",
+    "licenseUnavailable": "The license text is not bundled in this build. See the LICENSE file in the repository.",
+    "loading": "Loading…"
+  }
+}
