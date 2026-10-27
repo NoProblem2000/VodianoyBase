@@ -156,7 +156,7 @@ await step('18-ru-main', async () => {
   const stored = await page.evaluate(() => localStorage.getItem('pgvc_lang'));
   if (stored !== 'ru') throw new Error(`pgvc_lang is ${stored}`);
   await page.getByText('Add coupons').first().click();
-  await page.getByRole('tab', { name: 'Снимок схемы' }).click();
+  await page.getByRole('tab', { name: 'Снимок', exact: true }).click();
   await shot('18-ru-main');
 });
 await step('19-ru-sync', async () => {
@@ -168,7 +168,7 @@ await step('19-ru-sync', async () => {
 });
 await step('20-ru-server-error', async () => {
   // validation error produced by the server: must come back in Russian (Accept-Language: ru)
-  await page.getByRole('button', { name: 'Управление окружениями', exact: true }).click();
+  await page.getByTitle('Управление окружениями').click();
   await page.getByRole('button', { name: 'Добавить окружение' }).click();
   await page.getByLabel('Имя', { exact: true }).fill('Broken');
   await page.getByLabel('JDBC URL', { exact: true }).fill('jdbc:mysql://localhost/db');
