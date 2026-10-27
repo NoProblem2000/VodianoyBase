@@ -10,6 +10,7 @@ import { AboutModal } from './components/AboutModal';
 import { AuditLogPanel } from './components/AuditLogPanel';
 import { CommitGraph, WORKING_TREE_ID } from './components/CommitGraph';
 import { CommitInspector } from './components/CommitInspector';
+import { DeleteCommitModal } from './components/DeleteCommitModal';
 import { EnvironmentsModal } from './components/EnvironmentsModal';
 import { ExportModal } from './components/ExportModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
@@ -27,7 +28,8 @@ type ModalState =
   | { kind: 'export'; source?: string; from?: string | null; to?: string }
   | { kind: 'sync' }
   | { kind: 'rollback'; target: string }
-  | { kind: 'about' };
+  | { kind: 'about' }
+  | { kind: 'delete'; target: string };
 
 export function App() {
   return (
@@ -73,6 +75,22 @@ function Workspace() {
     if (commit.hash === activeHead) return t('app.rollbackAlreadyHere', { name: activeEnv.name });
     if (!activeAncestors.has(commit.hash)) return t('app.rollbackNotAncestor', { name: activeEnv.name });
     return null;
+  }
+
+  // environments whose current history (HEAD and its ancestors) contains each commit
+  const liveIn = useMemo(() => {
+    const result = new Map<string, string[]>();
+    for (const env of graph?.environments ?? []) {
+      for (const hash of ancestorsOf(commitsByHash, env.head)) {
+        result.set(hash, [...(result.get(hash) ?? []), env.name]);
+      }
+    }
+    return result;
+  }, [graph, commitsByHash]);
+
+  function deleteBlockedReason(commit: GraphCommit): string | null {
+    const envs = liveIn.get(commit.hash);
+    return envs && envs.length > 0 ? t('commit.deleteBlocked', { envs: envs.join(', ') }) : null;
   }
 
   const afterChange = useCallback(
@@ -197,6 +215,8 @@ function Workspace() {
                 setModal({ kind: 'export', source: inspectorSource, from: selectedCommit.parentHash, to: selectedCommit.hash })
               }
               onRollback={() => setModal({ kind: 'rollback', target: selectedCommit.hash })}
+              deleteBlockedReason={deleteBlockedReason(selectedCommit)}
+              onDelete={() => setModal({ kind: 'delete', target: selectedCommit.hash })}
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-gray-400">
@@ -243,6 +263,17 @@ function Workspace() {
         />
       )}
       {modal.kind === 'about' && <AboutModal onClose={closeModal} />}
+      {modal.kind === 'delete' && graph && (
+        <DeleteCommitModal
+          hash={modal.target}
+          environments={graph.environments}
+          onDone={() => {
+            setSelected(null);
+            void afterChange();
+          }}
+          onClose={closeModal}
+        />
+      )}
       {modal.kind === 'rollback' && activeEnv && (
         <RollbackModal env={activeEnv} targetHash={modal.target} onDone={(r) => void afterChange(r.newHead)} onClose={closeModal} />
       )}

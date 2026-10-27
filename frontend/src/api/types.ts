@@ -251,3 +251,26 @@ export interface AboutInfo {
   /** full license text bundled into the jar (null in development without it) */
   licenseText: string | null;
 }
+
+export type DeletionMode = 'COMMIT' | 'BRANCH';
+
+export interface DeletionPlan {
+  hash: string;
+  mode: DeletionMode;
+  /** commits that would be deleted, newest first */
+  commits: GraphCommit[];
+  /** ids of the environments whose history tables contain them */
+  environments: string[];
+  /** names of environments whose current history uses them */
+  blockedBy: string[];
+  /** names of unreachable environments */
+  offlineEnvironments: string[];
+  deletable: boolean;
+}
+
+export interface DeletionResult {
+  hash: string;
+  mode: DeletionMode;
+  deletedCommits: string[];
+  perEnvironment: Record<string, number>;
+}

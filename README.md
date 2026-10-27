@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.2.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.3.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -23,6 +23,8 @@ Open source under the [Apache License 2.0](LICENSE).
   environment in one transaction; **Link** attaches an environment that already has the schema to the shared history
   without running SQL.
 - **Rollback** of a database to any earlier commit, with an editable script and a schema check afterwards.
+- **Delete** commits that are no longer used (left behind by a rollback) — a single commit with the commits on top of
+  it, or a whole abandoned branch. Commits in the current history of any environment are protected.
 - **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
   records them — all inside `BEGIN … COMMIT`.
 - **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
@@ -35,7 +37,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.2.0.jar
+java -jar pg-git-vc-1.3.0.jar
 ```
 
 Open http://localhost:8765.
@@ -46,9 +48,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.2.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.3.0.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.2.0.jar
+java -jar target/pg-git-vc-1.3.0.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -74,7 +76,7 @@ UI development with hot reload: start the jar, then `cd frontend && npm ci && np
   **A** added · **M** modified · **R** renamed · **D** deleted; below it the **Live DDL Audit Log**.
 - **Center:** commit graph growing upwards, with environment badges and a separate lane for diverged histories.
 - **Right:** Working Tree (changes, editable UP/DOWN SQL, commit) or a commit (changes, UP / DOWN / Snapshot /
-  DDL Trigger Log, single-commit export, rollback).
+  DDL Trigger Log, single-commit export, rollback, delete).
 
 The language is stored in the browser (`localStorage`, key `pgvc_lang`, default `ru`); every API request carries
 `Accept-Language`, so server errors come back in the same language.
@@ -140,6 +142,8 @@ either express or implied. See the License for the specific language governing p
   окружение одной транзакцией; **привязка (Link)** подключает к общей истории окружение, где схема уже есть, без
   выполнения SQL.
 - **Откат** базы к любому более раннему коммиту — с редактируемым скриптом и проверкой схемы после него.
+- **Удаление** ненужных коммитов (оставшихся после отката): один коммит вместе с коммитами поверх него или целиком
+  брошенная ветка. Коммиты из текущей истории любого окружения защищены от удаления.
 - **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
   коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
 - Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
@@ -153,7 +157,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.2.0.jar
+java -jar pg-git-vc-1.3.0.jar
 ```
 
 Откройте http://localhost:8765.
@@ -164,9 +168,9 @@ java -jar pg-git-vc-1.2.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.2.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.3.0.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.2.0.jar
+java -jar target/pg-git-vc-1.3.0.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -192,7 +196,7 @@ java -jar target/pg-git-vc-1.2.0.jar
   **A** добавлено · **M** изменено · **R** переименовано · **D** удалено; ниже — **Журнал DDL (онлайн)**.
 - **В центре:** граф коммитов растёт снизу вверх, с бейджами окружений и отдельной линией для разошедшихся историй.
 - **Справа:** Working Tree (изменения, редактируемые UP/DOWN SQL, коммит) или коммит (изменения,
-  UP / DOWN / Снимок / Журнал DDL, экспорт одного коммита, откат).
+  UP / DOWN / Снимок / Журнал DDL, экспорт одного коммита, откат, удаление).
 
 Язык хранится в браузере (`localStorage`, ключ `pgvc_lang`, по умолчанию `ru`); каждый запрос к API несёт
 `Accept-Language`, поэтому ошибки сервера приходят на том же языке.

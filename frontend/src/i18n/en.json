@@ -56,6 +56,12 @@
       "few": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}.",
       "many": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}.",
       "other": "After linking, {{count}} newer commits of {{source}} can be pushed to {{target}}."
+    },
+    "deleteCommits": {
+      "one": "Delete {{count}} commit",
+      "few": "Delete {{count}} commits",
+      "many": "Delete {{count}} commits",
+      "other": "Delete {{count}} commits"
     }
   },
   "changeType": {
@@ -162,7 +168,10 @@
     "noDdl": "No DDL was captured by the event triggers for this commit.",
     "exportSingle": "Export Single Commit .SQL",
     "rollback": "Rollback DB to here",
-    "rollbackTitle": "Revert the active environment to this commit"
+    "rollbackTitle": "Revert the active environment to this commit",
+    "delete": "Delete…",
+    "deleteTitle": "Delete this commit from the version history",
+    "deleteBlocked": "Used by the current history of {{envs}}. Roll back to an earlier commit first."
   },
   "environments": {
     "title": "Environments",
@@ -292,5 +301,21 @@
     "hideLicense": "Hide the full license text",
     "licenseUnavailable": "The license text is not bundled in this build. See the LICENSE file in the repository.",
     "loading": "Loading…"
+  },
+  "deletion": {
+    "title": "Delete {{hash}}",
+    "subtitle": "Removes commits from the version history of every environment. The database schema is not changed.",
+    "modeCommit": "This commit",
+    "modeCommitHint": "The commit and every commit made on top of it.",
+    "modeBranch": "The whole branch",
+    "modeBranchHint": "Also the earlier commits of this abandoned branch, down to where it forked off a live history.",
+    "willDelete": "Will be deleted",
+    "fromEnvironments": "From the history of: {{envs}}",
+    "blocked": "Cannot delete: the current history of {{envs}} uses these commits. Roll the environment back to an earlier commit first.",
+    "offline": "Cannot delete while {{envs}} cannot be reached: it is unknown whether the commits are used there.",
+    "irreversible": "This cannot be undone: the commits, their SQL and schema snapshots are removed permanently.",
+    "loading": "Checking…",
+    "deleting": "Deleting…",
+    "done": "Deleted {{commits}}"
   }
 }
