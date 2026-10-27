@@ -179,6 +179,12 @@ public class PgVcStorageService {
                 (Object) keep.toArray(String[]::new));
     }
 
+    /** Deletes the given commits (one statement: parent links between them do not matter). Returns the count. */
+    public int deleteCommits(String envId, java.util.Collection<String> hashes) {
+        return requireInitialized(envId).update("DELETE FROM _pgvc.commits WHERE hash = ANY (?::varchar[])",
+                (Object) hashes.toArray(String[]::new));
+    }
+
     /** Points HEAD at the given commit. */
     public void setHead(String envId, String hash) {
         requireInitialized(envId).update("INSERT INTO _pgvc.refs (ref_name, commit_hash) VALUES (?, ?)"

@@ -62,6 +62,11 @@ class I18nAndAboutApiTest {
                         .header(HttpHeaders.ACCEPT_LANGUAGE, "ru"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Исходное и целевое окружения должны различаться"));
+        mvc.perform(get("/api/vc/commits/abc123/deletion-plan").header(HttpHeaders.ACCEPT_LANGUAGE, "ru"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Коммит abc123 не найден ни в одном доступном окружении"));
+        mvc.perform(get("/api/vc/commits/abc123/deletion-plan").param("mode", "NOPE"))
+                .andExpect(status().isBadRequest());
         mvc.perform(post("/api/environments").header(HttpHeaders.ACCEPT_LANGUAGE, "ru")
                         .contentType(MediaType.APPLICATION_JSON).content("{broken"))
                 .andExpect(status().isBadRequest())
