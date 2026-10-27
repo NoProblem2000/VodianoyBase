@@ -13,9 +13,28 @@
 
     <groupId>com.vodianoy</groupId>
     <artifactId>pg-git-vc</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <name>PgGitVisualizer</name>
     <description>Version control with a visual commit graph for PostgreSQL 11+ schemas</description>
+    <url>https://github.com/NoProblem2000/VodianoyBase</url>
+    <inceptionYear>2026</inceptionYear>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <organization>
+        <name>NoProblem2000</name>
+        <url>https://github.com/NoProblem2000</url>
+    </organization>
+
+    <scm>
+        <url>https://github.com/NoProblem2000/VodianoyBase</url>
+    </scm>
 
     <properties>
         <java.version>17</java.version>
@@ -136,6 +155,26 @@
                             <resources>
                                 <resource>
                                     <directory>${project.basedir}/frontend/dist</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <!-- LICENSE and NOTICE go into the jar (shown in the About dialog) -->
+                    <execution>
+                        <id>copy-license</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}</directory>
+                                    <includes>
+                                        <include>LICENSE</include>
+                                        <include>NOTICE</include>
+                                    </includes>
                                 </resource>
                             </resources>
                         </configuration>

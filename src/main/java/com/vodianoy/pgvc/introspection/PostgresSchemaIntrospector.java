@@ -236,8 +236,7 @@ public class PostgresSchemaIntrospector {
         Set<String> wanted = new LinkedHashSet<>(filter);
         List<String> unknown = wanted.stream().filter(s -> !available.contains(s)).toList();
         if (!unknown.isEmpty()) {
-            throw ApiException.badRequest("Unknown or not version-controllable schema(s): " + String.join(", ", unknown)
-                    + ". Available: " + String.join(", ", available));
+            throw ApiException.badRequest("schema.unknown", String.join(", ", unknown), String.join(", ", available));
         }
         return available.stream().filter(wanted::contains).toList();
     }

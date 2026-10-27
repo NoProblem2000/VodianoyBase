@@ -53,11 +53,10 @@ public class PgVcStorageService {
             Map<String, Object> info = jdbc.queryForMap("SELECT current_setting('server_version_num')::int AS version,"
                     + " (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) AS superuser");
             if (((Number) info.get("version")).intValue() < 110000) {
-                throw ApiException.conflict("PostgreSQL 11 or newer is required");
+                throw ApiException.conflict("pgvc.pgVersion");
             }
             if (!Boolean.TRUE.equals(info.get("superuser"))) {
-                throw ApiException.conflict("The user of environment '" + envId + "' is not a SUPERUSER:"
-                        + " event triggers can only be created by a superuser");
+                throw ApiException.conflict("pgvc.notSuperuser", envId);
             }
             jdbc.execute(INSTALL_SCRIPT);
         });
@@ -159,7 +158,7 @@ public class PgVcStorageService {
 
     public CommitRecord requireCommit(String envId, String hash) {
         return findCommit(envId, hash).orElseThrow(() ->
-                ApiException.notFound("Commit " + hash + " not found in environment '" + envId + "'"));
+                ApiException.notFound("commit.notFound", hash, envId));
     }
 
     /** Inserts a commit; returns false when a commit with this hash already exists. */
@@ -194,8 +193,7 @@ public class PgVcStorageService {
                 + " AND to_regclass('_pgvc.refs') IS NOT NULL AND to_regclass('_pgvc.ddl_audit_log') IS NOT NULL",
                 Boolean.class);
         if (!Boolean.TRUE.equals(installed)) {
-            throw ApiException.conflict("Version control is not initialized in environment '" + envId
-                    + "'. Call POST /api/environments/" + envId + "/pgvc/initialize first.");
+            throw ApiException.conflict("pgvc.notInitialized", envId);
         }
         return jdbc;
     }

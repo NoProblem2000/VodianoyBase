@@ -227,7 +227,7 @@ public class EnvironmentManagerService implements DisposableBean {
      */
     public ConnectionTestResult testConnection(Environment candidate) {
         if (candidate.getJdbcUrl() == null || !candidate.getJdbcUrl().startsWith("jdbc:postgresql:")) {
-            throw ApiException.badRequest("JDBC URL must start with jdbc:postgresql:");
+            throw ApiException.badRequest("env.jdbcUrlInvalid");
         }
         Environment env = candidate.toBuilder().build();
         if (env.getPassword() == null && env.getId() != null) {
@@ -269,20 +269,20 @@ public class EnvironmentManagerService implements DisposableBean {
 
     private Environment find(String id) {
         return state.getEnvironments().stream().filter(e -> e.getId().equals(id)).findFirst()
-                .orElseThrow(() -> ApiException.notFound("Environment not found: " + id));
+                .orElseThrow(() -> ApiException.notFound("env.notFound", id));
     }
 
     private Environment normalize(Environment input, Environment existing) {
         if (input == null) {
-            throw ApiException.badRequest("Environment is required");
+            throw ApiException.badRequest("env.required");
         }
         String name = trim(input.getName());
         if (name == null || name.isEmpty()) {
-            throw ApiException.badRequest("Environment name is required");
+            throw ApiException.badRequest("env.nameRequired");
         }
         String url = trim(input.getJdbcUrl());
         if (url == null || !url.startsWith("jdbc:postgresql:")) {
-            throw ApiException.badRequest("JDBC URL must start with jdbc:postgresql:");
+            throw ApiException.badRequest("env.jdbcUrlInvalid");
         }
         String schema = trim(input.getSchemaName());
         if (schema == null || schema.isEmpty()) {
@@ -292,7 +292,7 @@ public class EnvironmentManagerService implements DisposableBean {
         if (color == null || color.isEmpty()) {
             color = existing != null ? existing.getColorBadge() : PALETTE[state.getEnvironments().size() % PALETTE.length];
         } else if (!COLOR.matcher(color).matches()) {
-            throw ApiException.badRequest("colorBadge must look like #22c55e");
+            throw ApiException.badRequest("env.colorInvalid");
         }
         String password = input.getPassword();
         if (password == null) {
