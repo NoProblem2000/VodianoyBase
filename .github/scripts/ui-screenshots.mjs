@@ -120,6 +120,23 @@ await step('14-rollback', async () => {
   await shot('14-rollback');
 });
 
+await step('15-link-panel', async () => {
+  await page.getByRole('button', { name: /Sync \/ Push/ }).click();
+  await page.getByLabel('To (target)').selectOption('qa');
+  await page.getByText(/Link QA to the history of Dev/).waitFor({ timeout: 15000 });
+  await page.getByText('matches commit').waitFor({ timeout: 15000 });
+  await shot('15-link-panel');
+});
+await step('16-linked-then-push', async () => {
+  await page.getByRole('button', { name: /^Link to / }).click();
+  await toast(/linked to/);
+  await page.getByText('Commits to push').waitFor({ timeout: 15000 });
+  await shot('16-linked');
+  await page.getByRole('button', { name: /^Push \d+ commit/ }).click();
+  await toast(/Pushed/);
+  await shot('16-linked-then-push');
+});
+
 writeFileSync(`${out}/errors.txt`, errors.length ? errors.join('\n') + '\n' : 'no errors\n');
 await browser.close();
 console.log(errors.length ? errors.join('\n') : 'no browser errors');

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Send } from 'lucide-react';
+import { ArrowRight, Link2, Send } from 'lucide-react';
 import { api } from '../api/client';
-import type { EnvironmentComparison, GlobalGraph, HistoryRelation, PushResult } from '../api/types';
+import type { EnvironmentComparison, GlobalGraph, HistoryRelation, LinkResult, PushResult } from '../api/types';
 import { ancestorsOf } from '../lib/graphLayout';
 import { firstLine, shortHash } from '../lib/format';
 import { ChangeList } from './ChangeList';
@@ -12,6 +12,8 @@ interface Props {
   graph: GlobalGraph;
   defaultSource: string;
   onDone: (result: PushResult) => void;
+  /** the target was linked to the source history; the modal stays open so the remaining commits can be pushed */
+  onLinked: (result: LinkResult) => void;
   onClose: () => void;
 }
 
@@ -27,14 +29,14 @@ const RELATION_TEXT: Record<HistoryRelation, { label: string; text: string; tone
   TARGET_AHEAD: { label: 'Ahead', text: 'The target is ahead of the source: nothing to push.', tone: 'text-sky-300' },
   DIVERGED: {
     label: 'Diverged',
-    text: 'Both histories changed since their common ancestor: the push is not possible.',
+    text: 'The histories are not connected (e.g. each environment was committed separately): the push is not possible.',
     tone: 'text-red-300',
   },
 };
 
 const PUSHABLE: HistoryRelation[] = ['TARGET_BEHIND', 'TARGET_EMPTY', 'TARGET_NOT_INITIALIZED'];
 
-export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
+export function SyncModal({ graph, defaultSource, onDone, onLinked, onClose }: Props) {
   const toast = useToast();
   const sources = graph.environments.filter((e) => e.initialized && e.head);
   const [source, setSource] = useState(sources.some((s) => s.id === defaultSource) ? defaultSource : sources[0]?.id ?? '');
@@ -46,6 +48,7 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
   const [allowDirty, setAllowDirty] = useState(false);
   const [skipVerification, setSkipVerification] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
 
   const byHash = useMemo(() => new Map(graph.commits.map((c) => [c.hash, c])), [graph]);
   const sourceHead = sources.find((s) => s.id === source)?.head ?? null;
@@ -71,7 +74,7 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [source, target]);
+  }, [source, target, reload]);
 
   const pushable = comparison !== null && PUSHABLE.includes(comparison.relation);
   // commits that would be pushed up to the chosen tip
@@ -102,6 +105,13 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
   }
 
   const targetName = graph.environments.find((e) => e.id === target)?.name ?? target;
+  const sourceName = graph.environments.find((e) => e.id === source)?.name ?? source;
+  // the target already has a schema but no history shared with the source: it can be linked (baseline)
+  const linkable =
+    comparison !== null &&
+    (comparison.relation === 'DIVERGED' ||
+      ((comparison.relation === 'TARGET_EMPTY' || comparison.relation === 'TARGET_NOT_INITIALIZED') &&
+        comparison.targetHasUncommittedChanges));
   const relation = comparison ? RELATION_TEXT[comparison.relation] : null;
 
   return (
@@ -124,7 +134,7 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
           <button className="btn" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary" disabled={!pushable || busy || pushing.length === 0} onClick={() => void push()}>
+          <button className="btn btn-primary" disabled={!pushable || busy || pushing.length === 0 || (linkable && !allowDirty)} onClick={() => void push()}>
             <Send size={14} /> {busy ? 'Pushing…' : `Push ${pushing.length} commit${pushing.length === 1 ? '' : 's'}`}
           </button>
         </>
@@ -188,7 +198,20 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
                 </div>
               )}
             </div>
-            {pushing.length > 0 && (
+            {linkable && (
+              <LinkPanel
+                key={`${source}>${target}:${comparison.sourceHead}:${comparison.targetHead}`}
+                comparison={comparison}
+                history={history}
+                sourceName={sourceName}
+                targetName={targetName}
+                onLinked={(r) => {
+                  onLinked(r);
+                  setReload((n) => n + 1);
+                }}
+              />
+            )}
+            {pushing.length > 0 && (!linkable || allowDirty) && (
               <div>
                 <div className="panel-title mb-1.5">Commits to push</div>
                 <ol className="rounded-md border border-kraken-line px-3 py-1.5">
@@ -213,5 +236,113 @@ export function SyncModal({ graph, defaultSource, onDone, onClose }: Props) {
         )}
       </div>
     </Modal>
+  );
+}
+
+interface LinkPanelProps {
+  comparison: EnvironmentComparison;
+  /** source history, newest first */
+  history: { hash: string; message: string }[];
+  sourceName: string;
+  targetName: string;
+  onLinked: (result: LinkResult) => void;
+}
+
+/** Baseline: make the target (which already has the schema) part of the source history without running SQL. */
+function LinkPanel({ comparison, history, sourceName, targetName, onLinked }: LinkPanelProps) {
+  const toast = useToast();
+  const match = comparison.matchingCommit;
+  const [commit, setCommit] = useState(match?.hash ?? history[0]?.hash ?? '');
+  const [allowDifferences, setAllowDifferences] = useState(false);
+  const [keepOwn, setKeepOwn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isMatch = match !== null && commit === match.hash;
+  const chosen = history.find((c) => c.hash === commit);
+  const after = history.findIndex((c) => c.hash === commit);
+
+  async function link() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.link({
+        sourceEnvironmentId: comparison.sourceEnvironmentId,
+        targetEnvironmentId: comparison.targetEnvironmentId,
+        commitHash: commit || null,
+        allowSchemaDifferences: allowDifferences,
+        keepTargetCommits: keepOwn,
+      });
+      toast.success(
+        `${targetName} linked to ${shortHash(result.newHead)}` +
+          (result.discardedCommits ? ` (${result.discardedCommits} own commit(s) replaced)` : ''),
+      );
+      onLinked(result);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-sky-800 bg-sky-950/30 px-3 py-3">
+      <div className="flex items-center gap-2 font-semibold text-sky-200">
+        <Link2 size={15} /> Link {targetName} to the history of {sourceName}
+      </div>
+      <p className="mt-1 text-gray-300">
+        {targetName} already has a schema. Linking records that it is at a commit of {sourceName}:{' '}
+        <b>no SQL is executed</b>, only its version history is replaced. Afterwards the newer commits can be pushed
+        as usual.
+      </p>
+      {match ? (
+        <p className="mt-2 text-teal-300">
+          The schema of {targetName} matches commit{' '}
+          <span className="font-mono">{shortHash(match.hash)}</span> · {firstLine(match.message)}.
+        </p>
+      ) : (
+        <p className="mt-2 text-amber-300">
+          The schema of {targetName} does not match any commit of {sourceName}. Choose the commit it should correspond to:
+          linking shows the differences; bring the schemas in line or accept the differences explicitly.
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
+        <label>
+          <span className="label">Commit of {sourceName}</span>
+          <select className="input" value={commit} onChange={(e) => setCommit(e.target.value)}>
+            {history.map((c) => (
+              <option key={c.hash} value={c.hash}>
+                {shortHash(c.hash)} · {firstLine(c.message)}
+                {match?.hash === c.hash ? '  (matches)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn btn-primary" disabled={busy || !commit} onClick={() => void link()}>
+          <Link2 size={14} /> {busy ? 'Linking…' : `Link to ${shortHash(commit)}`}
+        </button>
+      </div>
+      {chosen && after > 0 && (
+        <p className="mt-2 text-xs text-gray-400">
+          After linking, {after} newer commit{after === 1 ? '' : 's'} of {sourceName} can be pushed to {targetName}.
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+        {!isMatch && (
+          <label className="flex items-center gap-2 text-xs text-gray-400">
+            <input type="checkbox" checked={allowDifferences} onChange={(e) => setAllowDifferences(e.target.checked)} />
+            Link even if the schemas differ (the differences stay as uncommitted changes of {targetName})
+          </label>
+        )}
+        {comparison.targetHead && (
+          <label className="flex items-center gap-2 text-xs text-gray-400">
+            <input type="checkbox" checked={keepOwn} onChange={(e) => setKeepOwn(e.target.checked)} />
+            Keep the previous commits of {targetName} (by default they are replaced)
+          </label>
+        )}
+      </div>
+      {error && (
+        <p className="mt-2 whitespace-pre-wrap rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-red-200">{error}</p>
+      )}
+    </div>
   );
 }
