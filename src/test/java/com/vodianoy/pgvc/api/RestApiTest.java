@@ -327,6 +327,14 @@ class RestApiTest {
                 .andExpect(jsonPath("$.environments", hasSize(2)));
         mvc.perform(get("/api/vc/compare").param("source", "src").param("target", "src"))
                 .andExpect(status().isBadRequest());
+        // link (baseline): the target is already at the matching commit
+        mvc.perform(post("/api/vc/link").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceEnvironmentId\": \"src\", \"targetEnvironmentId\": \"dst\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("already at")));
+        mvc.perform(post("/api/vc/link").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceEnvironmentId\": \"src\", \"targetEnvironmentId\": \"src\"}"))
+                .andExpect(status().isBadRequest());
 
         mvc.perform(delete("/api/environments/src")).andExpect(status().isNoContent());
         mvc.perform(delete("/api/environments/dst")).andExpect(status().isNoContent());

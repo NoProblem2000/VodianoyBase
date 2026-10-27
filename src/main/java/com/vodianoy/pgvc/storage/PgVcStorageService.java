@@ -171,6 +171,15 @@ public class PgVcStorageService {
                 c.getDownSql(), c.getSchemaSnapshotJson(), c.getDdlLogHistoryJson()) == 1;
     }
 
+    /**
+     * Deletes every commit whose hash is not in {@code keep} (one statement, so parent links between deleted commits
+     * do not matter). HEAD must already point at a kept commit. Returns the number of deleted commits.
+     */
+    public int deleteCommitsExcept(String envId, java.util.Collection<String> keep) {
+        return requireInitialized(envId).update("DELETE FROM _pgvc.commits WHERE NOT (hash = ANY (?::varchar[]))",
+                (Object) keep.toArray(String[]::new));
+    }
+
     /** Points HEAD at the given commit. */
     public void setHead(String envId, String hash) {
         requireInitialized(envId).update("INSERT INTO _pgvc.refs (ref_name, commit_hash) VALUES (?, ?)"
