@@ -7,10 +7,15 @@ mkdirSync(out, { recursive: true });
 const errors = [];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1600, height: 960 } });
-page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
-page.on('response', (r) => r.status() >= 400 && errors.push(`http ${r.status()}: ${r.url()}`));
+let expectHttpError = false; // set around a step that provokes a server-side validation error on purpose
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  if (expectHttpError && m.text().startsWith('Failed to load resource')) return;
+  errors.push(`console: ${m.text()}`);
+});
+page.on('response', (r) => r.status() >= 400 && !expectHttpError && errors.push(`http ${r.status()}: ${r.url()}`));
 
 const shot = async (name) => {
   await page.waitForTimeout(700);
@@ -25,7 +30,10 @@ const step = async (name, fn) => {
   }
 };
 
+// the scenarios below use the English UI; the Russian UI is checked at the end
 await page.goto('http://127.0.0.1:18766/', { waitUntil: 'networkidle' });
+await page.evaluate(() => localStorage.setItem('pgvc_lang', 'en'));
+await page.reload({ waitUntil: 'networkidle' });
 await step('01-main', async () => {
   await page.getByText('Working Tree (Uncommitted Changes)').first().waitFor({ timeout: 20000 });
   await shot('01-main');
@@ -135,6 +143,50 @@ await step('16-linked-then-push', async () => {
   await page.getByRole('button', { name: /^Push \d+ commit/ }).click();
   await toast(/Pushed/);
   await shot('16-linked-then-push');
+});
+
+// ---- About & License, then the Russian UI
+await step('17-about', async () => {
+  await page.getByRole('button', { name: 'About & License' }).click();
+  await page.getByText('Apache License 2.0').first().waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Show the full license text' }).click();
+  await page.getByText('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION').waitFor({ timeout: 5000 });
+  await shot('17-about');
+  await page.keyboard.press('Escape');
+});
+await step('18-ru-main', async () => {
+  await page.getByRole('button', { name: 'RU', exact: true }).click();
+  await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
+  const stored = await page.evaluate(() => localStorage.getItem('pgvc_lang'));
+  if (stored !== 'ru') throw new Error(`pgvc_lang is ${stored}`);
+  await page.getByText('Add coupons').first().click();
+  await page.getByRole('tab', { name: 'Снимок', exact: true }).click();
+  await shot('18-ru-main');
+});
+await step('19-ru-sync', async () => {
+  await page.getByRole('button', { name: /Синхронизация/ }).click();
+  await page.getByText('Синхронизация / Push в окружение').waitFor({ timeout: 5000 });
+  await page.getByText(/Разница схем/).waitFor({ timeout: 15000 });
+  await shot('19-ru-sync');
+  await page.keyboard.press('Escape');
+});
+await step('20-ru-server-error', async () => {
+  // validation error produced by the server: must come back in Russian (Accept-Language: ru)
+  await page.getByTitle('Управление окружениями').click();
+  await page.getByRole('button', { name: 'Добавить окружение' }).click();
+  await page.getByLabel('Имя', { exact: true }).fill('Broken');
+  await page.getByLabel('JDBC URL', { exact: true }).fill('jdbc:mysql://localhost/db');
+  expectHttpError = true;
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'JDBC URL должен начинаться с jdbc:postgresql:' }).waitFor({ timeout: 10000 });
+  expectHttpError = false;
+  await shot('20-ru-server-error');
+  await page.keyboard.press('Escape');
+});
+await step('21-ru-reload-keeps-language', async () => {
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('Обозреватель схемы').waitFor({ timeout: 10000 });
+  await shot('21-ru-after-reload');
 });
 
 writeFileSync(`${out}/errors.txt`, errors.length ? errors.join('\n') + '\n' : 'no errors\n');

@@ -5,6 +5,7 @@ import type { CommitResult, EnvironmentView } from '../api/types';
 import { Modal } from './Modal';
 import { SqlEditor } from './SqlEditor';
 import { Tabs } from './Tabs';
+import { useI18n } from '../i18n';
 import { useToast } from './Toasts';
 
 interface Props {
@@ -15,17 +16,13 @@ interface Props {
   onClose: () => void;
 }
 
-const TEMPLATE = `-- UP SQL: executed in one transaction together with the commit.
--- If any statement fails, nothing is applied.
-
-`;
-
 type Tab = 'up' | 'down';
 
 export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose }: Props) {
   const toast = useToast();
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('up');
-  const [up, setUp] = useState(TEMPLATE);
+  const [up, setUp] = useState(() => t('migration.template'));
   const [down, setDown] = useState('');
   const [message, setMessage] = useState('');
   const [allowDirty, setAllowDirty] = useState(false);
@@ -33,13 +30,13 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
 
   async function execute() {
     if (!message.trim()) {
-      toast.error('Write a commit message.');
+      toast.error(t('common.writeMessage'));
       return;
     }
     setBusy(true);
     try {
       const result = await api.execute(env.id, { message, author, upSql: up, downSql: down, allowDirty });
-      toast.success(`Executed and committed ${result.commit.hash.slice(0, 7)} on ${env.name}`);
+      toast.success(t('migration.done', { hash: result.commit.hash.slice(0, 7), env: env.name }));
       onDone(result);
     } catch (e) {
       toast.error((e as Error).message);
@@ -50,22 +47,22 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
 
   return (
     <Modal
-      title="New SQL Migration (Mode B)"
-      subtitle={`Runs on ${env.name} in a single transaction; the resulting schema is recorded as a new commit.`}
+      title={t('migration.title')}
+      subtitle={t('migration.subtitle', { env: env.name })}
       onClose={onClose}
       width="max-w-5xl"
       footer={
         <>
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} />
-            Also include uncommitted changes that are already in the database
+            {t('migration.allowDirty')}
           </label>
           <span className="flex-1" />
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="btn btn-primary" onClick={() => void execute()} disabled={busy}>
-            <Play size={14} /> {busy ? 'Executing…' : 'Execute & Commit'}
+            <Play size={14} /> {busy ? t('migration.executing') : t('migration.execute')}
           </button>
         </>
       }
@@ -74,8 +71,8 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
         <div className="overflow-hidden rounded-md border border-kraken-line">
           <Tabs<Tab>
             tabs={[
-              { id: 'up', label: 'UP SQL' },
-              { id: 'down', label: down.trim() ? 'DOWN SQL' : 'DOWN SQL (generated if empty)' },
+              { id: 'up', label: t('common.upSql') },
+              { id: 'down', label: down.trim() ? t('common.downSql') : t('migration.downGenerated') },
             ]}
             active={tab}
             onChange={setTab}
@@ -90,16 +87,16 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
         </div>
         <div className="grid grid-cols-[200px_1fr] gap-3">
           <label>
-            <span className="label">Author</span>
-            <input className="input" value={author} onChange={(e) => onAuthorChange(e.target.value)} placeholder="your name" />
+            <span className="label">{t('common.author')}</span>
+            <input className="input" value={author} onChange={(e) => onAuthorChange(e.target.value)} placeholder={t('common.authorPlaceholder')} />
           </label>
           <label>
-            <span className="label">Commit message</span>
+            <span className="label">{t('common.commitMessage')}</span>
             <input
               className="input"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="What does this migration do?"
+              placeholder={t('migration.messagePlaceholder')}
             />
           </label>
         </div>

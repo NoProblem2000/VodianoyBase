@@ -6,6 +6,7 @@ import { shortHash } from '../lib/format';
 import { ChangeList } from './ChangeList';
 import { SqlEditor } from './SqlEditor';
 import { Tabs } from './Tabs';
+import { useI18n } from '../i18n';
 import { useToast } from './Toasts';
 
 interface Props {
@@ -20,6 +21,7 @@ type Tab = 'up' | 'down';
 
 export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange, onCommitted }: Props) {
   const toast = useToast();
+  const { t } = useI18n();
   const diff = workingTree.diff;
   const [tab, setTab] = useState<Tab>('up');
   const [up, setUp] = useState(diff.upSql);
@@ -37,7 +39,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
 
   async function commit() {
     if (!message.trim()) {
-      toast.error('Write a commit message.');
+      toast.error(t('common.writeMessage'));
       return;
     }
     setBusy(true);
@@ -49,7 +51,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
         downSql: down,
         expectedHead: workingTree.head ?? '',
       });
-      toast.success(`Committed ${shortHash(result.commit.hash)}: ${result.commit.message}`);
+      toast.success(t('workingTree.committed', { hash: shortHash(result.commit.hash), message: result.commit.message }));
       setMessage('');
       onCommitted(result);
     } catch (e) {
@@ -67,14 +69,13 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
           </span>
-          <h2 className="text-[15px] font-semibold text-gray-100">Working Tree</h2>
+          <h2 className="text-[15px] font-semibold text-gray-100">{t('workingTree.title')}</h2>
           <span className="ml-auto text-xs text-gray-500">
-            {env.name} · since {workingTree.head ? shortHash(workingTree.head) : 'empty history'}
+            {t('workingTree.since', { env: env.name, head: workingTree.head ? shortHash(workingTree.head) : t('common.emptyHistory') })}
           </span>
         </div>
         <p className="mt-1 text-xs text-gray-400">
-          Generated from pg_catalog. Edit the SQL before committing if needed (for example add a USING clause). The changes
-          are already in the database: committing records them, it does not execute anything.
+          {t('workingTree.hint')}
         </p>
       </header>
 
@@ -91,7 +92,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
 
       <div className="px-4 pt-3">
         <div className="panel-title mb-1">
-          Changed objects <span className="text-gray-500">({diff.changes.length})</span>
+          {t('workingTree.changedObjects')} <span className="text-gray-500">({diff.changes.length})</span>
         </div>
       </div>
       <div className="max-h-[32%] min-h-[80px] overflow-auto px-3">
@@ -101,8 +102,8 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
       <div className="mt-2 flex min-h-[180px] flex-1 flex-col border-t border-kraken-line">
         <Tabs<Tab>
           tabs={[
-            { id: 'up', label: 'UP SQL' },
-            { id: 'down', label: 'DOWN SQL' },
+            { id: 'up', label: t('common.upSql') },
+            { id: 'down', label: t('common.downSql') },
           ]}
           active={tab}
           onChange={setTab}
@@ -115,16 +116,16 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
       <footer className="flex flex-col gap-2 border-t border-kraken-line px-4 py-3">
         <div className="grid grid-cols-[160px_1fr] gap-2">
           <label>
-            <span className="label">Author</span>
-            <input className="input" value={author} onChange={(e) => onAuthorChange(e.target.value)} placeholder="your name" />
+            <span className="label">{t('common.author')}</span>
+            <input className="input" value={author} onChange={(e) => onAuthorChange(e.target.value)} placeholder={t('common.authorPlaceholder')} />
           </label>
           <label>
-            <span className="label">Commit message</span>
+            <span className="label">{t('common.commitMessage')}</span>
             <textarea
               className="input h-[52px] resize-none py-1.5"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="What changed and why"
+              placeholder={t('workingTree.messagePlaceholder')}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void commit();
               }}
@@ -134,7 +135,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
         <div className="flex items-center gap-2">
           {edited && (
             <>
-              <span className="text-xs text-amber-300">SQL edited</span>
+              <span className="text-xs text-amber-300">{t('common.sqlEdited')}</span>
               <button
                 className="text-xs text-gray-400 underline hover:text-gray-200"
                 onClick={() => {
@@ -142,13 +143,13 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                   setDown(diff.downSql);
                 }}
               >
-                reset
+                {t('common.reset')}
               </button>
             </>
           )}
           <span className="flex-1" />
           <button className="btn btn-primary" onClick={() => void commit()} disabled={busy}>
-            <GitCommitHorizontal size={15} /> {busy ? 'Committing…' : 'Commit Changes'}
+            <GitCommitHorizontal size={15} /> {busy ? t('workingTree.committing') : t('workingTree.commit')}
           </button>
         </div>
       </footer>

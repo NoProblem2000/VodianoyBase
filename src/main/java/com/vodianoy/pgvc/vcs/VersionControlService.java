@@ -92,13 +92,12 @@ public class VersionControlService {
             String head = storage.getHead(envId).orElse(null);
             if (request.expectedHead() != null && !request.expectedHead().isBlank()
                     && !request.expectedHead().equals(head)) {
-                throw ApiException.conflict("HEAD of '" + envId + "' has moved to " + shortHash(head)
-                        + " since the working tree was read. Refresh and review the changes again.");
+                throw ApiException.conflict("commit.headMoved", envId, shortHash(head));
             }
             DatabaseSnapshot live = introspector.introspect(envId);
             SchemaDiffResult diff = diffEngine.diff(headSnapshot(envId, head), live);
             if (!diff.isHasChanges() && isBlank(request.upSql())) {
-                throw ApiException.badRequest("Nothing to commit: the database schema matches HEAD");
+                throw ApiException.badRequest("commit.nothing");
             }
             List<AuditLogEntry> audit = storage.readAuditLog(envId);
             CommitRecord commit = newCommit(head, author, message,
@@ -126,11 +125,10 @@ public class VersionControlService {
         String message = requireMessage(request.message());
         String author = author(request.author(), envId);
         if (isBlank(request.upSql())) {
-            throw ApiException.badRequest("UP SQL is empty");
+            throw ApiException.badRequest("migration.upSqlEmpty");
         }
         if (TRANSACTION_CONTROL.matcher(request.upSql()).find()) {
-            throw ApiException.badRequest("UP SQL must not contain BEGIN / COMMIT / ROLLBACK: the migration runs inside"
-                    + " one transaction managed by PgGitVisualizer");
+            throw ApiException.badRequest("migration.transactionControl");
         }
         return environments.getTransactionTemplate(envId).execute(tx -> {
             storage.lockHistory(envId);
@@ -138,8 +136,7 @@ public class VersionControlService {
             DatabaseSnapshot before = introspector.introspect(envId);
             SchemaDiffResult drift = diffEngine.diff(headSnapshot(envId, head), before);
             if (drift.isHasChanges() && !request.allowDirty()) {
-                throw ApiException.conflict("The database has " + drift.getChanges().size() + " uncommitted schema"
-                        + " change(s) (" + summary(drift.getChanges()) + "). Commit them first or allow including them.");
+                throw ApiException.conflict("migration.dirty", drift.getChanges().size(), summary(drift.getChanges()));
             }
 
             environments.getJdbcTemplate(envId).execute(request.upSql());
@@ -170,23 +167,22 @@ public class VersionControlService {
      */
     public RollbackResult rollbackToCommit(String envId, RollbackRequest request) {
         if (isBlank(request.targetHash())) {
-            throw ApiException.badRequest("targetHash is required");
+            throw ApiException.badRequest("rollback.targetRequired");
         }
         if (!isBlank(request.customRollbackSql()) && TRANSACTION_CONTROL.matcher(request.customRollbackSql()).find()) {
-            throw ApiException.badRequest("Rollback SQL must not contain BEGIN / COMMIT / ROLLBACK");
+            throw ApiException.badRequest("rollback.transactionControl");
         }
         return environments.getTransactionTemplate(envId).execute(tx -> {
             storage.lockHistory(envId);
             String head = storage.getHead(envId).orElseThrow(() ->
-                    ApiException.conflict("Environment '" + envId + "' has no commits to roll back"));
+                    ApiException.conflict("rollback.noCommits", envId));
             List<CommitRecord> chain = chainToAncestor(envId, head, request.targetHash());
             CommitRecord target = storage.requireCommit(envId, request.targetHash());
 
             if (!request.allowDirty()) {
                 SchemaDiffResult drift = diffEngine.diff(headSnapshot(envId, head), introspector.introspect(envId));
                 if (drift.isHasChanges()) {
-                    throw ApiException.conflict("The database has uncommitted schema changes (" + summary(drift.getChanges())
-                            + "). Commit or revert them before rolling back.");
+                    throw ApiException.conflict("rollback.dirty", summary(drift.getChanges()));
                 }
             }
 
@@ -198,9 +194,7 @@ public class VersionControlService {
                 SchemaDiffResult rest = diffEngine.diff(parseSnapshot(target.getSchemaSnapshotJson()),
                         introspector.introspect(envId));
                 if (rest.isHasChanges()) {
-                    throw ApiException.conflict("After the rollback SQL the schema still differs from commit "
-                            + shortHash(target.getHash()) + ": " + summary(rest.getChanges())
-                            + ". Nothing was changed. Adjust the rollback SQL.");
+                    throw ApiException.conflict("rollback.verifyFailed", shortHash(target.getHash()), summary(rest.getChanges()));
                 }
             }
             storage.setHead(envId, target.getHash());
@@ -213,7 +207,7 @@ public class VersionControlService {
     /** The down_sql chain a rollback to {@code targetHash} would execute (for review / editing in the UI). */
     public RollbackPlan getRollbackPlan(String envId, String targetHash) {
         String head = storage.getHead(envId).orElseThrow(() ->
-                ApiException.conflict("Environment '" + envId + "' has no commits to roll back"));
+                ApiException.conflict("rollback.noCommits", envId));
         List<CommitRecord> chain = chainToAncestor(envId, head, targetHash);
         return new RollbackPlan(head, targetHash, chain.stream().map(CommitRecord::toNode).toList(), rollbackSql(chain));
     }
@@ -299,13 +293,12 @@ public class VersionControlService {
         String targetEnvId = request.targetEnvironmentId();
         requireDifferent(sourceEnvId, targetEnvId);
         String sourceHead = storage.getHead(sourceEnvId).orElseThrow(() ->
-                ApiException.badRequest("Environment '" + sourceEnvId + "' has no commits to link to"));
+                ApiException.badRequest("link.noCommits", sourceEnvId));
         String requested = isBlank(request.commitHash()) ? null : request.commitHash().strip();
         if (requested != null) {
             storage.requireCommit(sourceEnvId, requested);
             if (!history.ancestors(sourceEnvId, sourceHead).contains(requested)) {
-                throw ApiException.badRequest("Commit " + shortHash(requested) + " is not in the current history of '"
-                        + sourceEnvId + "' (HEAD " + shortHash(sourceHead) + ")");
+                throw ApiException.badRequest("link.notInHistory", shortHash(requested), sourceEnvId, shortHash(sourceHead));
             }
         }
         if (!requireReachable(targetEnvId).initialized()) {
@@ -318,18 +311,14 @@ public class VersionControlService {
             DatabaseSnapshot live = introspector.introspect(targetEnvId);
             CommitRecord commit = requested != null
                     ? storage.requireCommit(sourceEnvId, requested)
-                    : findMatchingCommit(sourceEnvId, sourceHead, live).orElseThrow(() -> ApiException.conflict(
-                            "The schema of '" + targetEnvId + "' does not match any commit of '" + sourceEnvId
-                                    + "'. Choose the commit explicitly to see the differences."));
+                    : findMatchingCommit(sourceEnvId, sourceHead, live).orElseThrow(() -> ApiException.conflict("link.noMatch", targetEnvId, sourceEnvId));
             if (commit.getHash().equals(previousHead)) {
-                throw ApiException.badRequest("Environment '" + targetEnvId + "' is already at " + shortHash(previousHead));
+                throw ApiException.badRequest("sync.alreadyAt", targetEnvId, shortHash(previousHead));
             }
 
             SchemaDiffResult diff = diffEngine.diff(parseSnapshot(commit.getSchemaSnapshotJson()), live);
             if (diff.isHasChanges() && !request.allowSchemaDifferences()) {
-                throw ApiException.conflict("The schema of '" + targetEnvId + "' differs from commit "
-                        + shortHash(commit.getHash()) + " (" + commit.getMessage() + "): " + summary(diff.getChanges())
-                        + ". Nothing was changed. Bring the schemas in line or link to another commit.");
+                throw ApiException.conflict("link.schemaDiffers", targetEnvId, shortHash(commit.getHash()), commit.getMessage(), summary(diff.getChanges()));
             }
 
             List<CommitRecord> linked = history.range(sourceEnvId, null, commit.getHash());
@@ -363,7 +352,7 @@ public class VersionControlService {
         requireDifferent(sourceEnvId, targetEnvId);
         String tip = isBlank(request.targetCommitHash())
                 ? storage.getHead(sourceEnvId).orElseThrow(() ->
-                        ApiException.badRequest("Environment '" + sourceEnvId + "' has no commits to push"))
+                        ApiException.badRequest("push.noCommits", sourceEnvId))
                 : request.targetCommitHash().strip();
         storage.requireCommit(sourceEnvId, tip);
         if (!requireReachable(targetEnvId).initialized()) {
@@ -374,26 +363,22 @@ public class VersionControlService {
             storage.lockHistory(targetEnvId);
             String targetHead = storage.getHead(targetEnvId).orElse(null);
             if (tip.equals(targetHead)) {
-                throw ApiException.badRequest("Environment '" + targetEnvId + "' is already at " + shortHash(tip));
+                throw ApiException.badRequest("sync.alreadyAt", targetEnvId, shortHash(tip));
             }
             if (targetHead != null && !history.ancestors(sourceEnvId, tip).contains(targetHead)) {
-                throw ApiException.conflict("Cannot push: HEAD " + shortHash(targetHead) + " of '" + targetEnvId
-                        + "' is not an ancestor of " + shortHash(tip) + " in '" + sourceEnvId
-                        + "' (the target is ahead or the histories diverged)");
+                throw ApiException.conflict("push.notAncestor", shortHash(targetHead), targetEnvId, shortHash(tip), sourceEnvId);
             }
             List<CommitRecord> commits = history.range(sourceEnvId, targetHead, tip);
 
             if (!request.allowDirty()) {
                 DatabaseSnapshot live = introspector.introspect(targetEnvId);
                 if (targetHead == null && !live.isEmpty()) {
-                    throw ApiException.conflict("'" + targetEnvId + "' has no version history but already contains"
-                            + " tables, views or sequences. Commit them there first, or allow pushing on top of them.");
+                    throw ApiException.conflict("push.untrackedTarget", targetEnvId);
                 }
                 if (targetHead != null) {
                     SchemaDiffResult drift = diffEngine.diff(headSnapshot(targetEnvId, targetHead), live);
                     if (drift.isHasChanges()) {
-                        throw ApiException.conflict("'" + targetEnvId + "' has uncommitted schema changes ("
-                                + summary(drift.getChanges()) + "). Commit them there first, or allow pushing anyway.");
+                        throw ApiException.conflict("push.dirty", targetEnvId, summary(drift.getChanges()));
                     }
                 }
             }
@@ -402,9 +387,8 @@ public class VersionControlService {
                 try {
                     environments.getJdbcTemplate(targetEnvId).execute(c.getUpSql());
                 } catch (DataAccessException e) {
-                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "Commit " + shortHash(c.getHash()) + " ("
-                            + c.getMessage() + ") failed on '" + targetEnvId + "': "
-                            + NestedExceptionUtils.getMostSpecificCause(e).getMessage() + ". Nothing was applied.");
+                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "push.commitFailed", shortHash(c.getHash()),
+                            c.getMessage(), targetEnvId, NestedExceptionUtils.getMostSpecificCause(e).getMessage());
                 }
                 storage.insertCommit(targetEnvId, c);
             }
@@ -417,9 +401,7 @@ public class VersionControlService {
                 SchemaDiffResult rest = diffEngine.diff(parseSnapshot(last.getSchemaSnapshotJson()),
                         introspector.introspect(targetEnvId));
                 if (rest.isHasChanges()) {
-                    throw ApiException.conflict("After applying the commits the schema of '" + targetEnvId
-                            + "' differs from commit " + shortHash(tip) + ": " + summary(rest.getChanges())
-                            + ". Nothing was applied.");
+                    throw ApiException.conflict("push.verifyFailed", targetEnvId, shortHash(tip), summary(rest.getChanges()));
                 }
             }
             log.info("Pushed {} commit(s) {} -> {}: HEAD {} -> {}", commits.size(), sourceEnvId, targetEnvId,
@@ -476,17 +458,17 @@ public class VersionControlService {
     private PgVcStatus requireReachable(String envId) {
         PgVcStatus status = storage.getStatus(envId);
         if (!status.reachable()) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Cannot connect to '" + envId + "': " + status.error());
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "env.unreachable", envId, status.error());
         }
         return status;
     }
 
     private static void requireDifferent(String sourceEnvId, String targetEnvId) {
         if (sourceEnvId == null || targetEnvId == null) {
-            throw ApiException.badRequest("Source and target environments are required");
+            throw ApiException.badRequest("sync.envsRequired");
         }
         if (sourceEnvId.equals(targetEnvId)) {
-            throw ApiException.badRequest("Source and target environments must be different");
+            throw ApiException.badRequest("sync.envsSame");
         }
     }
 
@@ -513,18 +495,17 @@ public class VersionControlService {
     /** Commits from HEAD (inclusive) down to the target (exclusive), newest first. */
     private List<CommitRecord> chainToAncestor(String envId, String head, String targetHash) {
         if (targetHash == null || targetHash.isBlank()) {
-            throw ApiException.badRequest("targetHash is required");
+            throw ApiException.badRequest("rollback.targetRequired");
         }
         if (targetHash.equals(head)) {
-            throw ApiException.badRequest("The environment is already at commit " + shortHash(targetHash));
+            throw ApiException.badRequest("rollback.alreadyAt", shortHash(targetHash));
         }
         storage.requireCommit(envId, targetHash);
         List<CommitRecord> chain;
         try {
             chain = new ArrayList<>(history.range(envId, targetHash, head));
         } catch (ApiException e) {
-            throw ApiException.conflict("Commit " + shortHash(targetHash) + " is not an ancestor of HEAD "
-                    + shortHash(head) + ": only earlier commits of the current history can be restored");
+            throw ApiException.conflict("rollback.notAncestor", shortHash(targetHash), shortHash(head));
         }
         Collections.reverse(chain);
         return chain;
@@ -595,7 +576,7 @@ public class VersionControlService {
 
     private static String requireMessage(String message) {
         if (isBlank(message)) {
-            throw ApiException.badRequest("Commit message is required");
+            throw ApiException.badRequest("commit.messageRequired");
         }
         return message.strip();
     }

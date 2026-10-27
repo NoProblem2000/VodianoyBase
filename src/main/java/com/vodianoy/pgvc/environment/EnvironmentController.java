@@ -73,7 +73,7 @@ public class EnvironmentController {
     @PutMapping("/active")
     public EnvironmentView activate(@RequestBody ActivateEnvironmentRequest request) {
         if (request == null || request.environmentId() == null || request.environmentId().isBlank()) {
-            throw ApiException.badRequest("environmentId is required");
+            throw ApiException.badRequest("env.idRequired");
         }
         environments.activateEnvironment(request.environmentId());
         return environments.getView(request.environmentId());

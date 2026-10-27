@@ -28,7 +28,7 @@ public class CommitHistory {
      */
     public List<CommitRecord> range(String envId, String fromExclusive, String toInclusive) {
         if (toInclusive == null || toInclusive.isBlank()) {
-            throw ApiException.badRequest("Target commit is required");
+            throw ApiException.badRequest("history.targetRequired");
         }
         if (toInclusive.equals(fromExclusive)) {
             return List.of();
@@ -41,15 +41,14 @@ public class CommitHistory {
         String current = toInclusive;
         while (current != null && !current.equals(fromExclusive)) {
             if (!seen.add(current)) {
-                throw ApiException.conflict("Cycle in the commit history at " + shortHash(current));
+                throw ApiException.conflict("history.cycle", shortHash(current));
             }
             CommitRecord c = storage.requireCommit(envId, current);
             chain.add(c);
             current = c.getParentHash();
         }
         if (fromExclusive != null && current == null) {
-            throw ApiException.conflict("Commit " + shortHash(fromExclusive) + " is not an ancestor of "
-                    + shortHash(toInclusive) + " in environment '" + envId + "'");
+            throw ApiException.conflict("history.notAncestor", shortHash(fromExclusive), shortHash(toInclusive), envId);
         }
         Collections.reverse(chain);
         return chain;

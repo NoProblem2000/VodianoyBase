@@ -5,6 +5,7 @@ import type { EnvironmentView, RollbackPlan, RollbackResult } from '../api/types
 import { firstLine, shortHash } from '../lib/format';
 import { Modal } from './Modal';
 import { SqlEditor } from './SqlEditor';
+import { useI18n } from '../i18n';
 import { useToast } from './Toasts';
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 
 export function RollbackModal({ env, targetHash, onDone, onClose }: Props) {
   const toast = useToast();
+  const { t, tn } = useI18n();
   const [plan, setPlan] = useState<RollbackPlan | null>(null);
   const [sql, setSql] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,9 @@ export function RollbackModal({ env, targetHash, onDone, onClose }: Props) {
         allowDirty,
         skipVerification,
       });
-      toast.success(`${env.name} rolled back to ${shortHash(result.newHead)} (${result.revertedCommits.length} commit(s) reverted)`);
+      toast.success(
+        t('rollback.done', { env: env.name, hash: shortHash(result.newHead), commits: tn('plural.commits', result.revertedCommits.length) }),
+      );
       onDone(result);
     } catch (e) {
       toast.error((e as Error).message);
@@ -54,26 +58,26 @@ export function RollbackModal({ env, targetHash, onDone, onClose }: Props) {
 
   return (
     <Modal
-      title={`Rollback ${env.name} to ${shortHash(targetHash)}`}
-      subtitle="The script runs in one transaction; the resulting schema must match the snapshot of the target commit."
+      title={t('rollback.title', { env: env.name, hash: shortHash(targetHash) })}
+      subtitle={t('rollback.subtitle')}
       onClose={onClose}
       width="max-w-5xl"
       footer={
         <>
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} />
-            Allow uncommitted changes
+            {t('rollback.allowDirty')}
           </label>
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <input type="checkbox" checked={skipVerification} onChange={(e) => setSkipVerification(e.target.checked)} />
-            Skip schema verification
+            {t('common.skipVerification')}
           </label>
           <span className="flex-1" />
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="btn btn-danger" onClick={() => void rollback()} disabled={!plan || busy}>
-            <RotateCcw size={14} /> {busy ? 'Rolling back…' : 'Roll back database'}
+            <RotateCcw size={14} /> {busy ? t('rollback.rollingBack') : t('rollback.confirm')}
           </button>
         </>
       }
@@ -84,8 +88,11 @@ export function RollbackModal({ env, targetHash, onDone, onClose }: Props) {
           <div className="flex items-start gap-2 rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-[12.5px] text-amber-200">
             <TriangleAlert size={15} className="mt-0.5 shrink-0" />
             <div>
-              Reverts {plan.commitsToRevert.length} commit{plan.commitsToRevert.length === 1 ? '' : 's'} on {env.name}. Dropped
-              tables and columns lose their data. The commits stay in the history; HEAD moves to {shortHash(targetHash)}.
+              {t('rollback.warning', {
+                commits: tn('plural.commits', plan.commitsToRevert.length),
+                env: env.name,
+                hash: shortHash(targetHash),
+              })}
             </div>
           </div>
           <ol className="rounded-md border border-kraken-line px-3 py-1.5">
@@ -99,12 +106,12 @@ export function RollbackModal({ env, targetHash, onDone, onClose }: Props) {
           </ol>
           <div>
             <div className="mb-1.5 flex items-center gap-2">
-              <span className="panel-title">Rollback script</span>
+              <span className="panel-title">{t('rollback.script')}</span>
               {sql !== plan.rollbackSql && (
                 <>
-                  <span className="text-xs text-amber-300">edited</span>
+                  <span className="text-xs text-amber-300">{t('common.edited')}</span>
                   <button className="text-xs text-gray-400 underline hover:text-gray-200" onClick={() => setSql(plan.rollbackSql)}>
-                    reset
+                    {t('common.reset')}
                   </button>
                 </>
               )}

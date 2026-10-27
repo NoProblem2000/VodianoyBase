@@ -3,6 +3,7 @@ import { CheckCircle2, Plug, Plus, ShieldAlert, Trash2, XCircle } from 'lucide-r
 import { api } from '../api/client';
 import type { ConnectionTestResult, EnvironmentInput, EnvironmentView, PgVcStatus } from '../api/types';
 import { Modal } from './Modal';
+import { useI18n } from '../i18n';
 import { useToast } from './Toasts';
 
 interface Props {
@@ -38,6 +39,7 @@ function toForm(env: EnvironmentView): EnvironmentInput {
 
 export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
   const toast = useToast();
+  const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(environments[0]?.id ?? null);
   const [form, setForm] = useState<EnvironmentInput>(environments[0] ? toForm(environments[0]) : emptyForm(0));
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
@@ -79,7 +81,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
   const save = () =>
     run(async () => {
       const saved = selectedId ? await api.updateEnvironment(selectedId, payload()) : await api.addEnvironment(payload());
-      toast.success(`Saved ${saved.name}`);
+      toast.success(t('environments.saved', { name: saved.name }));
       setSelectedId(saved.id);
       setForm(toForm(saved));
       onChanged();
@@ -87,8 +89,8 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
 
   return (
     <Modal
-      title="Environments"
-      subtitle="Database connections are stored in pgvc-environments.json next to the application."
+      title={t('environments.title')}
+      subtitle={t('environments.subtitle')}
       onClose={onClose}
       width="max-w-4xl"
     >
@@ -104,7 +106,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
             >
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: env.colorBadge }} />
               <span className="flex-1 truncate">{env.name}</span>
-              {env.active && <span className="text-[10.5px] text-teal-400">active</span>}
+              {env.active && <span className="text-[10.5px] text-teal-400">{t('environments.active')}</span>}
             </button>
           ))}
           <button
@@ -113,7 +115,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
               selectedId === null ? 'bg-kraken-raised' : 'hover:bg-kraken-hover'
             }`}
           >
-            <Plus size={14} /> Add environment
+            <Plus size={14} /> {t('environments.add')}
           </button>
         </nav>
 
@@ -126,11 +128,11 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
         >
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <label>
-              <span className="label">Name</span>
-              <input className="input" placeholder="Dev, Test, Stage, Prod" required {...field('name')} />
+              <span className="label">{t('environments.name')}</span>
+              <input className="input" placeholder={t('environments.namePlaceholder')} required {...field('name')} />
             </label>
             <label>
-              <span className="label">Badge color</span>
+              <span className="label">{t('environments.color')}</span>
               <input
                 type="color"
                 className="h-8 w-16 cursor-pointer rounded-md border border-kraken-line bg-kraken-bg p-0.5"
@@ -139,32 +141,31 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
             </label>
           </div>
           <label>
-            <span className="label">JDBC URL</span>
+            <span className="label">{t('environments.jdbcUrl')}</span>
             <input className="input font-mono" spellCheck={false} required {...field('jdbcUrl')} />
           </label>
           <div className="grid grid-cols-3 gap-3">
             <label>
-              <span className="label">User</span>
+              <span className="label">{t('environments.user')}</span>
               <input className="input" autoComplete="off" {...field('username')} />
             </label>
             <label>
-              <span className="label">Password</span>
+              <span className="label">{t('environments.password')}</span>
               <input
                 className="input"
                 type="password"
                 autoComplete="new-password"
-                placeholder={selectedId ? 'unchanged' : ''}
+                placeholder={selectedId ? t('environments.passwordUnchanged') : ''}
                 {...field('password')}
               />
             </label>
             <label>
-              <span className="label">Default schema</span>
+              <span className="label">{t('environments.defaultSchema')}</span>
               <input className="input" {...field('schemaName')} />
             </label>
           </div>
           <p className="text-xs text-gray-500">
-            Version control tracks every user schema of the database; the default schema is only the search_path of the
-            connection. Initializing version control needs a SUPERUSER (it installs DDL event triggers).
+            {t('environments.hint')}
           </p>
 
           {test && (
@@ -186,7 +187,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
           )}
           {status && status.reachable && !status.initialized && (
             <div className="flex items-center gap-2 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-[12.5px] text-amber-200">
-              <ShieldAlert size={15} /> Version control is not initialized in this database yet.
+              <ShieldAlert size={15} /> {t('environments.notInitialized')}
             </div>
           )}
 
@@ -197,7 +198,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
                 className="btn btn-danger"
                 disabled={busy}
                 onClick={() => {
-                  if (!window.confirm(`Remove ${form.name} from the list? The database itself is not changed.`)) return;
+                  if (!window.confirm(t('environments.removeConfirm', { name: form.name }))) return;
                   void run(async () => {
                     await api.deleteEnvironment(selectedId);
                     onChanged();
@@ -206,7 +207,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
                   });
                 }}
               >
-                <Trash2 size={14} /> Remove
+                <Trash2 size={14} /> {t('environments.remove')}
               </button>
             )}
             <span className="flex-1" />
@@ -216,7 +217,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
               disabled={busy}
               onClick={() => void run(async () => setTest(await api.testConnection(payload())))}
             >
-              <Plug size={14} /> Test connection
+              <Plug size={14} /> {t('environments.test')}
             </button>
             {status && status.reachable && !status.initialized && selectedId && (
               <button
@@ -226,16 +227,16 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
                 onClick={() =>
                   void run(async () => {
                     setStatus(await api.initialize(selectedId));
-                    toast.success('Version control initialized: schema _pgvc and DDL event triggers installed');
+                    toast.success(t('environments.initialized'));
                     onChanged();
                   })
                 }
               >
-                Initialize version control
+                {t('environments.initialize')}
               </button>
             )}
             <button type="submit" className="btn btn-primary" disabled={busy}>
-              Save
+              {t('common.save')}
             </button>
           </div>
         </form>

@@ -5,6 +5,8 @@ import type { GraphCommit } from './api/types';
 import { useAppData } from './hooks/useAppData';
 import { ancestorsOf } from './lib/graphLayout';
 import { loadSetting, saveSetting } from './lib/storage';
+import { I18nProvider, useI18n } from './i18n';
+import { AboutModal } from './components/AboutModal';
 import { AuditLogPanel } from './components/AuditLogPanel';
 import { CommitGraph, WORKING_TREE_ID } from './components/CommitGraph';
 import { CommitInspector } from './components/CommitInspector';
@@ -24,18 +26,22 @@ type ModalState =
   | { kind: 'new-migration' }
   | { kind: 'export'; source?: string; from?: string | null; to?: string }
   | { kind: 'sync' }
-  | { kind: 'rollback'; target: string };
+  | { kind: 'rollback'; target: string }
+  | { kind: 'about' };
 
 export function App() {
   return (
-    <ToastProvider>
-      <Workspace />
-    </ToastProvider>
+    <I18nProvider>
+      <ToastProvider>
+        <Workspace />
+      </ToastProvider>
+    </I18nProvider>
   );
 }
 
 function Workspace() {
   const toast = useToast();
+  const { t, tn, rich } = useI18n();
   const data = useAppData(toast.error);
   const { environments, activeEnv, graph, status, workingTree, snapshot, auditLog } = data;
   const [selected, setSelected] = useState<string | null>(null);
@@ -63,9 +69,9 @@ function Workspace() {
     : null;
 
   function rollbackBlockedReason(commit: GraphCommit): string | null {
-    if (!activeEnv || !ready) return 'The active environment is not available';
-    if (commit.hash === activeHead) return `${activeEnv.name} is already at this commit`;
-    if (!activeAncestors.has(commit.hash)) return `Not an earlier commit of ${activeEnv.name}'s history`;
+    if (!activeEnv || !ready) return t('app.rollbackUnavailable');
+    if (commit.hash === activeHead) return t('app.rollbackAlreadyHere', { name: activeEnv.name });
+    if (!activeAncestors.has(commit.hash)) return t('app.rollbackNotAncestor', { name: activeEnv.name });
     return null;
   }
 
@@ -83,7 +89,7 @@ function Workspace() {
     setInitializing(true);
     try {
       await api.initialize(activeEnv.id);
-      toast.success(`Version control initialized in ${activeEnv.name}`);
+      toast.success(t('app.initialized', { name: activeEnv.name }));
       await data.refresh();
     } catch (e) {
       toast.error((e as Error).message);
@@ -108,16 +114,15 @@ function Workspace() {
         onExport={() => setModal({ kind: 'export' })}
         onSync={() => setModal({ kind: 'sync' })}
         onRefresh={() => void data.refresh()}
+        onAbout={() => setModal({ kind: 'about' })}
       />
 
       {activeEnv && status && !status.reachable && (
         <div className="flex items-center gap-3 border-b border-red-900 bg-red-950/40 px-4 py-2 text-[12.5px] text-red-200">
           <ServerCrash size={15} />
-          <span className="flex-1">
-            Cannot connect to <b>{activeEnv.name}</b>: {status.error}
-          </span>
+          <span className="flex-1">{rich('app.cannotConnect', { name: <b>{activeEnv.name}</b>, error: status.error })}</span>
           <button className="btn" onClick={() => setModal({ kind: 'environments' })}>
-            Edit connection
+            {t('app.editConnection')}
           </button>
         </div>
       )}
@@ -125,11 +130,10 @@ function Workspace() {
         <div className="flex items-center gap-3 border-b border-amber-900 bg-amber-950/30 px-4 py-2 text-[12.5px] text-amber-100">
           <ShieldAlert size={15} />
           <span className="flex-1">
-            Version control is not set up in <b>{activeEnv.name}</b> yet. Initializing creates the <code>_pgvc</code> schema and
-            the DDL event triggers{status.superuser ? '.' : ' and needs a SUPERUSER connection.'}
+            {rich(status.superuser ? 'app.notInitialized' : 'app.notInitializedNoSuperuser', { name: <b>{activeEnv.name}</b> })}
           </span>
           <button className="btn btn-primary" onClick={() => void initialize()} disabled={initializing}>
-            {initializing ? 'Initializing…' : 'Initialize version control'}
+            {initializing ? t('app.initializing') : t('app.initialize')}
           </button>
         </div>
       )}
@@ -143,25 +147,21 @@ function Workspace() {
           <AuditLogPanel entries={auditLog} live={ready} />
         </aside>
 
-        <section className="relative min-h-0 bg-kraken-bg" aria-label="Commit graph">
+        <section className="relative min-h-0 bg-kraken-bg" aria-label={t('app.commitGraph')}>
           {environments.length === 0 && !data.loading ? (
             <EmptyState
-              title="Track your PostgreSQL schema like a git repository"
-              text="Add a database connection to start. Every schema change becomes a commit you can push to other environments or export for an isolated site."
+              title={t('app.welcomeTitle')}
+              text={t('app.welcomeText')}
               action={
                 <button className="btn btn-primary" onClick={() => setModal({ kind: 'environments' })}>
-                  <Plus size={14} /> Add a database
+                  <Plus size={14} /> {t('app.addDatabase')}
                 </button>
               }
             />
           ) : graph && graph.commits.length === 0 && !hasChanges ? (
             <EmptyState
-              title="No commits yet"
-              text={
-                ready
-                  ? 'Change the schema in your IDE and the changes appear here as the working tree, or run a migration with New SQL Migration. The first commit records the current schema as the baseline.'
-                  : 'Initialize version control in the active environment to start recording commits.'
-              }
+              title={t('app.noCommitsTitle')}
+              text={ready ? t('app.noCommitsReady') : t('app.noCommitsNotReady')}
             />
           ) : (
             <CommitGraph
@@ -201,12 +201,10 @@ function Workspace() {
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-gray-400">
               <DatabaseZap size={28} className="text-gray-600" />
-              <p className="max-w-xs">
-                Select the working tree to review and commit changes, or a commit to see its SQL, export it or roll back to it.
-              </p>
+              <p className="max-w-xs">{t('app.inspectorHint')}</p>
               {hasChanges && (
                 <button className="btn" onClick={() => setSelected(WORKING_TREE_ID)}>
-                  Review {workingTree?.diff.changes.length} uncommitted change{workingTree?.diff.changes.length === 1 ? '' : 's'}
+                  {tn('plural.uncommittedChanges', workingTree?.diff.changes.length ?? 0)}
                 </button>
               )}
             </div>
@@ -244,6 +242,7 @@ function Workspace() {
           onClose={closeModal}
         />
       )}
+      {modal.kind === 'about' && <AboutModal onClose={closeModal} />}
       {modal.kind === 'rollback' && activeEnv && (
         <RollbackModal env={activeEnv} targetHash={modal.target} onDone={(r) => void afterChange(r.newHead)} onClose={closeModal} />
       )}

@@ -1,292 +1,241 @@
 # PgGitVisualizer (pg-git-vc)
 
-Контроль версий схемы PostgreSQL 11+ с визуальным графом коммитов в стиле GitKraken.
-Один исполняемый файл `pg-git-vc-1.1.0.jar` (Spring Boot 3 + встроенный React UI), без Docker.
+**[English](#english) · [Русский](#русский)**
 
-Проект развивается по шагам; каждый шаг — отдельная ветка и Pull Request в `main`.
+Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
+One executable `pg-git-vc-1.2.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+Open source under the [Apache License 2.0](LICENSE).
 
-| Шаг | Содержание | Статус |
-|---|---|---|
-| 1 | Backend core, менеджер окружений, инициализатор `_pgvc` | готов |
-| 2 | Интроспектор схемы PostgreSQL 11+ (`pg_catalog`) | готов |
-| 3 | Diff Engine, коммиты (Mode A / Mode B) и откат | готов |
-| 4 | Офлайн SQL-бандлы, синхронизация окружений, REST | готов |
-| 5 | Веб-интерфейс (React + TypeScript), ручное тестирование | готов |
-| 6 | Привязка существующих окружений к общей истории (baseline) | готов |
+---
 
-## Готовый jar
+## English
 
-Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases) —
-тогда нужна только Java 17+: `java -jar pg-git-vc-1.1.0.jar` и http://localhost:8765. Релиз собирается
-автоматически (`.github/workflows/release.yml`): поднимите версию в `pom.xml`, добавьте заметки
-`.github/release/vX.Y.Z.md` и влейте в `main` — workflow соберёт jar, создаст тег `vX.Y.Z` и опубликует релиз.
+### What it does
 
-## Быстрый старт: сборка и запуск
+- **Mode A — capture changes made in your IDE.** Change the schema in DBeaver, pgAdmin or DataGrip: `EVENT TRIGGER`s
+  log the DDL into `_pgvc.ddl_audit_log`, and the introspector compares `pg_catalog` with the snapshot of `HEAD`.
+  A pulsing **Working Tree** node appears on top of the graph with ready-made `UP SQL` / `DOWN SQL` that you can edit
+  and commit.
+- **Mode B — migrations from the UI.** `UP SQL` runs in one transaction together with introspection and the commit
+  record; any error rolls everything back. `DOWN SQL` is generated if you leave it empty.
+- **Environments (Dev / Test / Stage / Prod …).** Connections live in `./pgvc-environments.json`. Colored badges on
+  the graph show which commit every database is at. **Sync / Push to Env** applies the missing commits to another
+  environment in one transaction; **Link** attaches an environment that already has the schema to the shared history
+  without running SQL.
+- **Rollback** of a database to any earlier commit, with an editable script and a schema check afterwards.
+- **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
+  records them — all inside `BEGIN … COMMIT`.
+- **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
+  materialized views and sequences; renames are detected by `oid` / `attnum`. Only `pg_catalog` is used.
+- **Russian and English UI**, switched instantly; server messages follow the selected language.
 
-**Что нужно установить:** JDK 17 или новее и Maven 3.9+. Node.js ставить не нужно — Maven сам скачает его в
-`target/node`, соберёт React-интерфейс из `frontend/` и положит его внутрь jar. Docker не нужен.
+### Download and run
 
-1. Соберите единый jar (первая сборка дольше — скачиваются зависимости и Node.js):
+Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2000/VodianoyBase/releases).
+Only **Java 17+** is needed:
 
-   ```bash
-   mvn clean package
-   ```
+```bash
+java -jar pg-git-vc-1.2.0.jar
+```
 
-   Результат: `target/pg-git-vc-1.1.0.jar` — бэкенд и UI в одном файле. Чтобы пропустить тесты:
-   `mvn clean package -DskipTests`.
+Open http://localhost:8765.
 
-2. Запустите:
+### Build from source
 
-   ```bash
-   java -jar target/pg-git-vc-1.1.0.jar
-   ```
+Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven downloads it into `target/node`, builds
+the React UI from `frontend/` and puts it into the jar.
 
-3. Откройте в браузере http://localhost:8765.
+```bash
+mvn clean package                  # tests + UI + target/pg-git-vc-1.2.0.jar
+mvn clean package -DskipTests      # faster, without tests
+java -jar target/pg-git-vc-1.2.0.jar
+```
 
-4. Первые шаги в интерфейсе:
-   - **Environments** (верхняя панель) → заполните имя, JDBC URL (`jdbc:postgresql://host:5432/db`), пользователя и
-     пароль → **Test connection** → **Save**. Список сохранится в `pgvc-environments.json` рядом с местом запуска.
-   - **Initialize version control** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
-   - Вверху графа появится **Working Tree** со всей текущей схемой — подпишите и нажмите **Commit Changes**
-     (это базовый коммит).
-   - Дальше меняйте схему в DBeaver / pgAdmin (Mode A) или через **New SQL Migration** (Mode B).
-   - Остальные окружения, где такая же схема уже есть (Stage, Prod…), **не коммитьте отдельно**, а привяжите к
-     истории первого: **Sync / Push to Env** → источник — первое окружение, цель — другое → **Link to …**
-     (см. «Привязка существующего окружения»). Если окружение уже закоммичено отдельно — тоже привяжите,
-     его собственные коммиты заменятся.
+Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
+UI development with hot reload: start the jar, then `cd frontend && npm ci && npm run dev`
+(http://localhost:5173, `/api` is proxied to `:8765`).
 
-Порт можно сменить: `java -jar target/pg-git-vc-1.1.0.jar --server.port=9000`. По умолчанию приложение слушает
-только `127.0.0.1`.
+### First steps
 
-`mvn package -DskipFrontend` собирает только бэкенд. Для разработки UI с горячей перезагрузкой:
-запустите jar и затем `cd frontend && npm ci && npm run dev` (http://localhost:5173, `/api` проксируется на `:8765`).
+1. **Environments** (top bar) → name, JDBC URL (`jdbc:postgresql://host:5432/db`), user, password →
+   **Test connection** → **Save**.
+2. **Initialize version control** — creates the `_pgvc` schema and the event triggers (needs a `SUPERUSER`).
+3. The **Working Tree** shows the whole current schema: enter an author and a message and press **Commit Changes** —
+   this is the baseline.
+4. Do **not** commit other environments that already have the same schema separately: open **Sync / Push to Env**,
+   choose the first environment as the source and the other one as the target, press **Link to …**. Later commits are
+   delivered with **Push**.
 
-## Интерфейс (Шаг 5)
+### Interface
 
-React 18 + TypeScript + Vite + TailwindCSS, граф — `@xyflow/react`, редактор SQL — `@monaco-editor/react`
-(Monaco собран локально, без CDN), иконки — `lucide-react`, HTTP — `axios`. Тёмная палитра в стиле GitKraken.
+- **Top bar:** environment switcher and **Environments**; **New SQL Migration (Mode B)**; **Export Offline .SQL**;
+  **Sync / Push to Env**; language switch **RU | EN**; **About & License**.
+- **Left:** Schema Explorer (Tables / Partitions / Views / Sequences) with a filter and change indicators
+  **A** added · **M** modified · **R** renamed · **D** deleted; below it the **Live DDL Audit Log**.
+- **Center:** commit graph growing upwards, with environment badges and a separate lane for diverged histories.
+- **Right:** Working Tree (changes, editable UP/DOWN SQL, commit) or a commit (changes, UP / DOWN / Snapshot /
+  DDL Trigger Log, single-commit export, rollback).
 
-- **Верхняя панель:** переключатель окружения и окно **Environments** (добавить / изменить / проверить подключение);
-  **New SQL Migration (Mode B)** — Monaco-редактор UP/DOWN SQL, выполнение и коммит в одной транзакции;
-  **Export Offline .SQL** — бандл по диапазону коммитов с предпросмотром; **Sync / Push to Env** — сравнение
-  окружений и накат недостающих коммитов.
-- **Слева:** Schema Explorer (Tables / Partitions / Views / Sequences) с фильтром и индикаторами незакоммиченных
-  изменений — **A** (добавлено, зелёный), **M** (изменено, жёлтый), **R** (переименовано, синий), **D** (удалено,
-  красный); ниже **Live DDL Audit Log** (пользователь БД и время, обновляется каждые 5 секунд).
-- **В центре:** граф коммитов снизу вверх: короткий хеш, сообщение, автор, дата и цветные бейджи окружений, чей
-  `HEAD` указывает на коммит. Если есть незакоммиченные изменения, сверху пульсирует узел
-  **Working Tree (Uncommitted Changes)**. Разошедшиеся истории окружений рисуются отдельными линиями.
-- **Справа:** для Working Tree — список изменений, редактируемые UP/DOWN SQL, автор, сообщение и **Commit Changes**;
-  для коммита — детали, изменения, вкладки **UP / DOWN / DDL Trigger Log**, **Export Single Commit .SQL** и
-  **Rollback DB to here** (окно подтверждения с редактируемым скриптом отката).
+The language is stored in the browser (`localStorage`, key `pgvc_lang`, default `ru`); every API request carries
+`Accept-Language`, so server errors come back in the same language.
 
-Настройки (`application.yml`, или `--ключ=значение` при запуске):
+### Architecture
+
+```
+frontend/                         React 18 + TypeScript + Vite + Tailwind, @xyflow/react, @monaco-editor/react
+  src/i18n/                       typed i18n context, en.json / ru.json
+src/main/java/com/vodianoy/pgvc/
+  environment/                    connections (pgvc-environments.json), one Hikari pool per environment
+  storage/                        _pgvc schema: commits, refs, DDL audit log, event triggers
+  introspection/                  pg_catalog -> DatabaseSnapshot (SQL in resources/db/introspection)
+  diff/                           SchemaDiffEngine: snapshot A -> B = ordered UP / DOWN DDL
+  vcs/                            commit (Mode A/B), rollback, compare, push, link, global graph
+  migration/                      offline .sql bundles
+  about/, common/, config/        /api/about, errors and i18n (resources/i18n/messages_*.properties)
+```
+
+Everything that changes a database runs in one transaction of that database and is verified against the schema
+snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bundles, linking, tests):
+[docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md) (in Russian).
+
+### Configuration
+
+| Property | Default |
+|---|---|
+| `server.port` | `8765` |
+| `server.address` | `127.0.0.1` (local only) |
+| `pgvc.environments-file` | `./pgvc-environments.json` (passwords in plain text — keep it private) |
+| `pgvc.connect-timeout-seconds` | `5` |
+| `pgvc.max-pool-size` | `4` connections per environment |
+
+### Releases
+
+Bump the version in `pom.xml`, add release notes `.github/release/vX.Y.Z.md` and merge into `main`:
+`.github/workflows/release.yml` builds the jar, creates the tag `vX.Y.Z` and publishes the release with the jar and
+its SHA-256.
+
+### License
+
+Copyright 2026 NoProblem2000.
+
+Licensed under the **Apache License, Version 2.0** (the "License"); you may not use this software except in compliance
+with the License. You may obtain a copy of the License in [LICENSE](LICENSE) or at
+https://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an **"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**,
+either express or implied. See the License for the specific language governing permissions and limitations.
+
+---
+
+## Русский
+
+### Что умеет
+
+- **Mode A — перехват изменений из IDE.** Меняете схему в DBeaver, pgAdmin или DataGrip — `EVENT TRIGGER` пишут DDL в
+  `_pgvc.ddl_audit_log`, а интроспектор сравнивает `pg_catalog` со снимком `HEAD`. Вверху графа пульсирует узел
+  **Working Tree** с готовыми `UP SQL` / `DOWN SQL`, которые можно поправить и закоммитить.
+- **Mode B — миграция из интерфейса.** `UP SQL` выполняется в одной транзакции вместе с интроспекцией и записью
+  коммита; любая ошибка откатывает всё. `DOWN SQL` сгенерируется, если оставить его пустым.
+- **Окружения (Dev / Test / Stage / Prod …).** Подключения хранятся в `./pgvc-environments.json`. Цветные бейджи на
+  графе показывают, на каком коммите каждая база. **Синхронизация / Push** накатывает недостающие коммиты в другое
+  окружение одной транзакцией; **привязка (Link)** подключает к общей истории окружение, где схема уже есть, без
+  выполнения SQL.
+- **Откат** базы к любому более раннему коммиту — с редактируемым скриптом и проверкой схемы после него.
+- **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
+  коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
+- Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
+  материализованные представления и последовательности; переименования распознаются по `oid` / `attnum`. Источник —
+  только `pg_catalog`.
+- **Интерфейс на русском и английском** с мгновенным переключением; сообщения сервера приходят на выбранном языке.
+
+### Скачать и запустить
+
+Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases).
+Нужна только **Java 17+**:
+
+```bash
+java -jar pg-git-vc-1.2.0.jar
+```
+
+Откройте http://localhost:8765.
+
+### Сборка из исходников
+
+Нужны **JDK 17+** и **Maven 3.9+**. Node.js ставить не нужно — Maven сам скачает его в `target/node`, соберёт
+React-интерфейс из `frontend/` и положит его внутрь jar.
+
+```bash
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.2.0.jar
+mvn clean package -DskipTests      # быстрее, без тестов
+java -jar target/pg-git-vc-1.2.0.jar
+```
+
+Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
+Разработка интерфейса с горячей перезагрузкой: запустите jar, затем `cd frontend && npm ci && npm run dev`
+(http://localhost:5173, `/api` проксируется на `:8765`).
+
+### Первые шаги
+
+1. **Окружения** (верхняя панель) → имя, JDBC URL (`jdbc:postgresql://host:5432/db`), пользователь, пароль →
+   **Проверить подключение** → **Сохранить**.
+2. **Подключить контроль версий** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
+3. В **Working Tree** появится вся текущая схема: укажите автора и сообщение и нажмите **Закоммитить изменения** —
+   это базовый коммит.
+4. Остальные окружения, где такая же схема уже есть, **не коммитьте отдельно**: откройте **Синхронизация / Push**,
+   источник — первое окружение, цель — другое, нажмите **Привязать к …**. Дальнейшие коммиты доставляются кнопкой
+   **Накатить**.
+
+### Интерфейс
+
+- **Верхняя панель:** переключатель окружения и **Окружения**; **Новая SQL-миграция (Mode B)**;
+  **Экспорт офлайн .SQL**; **Синхронизация / Push**; переключатель языка **RU | EN**; **О проекте и лицензии**.
+- **Слева:** обозреватель схемы (Таблицы / Партиции / Представления / Последовательности) с фильтром и индикаторами
+  **A** добавлено · **M** изменено · **R** переименовано · **D** удалено; ниже — **Журнал DDL (онлайн)**.
+- **В центре:** граф коммитов растёт снизу вверх, с бейджами окружений и отдельной линией для разошедшихся историй.
+- **Справа:** Working Tree (изменения, редактируемые UP/DOWN SQL, коммит) или коммит (изменения,
+  UP / DOWN / Снимок / Журнал DDL, экспорт одного коммита, откат).
+
+Язык хранится в браузере (`localStorage`, ключ `pgvc_lang`, по умолчанию `ru`); каждый запрос к API несёт
+`Accept-Language`, поэтому ошибки сервера приходят на том же языке.
+
+### Архитектура
+
+```
+frontend/                         React 18 + TypeScript + Vite + Tailwind, @xyflow/react, @monaco-editor/react
+  src/i18n/                       типизированный контекст переводов, en.json / ru.json
+src/main/java/com/vodianoy/pgvc/
+  environment/                    подключения (pgvc-environments.json), свой пул Hikari на окружение
+  storage/                        схема _pgvc: коммиты, refs, журнал DDL, event triggers
+  introspection/                  pg_catalog -> DatabaseSnapshot (SQL в resources/db/introspection)
+  diff/                           SchemaDiffEngine: снимок A -> B = упорядоченный UP / DOWN DDL
+  vcs/                            коммит (Mode A/B), откат, сравнение, push, привязка, общий граф
+  migration/                      офлайн .sql-бандлы
+  about/, common/, config/        /api/about, ошибки и i18n (resources/i18n/messages_*.properties)
+```
+
+Всё, что меняет базу, выполняется в одной транзакции этой базы и затем сверяется со снимком схемы. Подробности
+(REST API, `_pgvc`, интроспекция, правила Diff Engine, бандлы, привязка, тесты) —
+в [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md).
+
+### Настройки
 
 | Параметр | По умолчанию |
 |---|---|
 | `server.port` | `8765` |
 | `server.address` | `127.0.0.1` (только локально) |
-| `pgvc.environments-file` | `./pgvc-environments.json` |
+| `pgvc.environments-file` | `./pgvc-environments.json` (пароли открытым текстом — не публикуйте файл) |
 | `pgvc.connect-timeout-seconds` | `5` |
-| `pgvc.max-pool-size` | `4` (соединений на окружение) |
+| `pgvc.max-pool-size` | `4` соединения на окружение |
 
-## Окружения
+### Релизы
 
-Список подключений хранится в `./pgvc-environments.json` рядом с jar (файл в `.gitignore`, пароли — открытым текстом):
+Поднимите версию в `pom.xml`, добавьте заметки `.github/release/vX.Y.Z.md` и влейте в `main`:
+`.github/workflows/release.yml` соберёт jar, создаст тег `vX.Y.Z` и опубликует релиз с jar и его SHA-256.
 
-```json
-{
-  "activeEnvironmentId": "dev",
-  "environments": [
-    { "id": "dev", "name": "Dev", "jdbcUrl": "jdbc:postgresql://localhost:5432/app",
-      "username": "postgres", "password": "...", "schemaName": "public", "colorBadge": "#22c55e" }
-  ]
-}
-```
+### Лицензия
 
-- `schemaName` — схема по умолчанию для подключения (`search_path`). Контроль версий отслеживает **все**
-  пользовательские схемы базы.
-- `colorBadge` — цвет бейджа окружения на графе.
-- Для каждого окружения создаётся свой пул соединений; `JdbcTemplate` и `TransactionTemplate` кэшируются и
-  пересоздаются при изменении настроек.
+Copyright 2026 NoProblem2000.
 
-## REST API
-
-| Метод | Путь | Что делает |
-|---|---|---|
-| GET | `/api/environments` | список окружений (без паролей) |
-| GET | `/api/environments/{id}` | одно окружение |
-| POST | `/api/environments` | добавить |
-| PUT | `/api/environments/{id}` | изменить (без `password` — пароль сохраняется) |
-| DELETE | `/api/environments/{id}` | удалить |
-| POST | `/api/environments/test` | проверить несохранённые настройки (`SELECT version()`) |
-| POST | `/api/environments/{id}/test` | проверить сохранённое окружение |
-| GET | `/api/environments/active` | активное окружение (204, если нет) |
-| PUT | `/api/environments/active` | переключить: `{"environmentId": "prod"}` |
-| POST | `/api/environments/{id}/pgvc/initialize` | установить схему `_pgvc` и event triggers |
-| GET | `/api/environments/{id}/pgvc/status` | состояние контроля версий |
-| GET | `/api/environments/{id}/pgvc/commits` | граф коммитов и `HEAD` |
-| GET | `/api/environments/{id}/pgvc/head` | текущий `HEAD` |
-| GET | `/api/environments/{id}/pgvc/audit-log` | перехваченные DDL с последнего коммита |
-| DELETE | `/api/environments/{id}/pgvc/audit-log[?upToId=N]` | очистить лог (целиком или до id включительно) |
-| GET | `/api/environments/{id}/schema/schemas` | пользовательские схемы, доступные для контроля версий |
-| GET | `/api/environments/{id}/schema/snapshot[?schemas=a,b]` | снимок схемы из `pg_catalog` (по умолчанию — все схемы) |
-| GET | `/api/environments/{id}/vc/working-tree` | незакоммиченные изменения: список изменений, UP/DOWN SQL, перехваченный DDL |
-| POST | `/api/environments/{id}/vc/commit` | Mode A: закоммитить working tree (`message`, `author`, `upSql`, `downSql`, `expectedHead`) |
-| POST | `/api/environments/{id}/vc/execute` | Mode B: выполнить миграцию и закоммитить (`message`, `author`, `upSql`, `downSql`, `allowDirty`) |
-| GET | `/api/environments/{id}/vc/commits/{hash}` | коммит целиком: SQL, снимок схемы, история DDL |
-| GET | `/api/environments/{id}/vc/commits/{hash}/changes` | список изменений коммита относительно родителя |
-| GET | `/api/environments/{id}/vc/rollback-plan?target={hash}` | SQL, который выполнит откат до коммита |
-| POST | `/api/environments/{id}/vc/rollback` | откат (`targetHash`, `customRollbackSql`, `allowDirty`, `skipVerification`) |
-| GET | `/api/vc/graph` | общий граф коммитов всех окружений и `HEAD` каждого (бейджи) |
-| GET | `/api/vc/compare?source=dev&target=prod` | сравнение историй и схем двух окружений |
-| POST | `/api/vc/link` | привязка (baseline): `sourceEnvironmentId`, `targetEnvironmentId`, `commitHash`, `allowSchemaDifferences`, `keepTargetCommits` |
-| POST | `/api/vc/push` | онлайн-накат: `sourceEnvironmentId`, `targetEnvironmentId`, `targetCommitHash`, `allowDirty`, `skipVerification` |
-| GET | `/api/migrations/export?source=dev[&from=..][&to=..]` | скачать офлайн `.sql`-бандл (`Content-Disposition: attachment`) |
-| GET | `/api/migrations/preview?source=dev[&from=..][&to=..]` | тот же бандл в JSON (коммиты, имя файла, SQL) |
-
-Контроллеры: `EnvironmentController` (окружения), `VcController` (`_pgvc`, схема, коммиты, откат, граф, сравнение,
-push), `MigrationExportController` (офлайн-бандлы).
-
-Пример:
-
-```bash
-curl -X POST localhost:8765/api/environments -H 'Content-Type: application/json' \
-  -d '{"name":"Dev","jdbcUrl":"jdbc:postgresql://localhost:5432/app","username":"postgres","password":"secret"}'
-curl -X POST localhost:8765/api/environments/dev/test
-curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
-```
-
-## Схема `_pgvc`
-
-`POST .../pgvc/initialize` выполняет `src/main/resources/db/pgvc-install.sql` в одной транзакции (идемпотентно,
-нужен `SUPERUSER`):
-
-- таблицы `_pgvc.commits`, `_pgvc.refs`, `_pgvc.ddl_audit_log`;
-- функции `_pgvc.fn_log_ddl_end()` и `_pgvc.fn_log_sql_drop()`;
-- `EVENT TRIGGER pgvc_ddl_trigger ON ddl_command_end` и `EVENT TRIGGER pgvc_drop_trigger ON sql_drop`.
-
-Триггеры не логируют изменения в самой схеме `_pgvc`, во временных (`pg_temp%`) и TOAST-схемах. Функции объявлены
-`SECURITY DEFINER`: DDL обычных разработчиков (не суперпользователей) логируется, а не падает с
-«permission denied», и в `db_user` записывается реальный пользователь (`session_user`).
-
-## Интроспекция схемы (Шаг 2)
-
-`PostgresSchemaIntrospector` читает живую схему только из `pg_catalog` (`information_schema` не видит партиций и OID)
-и собирает `DatabaseSnapshot` (пакет `model.schema`). Каждый запрос лежит отдельным файлом в
-`src/main/resources/db/introspection/`:
-
-| Файл | Что читает |
-|---|---|
-| `schemas.sql` | пользовательские схемы (без системных, временных, схем расширений и `_pgvc`) |
-| `tables.sql` | таблицы `relkind IN ('r','p')`: `oid`, `pg_get_partkeydef`, родитель через `pg_inherits`, границы `pg_get_expr(relpartbound)` |
-| `columns.sql` | `pg_attribute` (`attnum > 0 AND NOT attisdropped`): `format_type`, `DEFAULT` через `pg_get_expr(adbin)`, identity, generated (PG12+), collation |
-| `constraints.sql` | PK / FK / UNIQUE / CHECK / EXCLUDE через `pg_get_constraintdef`; унаследованные партициями пропускаются |
-| `indexes.sql` | `pg_index` (`relkind IN ('i','I')`) без индексов PK/UNIQUE/EXCLUDE (`conindid`) и без автоматически привязанных индексов партиций |
-| `sequences.sql` | `pg_sequence`: параметры и колонка-владелец; последовательности identity-колонок пропускаются |
-| `views.sql`, `view-dependencies.sql` | обычные и materialized view, `pg_get_viewdef`, зависимости от таблиц и колонок |
-
-Особенности модели:
-
-- Снимок охватывает **все** пользовательские схемы; ключи карт — полные имена `схема.объект`, у объектов есть `schemaName`.
-- `oid` (таблицы, view, индексы, sequences, constraints) и `attnum` (колонки) сохраняются, чтобы находить переименования.
-- `signature` — хеш каталожного представления объекта, который не меняется при переименовании таблиц и колонок:
-  по нему видно, изменился ли объект на самом деле.
-- Все запросы выполняются в одной read-only транзакции `REPEATABLE READ` (согласованный снимок). Если транзакция
-  на окружении уже открыта, интроспектор присоединяется к ней и видит незакоммиченный DDL.
-
-## Diff Engine и коммиты (Шаг 3)
-
-`SchemaDiffEngine` сравнивает снимок `HEAD` с живой схемой и возвращает `SchemaDiffResult`: список `ChangeItem`
-(`ADDED` / `MODIFIED` / `RENAMED` / `DELETED` для `SCHEMA`, `TABLE`, `PARTITION`, `COLUMN`, `CONSTRAINT`, `INDEX`,
-`VIEW`, `SEQUENCE`) и полные скрипты `upSql` / `downSql`.
-
-- **Переименования.** Таблица, view, sequence, индекс или constraint с тем же `oid`, но другим именем — это
-  `ALTER ... RENAME`, а не удаление + создание; колонка с тем же `attnum` — `RENAME COLUMN`. После переименования
-  таблицы сравниваются её колонки, ограничения и индексы. OID сравниваются только между снимками одной базы.
-- **Партиции.** Новая партиционированная таблица — `CREATE TABLE ... PARTITION BY <ключ>`, новая партиция —
-  `CREATE TABLE child PARTITION OF parent <границы>` (родители раньше детей); смена границ — `DETACH` + `ATTACH`.
-  Индекс партиционированной таблицы создаётся без `ON ONLY`, чтобы он появился и на всех партициях.
-- **Порядок DDL.** View (и materialized view), которые читают меняющуюся или удаляемую колонку / таблицу, в том числе
-  через другие view, удаляются в начале скрипта (`DROP VIEW IF EXISTS`, сначала зависимые) и создаются в конце
-  (`CREATE OR REPLACE VIEW`, сначала те, от кого зависят); индексы materialized view восстанавливаются. Зависимости
-  берутся из `pg_depend` с точностью до колонки, поэтому добавление колонки или индекса view не пересоздаёт.
-  FK удаляются раньше таблиц и добавляются после остальных ограничений.
-- **UP/DOWN каждого изменения.** У каждого `ChangeItem` свои `upSql` и `downSql` (обратное изменение получено
-  сравнением в обратную сторону). Выполнять нужно полные `upSql` / `downSql` результата — в них правильный порядок.
-
-`VersionControlService`:
-
-- `getWorkingTreeStatus` — изменения с последнего коммита и перехваченный триггерами DDL.
-- `commitWorkingTree` (Mode A) — сохраняет коммит с `upSql` / `downSql` из запроса (пользователь мог их поправить;
-  пустые заменяются сгенерированными) и снимком живой схемы, сдвигает `HEAD`, очищает `ddl_audit_log`.
-  Если передан `expectedHead`, а `HEAD` уже другой, коммит отклоняется.
-- `executeAndCommitSql` (Mode B) — в одной транзакции выполняет `upSql`, снимает новую схему, строит `downSql`
-  (если не передан), сохраняет коммит. Любая ошибка — полный откат. `BEGIN/COMMIT` внутри SQL запрещены. Если в базе
-  есть незакоммиченные изменения, миграция не выполняется (или включает их при `allowDirty`).
-- `rollbackToCommit` — в одной транзакции выполняет `down_sql` коммитов после целевого (от новых к старым) или
-  `customRollbackSql`, **проверяет, что схема совпала со снимком целевого коммита**, сдвигает `HEAD`, очищает лог.
-  При ошибке или расхождении ничего не меняется. Коммиты после целевого остаются в истории (как `git reset`), новый
-  коммит начнёт от целевого ветку.
-
-Хеш коммита — SHA-256 от родителя, автора, сообщения, времени, SQL и снимка схемы.
-
-## Офлайн-бандлы и синхронизация окружений (Шаг 4)
-
-**Офлайн-бандл** (`OfflineMigrationService.generateOfflineSqlScript(source, from, to)`) — один `.sql` файл для
-площадок без сетевого доступа. Содержит коммиты после `from` (не включая; без `from` — с самого начала) до `to`
-(включая; без `to` — до `HEAD` источника). Всё внутри `BEGIN; ... COMMIT;`:
-
-1. создаёт схему `_pgvc` и её таблицы, если их нет (event triggers — только если скрипт выполняет суперпользователь,
-   иначе выводится `NOTICE`, остальное применяется);
-2. блок `DO $$ ... $$` проверяет `HEAD` целевой базы: он должен быть равен `from` (или история пуста, если `from` не
-   задан), иначе `RAISE EXCEPTION 'Migration mismatch: expected HEAD %, but found %'`; повторное применение даёт
-   `Migration already applied`;
-3. выполняет `up_sql` коммитов по порядку;
-4. записывает коммиты (`schema_snapshot`, `up_sql`, `down_sql` — в dollar-quoting, без ручного экранирования) и
-   сдвигает `HEAD` на `to`.
-
-При любой ошибке ничего не применяется. Применение: `psql -v ON_ERROR_STOP=1 -d <db> -f <файл>` или DBeaver.
-
-**Онлайн-синхронизация** (`VersionControlService`):
-
-- `compareEnvironments(source, target)` — отношение историй (`SAME`, `TARGET_BEHIND`, `TARGET_AHEAD`, `DIVERGED`,
-  `TARGET_EMPTY`, `TARGET_NOT_INITIALIZED`), общий предок, коммиты для наката, есть ли на цели незакоммиченные
-  изменения, и diff живой схемы цели со схемой `HEAD` источника.
-- `pushCommitsToEnvironment(source, target, commit)` — в одной транзакции цели выполняет недостающие `up_sql`,
-  записывает коммиты с теми же хешами, сдвигает `HEAD` и проверяет, что схема цели совпала со снимком последнего
-  коммита. При необходимости сначала устанавливает `_pgvc`. Откажет, если цель впереди или истории разошлись, или если
-  на цели есть незакоммиченные изменения (можно разрешить).
-- `getGlobalGraph()` — коммиты всех окружений в одном графе с `HEAD` каждого окружения.
-
-## Привязка существующего окружения (Шаг 6)
-
-Обычная ситуация: Dev, Stage и Prod уже существуют с одинаковой схемой. Если закоммитить каждое отдельно, у них
-будут разные коммиты (хеш включает автора и время), истории не связаны, и push невозможен («Diverged»). Push в
-окружение без истории тоже не подходит — он выполнил бы `CREATE TABLE` для уже существующих таблиц.
-
-Для этого есть привязка (baseline) — `linkEnvironmentToHistory`, `POST /api/vc/link`:
-
-- `compareEnvironments` для несвязанных историй (`DIVERGED`, или у цели нет истории, но схема уже есть) ищет
-  самый новый коммит источника, снимок которого совпадает с живой схемой цели (`matchingCommit`).
-- Привязка в одной транзакции цели: при необходимости устанавливает `_pgvc`; проверяет, что живая схема цели совпадает
-  со снимком выбранного коммита; записывает в цель коммиты источника до него (с теми же хешами); ставит `HEAD` на
-  этот коммит; удаляет прежние собственные коммиты цели (можно оставить — `keepTargetCommits`); очищает лог DDL.
-  **SQL миграций не выполняется.** Если схемы расходятся — ничего не меняется, в ответе список различий
-  (принять их осознанно можно флагом `allowSchemaDifferences`, тогда они останутся незакоммиченными изменениями цели).
-- После привязки цель просто «отстаёт» от источника, и более новые коммиты докатываются обычным push.
-
-В UI: **Sync / Push to Env** → при несвязанных историях появляется панель **Link … to the history of …** с найденным
-коммитом и кнопкой **Link to …**; после привязки окно сразу показывает коммиты для push.
-
-## Тесты
-
-```bash
-mvn test                                         # без БД: юнит-тесты и REST
-PGVC_TEST_JDBC_URL=jdbc:postgresql://localhost:5432/postgres \
-PGVC_TEST_USER=postgres PGVC_TEST_PASSWORD=... mvn test   # + интеграционные тесты на реальном PostgreSQL
-```
-
-Интеграционные тесты создают свои базы (`pgvc_step*`) и роль, поэтому нужен суперпользователь.
-CI (`.github/workflows/build.yml`) прогоняет всё на PostgreSQL 11 и 16, проверяет типы TypeScript, запускает собранный
-jar и проходит основные сценарии UI в браузере (Playwright): коммит, push, Mode B и откат.
+Распространяется по лицензии **Apache License, Version 2.0**. Программу можно свободно использовать, изменять и
+распространять, в том числе в коммерческих целях, при условии сохранения текста лицензии и уведомлений об авторских
+правах. Полный текст — в файле [LICENSE](LICENSE) и на https://www.apache.org/licenses/LICENSE-2.0. Программа
+предоставляется **«КАК ЕСТЬ», БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ И УСЛОВИЙ**, явных или подразумеваемых.

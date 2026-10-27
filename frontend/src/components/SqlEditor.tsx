@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react';
+import { useI18n } from '../i18n';
 
 interface Props {
   value: string;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function SqlEditor({ value, onChange, readOnly = false, language = 'pgsql', height = '100%' }: Props) {
+  const { t } = useI18n();
   return (
     <Editor
       height={height}
@@ -17,7 +19,7 @@ export function SqlEditor({ value, onChange, readOnly = false, language = 'pgsql
       theme="kraken"
       value={value}
       onChange={(v) => onChange?.(v ?? '')}
-      loading={<div className="p-3 text-gray-500">Loading editor…</div>}
+      loading={<div className="p-3 text-gray-500">{t('common.loadingEditor')}</div>}
       options={{
         readOnly,
         minimap: { enabled: false },

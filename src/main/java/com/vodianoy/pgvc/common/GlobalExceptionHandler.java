@@ -1,6 +1,9 @@
 package com.vodianoy.pgvc.common;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
@@ -12,14 +15,21 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/** Turns exceptions into {@link ApiError} responses. */
+/**
+ * Turns exceptions into {@link ApiError} responses. Messages of {@link ApiException} are rendered in the language of
+ * the request ({@code Accept-Language}); texts coming from PostgreSQL itself are passed through as they are.
+ */
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    private final MessageSource messages;
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException e) {
-        return respond(e.getStatus(), e.getMessage());
+        return respond(e.getStatus(), messages.getMessage(e.getCode(), e.getArgs(), e.getMessage(),
+                LocaleContextHolder.getLocale()));
     }
 
     /** A failed rollback must not hide the error that caused it. */
@@ -37,7 +47,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CannotGetJdbcConnectionException.class)
     public ResponseEntity<ApiError> handleNoConnection(CannotGetJdbcConnectionException e) {
-        return respond(HttpStatus.SERVICE_UNAVAILABLE, "Cannot connect to the database: " + rootMessage(e));
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, messages.getMessage("error.db.connection",
+                new Object[]{rootMessage(e)}, LocaleContextHolder.getLocale()));
     }
 
     @ExceptionHandler(DataAccessException.class)
@@ -47,7 +58,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class})
     public ResponseEntity<ApiError> handleBadRequest(Exception e) {
-        return respond(HttpStatus.BAD_REQUEST, e.getMessage());
+        return respond(HttpStatus.BAD_REQUEST, messages.getMessage("error.request.invalid",
+                new Object[]{e.getMessage()}, LocaleContextHolder.getLocale()));
     }
 
     @ExceptionHandler(Exception.class)

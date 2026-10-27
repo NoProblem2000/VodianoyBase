@@ -10,6 +10,8 @@ server:
   port: 8765
 
 pgvc:
+  # filled in by Maven resource filtering (spring-boot-starter-parent, @...@ delimiters)
+  version: '@project.version@'
   environments-file: ./pgvc-environments.json
   connect-timeout-seconds: 5
   max-pool-size: 4

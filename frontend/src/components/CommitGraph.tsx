@@ -14,6 +14,7 @@ import '@xyflow/react/dist/style.css';
 import type { EnvironmentHead, GraphCommit } from '../api/types';
 import { LANE_COLORS, layoutGraph } from '../lib/graphLayout';
 import { firstLine, relativeTime, shortHash } from '../lib/format';
+import { useI18n } from '../i18n';
 import { EnvBadge } from './Badges';
 
 const ROW_H = 38;
@@ -111,6 +112,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
     return () => observer.disconnect();
   }, []);
 
+  const { t, tn, locale } = useI18n();
   const layout = useMemo(() => layoutGraph(commits), [commits]);
 
   const { nodes, edges } = useMemo(() => {
@@ -134,7 +136,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           color: '#f59e0b',
           labelLeft: labelLeft(lane),
           labelWidth: labelWidth(lane),
-          message: `Working Tree (Uncommitted Changes) · ${workingTreeChanges} change${workingTreeChanges === 1 ? '' : 's'}`,
+          message: `${t('graph.workingTree')} · ${tn('plural.changes', workingTreeChanges)}`,
           author: '',
           date: '',
           hash: '',
@@ -168,7 +170,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           labelWidth: labelWidth(r.lane),
           message: firstLine(c.message),
           author: c.author,
-          date: relativeTime(c.createdAt),
+          date: relativeTime(c.createdAt, locale, t('time.justNow')),
           hash: shortHash(c.hash),
           selected: selectedId === c.hash,
           badges: environments
@@ -187,7 +189,7 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
       }
     }
     return { nodes, edges };
-  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width]);
+  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale]);
 
   return (
     <div ref={wrapRef} className="absolute inset-0">
