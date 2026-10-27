@@ -145,6 +145,26 @@ await step('16-linked-then-push', async () => {
   await shot('16-linked-then-push');
 });
 
+// ---- deleting commits: "Customer phone…" is still Stage's HEAD, "Add coupons" was abandoned by the rollback
+await step('16b-delete-blocked', async () => {
+  await page.getByText('Customer phone, rename note to remark').first().click();
+  const del = page.getByRole('button', { name: 'Delete…' });
+  await del.waitFor({ timeout: 10000 });
+  if (await del.isEnabled()) throw new Error('Delete must be disabled for a commit in the history of Stage');
+});
+await step('16c-delete-commit', async () => {
+  await page.getByText('Add coupons').first().click();
+  await page.getByRole('button', { name: 'Delete…' }).click();
+  await page.getByText('Will be deleted').waitFor({ timeout: 10000 });
+  await page.getByRole('radio', { name: /The whole branch/ }).click();
+  await page.getByRole('button', { name: 'Delete 1 commit', exact: true }).waitFor({ timeout: 10000 });
+  await shot('16c-delete-commit');
+  await page.getByRole('button', { name: 'Delete 1 commit', exact: true }).click();
+  await toast(/Deleted 1 commit/);
+  if (await page.getByText('Add coupons').count()) throw new Error('"Add coupons" is still in the graph');
+  await shot('16d-deleted');
+});
+
 // ---- About & License, then the Russian UI
 await step('17-about', async () => {
   await page.getByRole('button', { name: 'About & License' }).click();
@@ -159,7 +179,7 @@ await step('18-ru-main', async () => {
   await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
   const stored = await page.evaluate(() => localStorage.getItem('pgvc_lang'));
   if (stored !== 'ru') throw new Error(`pgvc_lang is ${stored}`);
-  await page.getByText('Add coupons').first().click();
+  await page.getByText('Index notes by customer').first().click();
   await page.getByRole('tab', { name: 'Снимок', exact: true }).click();
   await shot('18-ru-main');
 });

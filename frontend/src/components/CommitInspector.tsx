@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Download, RotateCcw } from 'lucide-react';
+import { Copy, Download, RotateCcw, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { AuditLogEntry, CommitDetails, EnvironmentHead, GraphCommit, SchemaDiffResult } from '../api/types';
 import { formatDate, shortHash, timeOfDay } from '../lib/format';
@@ -17,8 +17,11 @@ interface Props {
   activeEnvId: string | null;
   /** null when a rollback of the active environment to this commit is not possible */
   rollbackBlockedReason: string | null;
+  /** null when the commit can be offered for deletion (not used by any environment's current history) */
+  deleteBlockedReason: string | null;
   onExportSingle: () => void;
   onRollback: () => void;
+  onDelete: () => void;
 }
 
 type Tab = 'changes' | 'up' | 'down' | 'snapshot' | 'ddl';
@@ -140,11 +143,19 @@ export function CommitInspector(p: Props) {
         )}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-kraken-line px-4 py-3">
+      <footer className="flex flex-wrap items-center gap-2 border-t border-kraken-line px-4 py-3">
         <button className="btn" onClick={p.onExportSingle}>
           <Download size={14} /> {t('commit.exportSingle')}
         </button>
         <span className="flex-1" />
+        <button
+          className="btn btn-ghost text-red-300 hover:text-red-200"
+          onClick={p.onDelete}
+          disabled={p.deleteBlockedReason !== null}
+          title={p.deleteBlockedReason ?? t('commit.deleteTitle')}
+        >
+          <Trash2 size={14} /> {t('commit.delete')}
+        </button>
         <button
           className="btn btn-danger"
           onClick={p.onRollback}

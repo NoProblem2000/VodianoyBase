@@ -38,6 +38,7 @@ public class VcController {
     private final PgVcStorageService storage;
     private final PostgresSchemaIntrospector introspector;
     private final VersionControlService versionControl;
+    private final CommitDeletionService deletion;
 
     // ------------------------------------------------------------------ _pgvc metadata
 
@@ -152,6 +153,20 @@ public class VcController {
      * Baseline: links an environment whose schema already exists to the history of the source environment without
      * executing migrations (its live schema must match the chosen commit).
      */
+    /** What deleting a commit (mode COMMIT) or its abandoned branch (mode BRANCH) would remove, and what blocks it. */
+    @GetMapping("/vc/commits/{hash}/deletion-plan")
+    public DeletionPlan deletionPlan(@PathVariable("hash") String hash,
+                                     @RequestParam(value = "mode", defaultValue = "COMMIT") DeletionMode mode) {
+        return deletion.plan(hash, mode);
+    }
+
+    /** Deletes a commit that no environment uses (with its descendants; BRANCH: with its abandoned branch). */
+    @DeleteMapping("/vc/commits/{hash}")
+    public DeletionResult deleteCommit(@PathVariable("hash") String hash,
+                                       @RequestParam(value = "mode", defaultValue = "COMMIT") DeletionMode mode) {
+        return deletion.delete(hash, mode);
+    }
+
     @PostMapping("/vc/link")
     public LinkResult link(@RequestBody LinkRequest request) {
         return versionControl.linkEnvironmentToHistory(request);

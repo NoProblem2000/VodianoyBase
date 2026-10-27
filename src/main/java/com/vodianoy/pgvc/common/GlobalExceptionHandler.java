@@ -14,6 +14,7 @@ import org.springframework.transaction.TransactionSystemException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Turns exceptions into {@link ApiError} responses. Messages of {@link ApiException} are rendered in the language of
@@ -56,7 +57,8 @@ public class GlobalExceptionHandler {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, rootMessage(e));
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class})
+    @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleBadRequest(Exception e) {
         return respond(HttpStatus.BAD_REQUEST, messages.getMessage("error.request.invalid",
                 new Object[]{e.getMessage()}, LocaleContextHolder.getLocale()));

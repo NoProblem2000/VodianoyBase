@@ -10,6 +10,9 @@ import type {
   EnvironmentComparison,
   EnvironmentInput,
   EnvironmentView,
+  DeletionMode,
+  DeletionPlan,
+  DeletionResult,
   GlobalGraph,
   LinkResult,
   OfflineBundle,
@@ -83,6 +86,10 @@ export const api = {
   ) => post<RollbackResult>(`/environments/${e(id)}/vc/rollback`, body),
 
   about: () => get<AboutInfo>('/about'),
+  deletionPlan: (hash: string, mode: DeletionMode) =>
+    get<DeletionPlan>(`/vc/commits/${e(hash)}/deletion-plan`, { mode }),
+  deleteCommit: (hash: string, mode: DeletionMode) =>
+    http.delete<DeletionResult>(`/vc/commits/${e(hash)}`, { params: { mode } }).then((r) => r.data),
 
   // all environments
   graph: () => get<GlobalGraph>('/vc/graph'),
