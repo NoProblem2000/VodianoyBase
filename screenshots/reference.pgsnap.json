@@ -1,0 +1,853 @@
+{
+  "formatVersion" : "1.0",
+  "exportedAt" : "2026-10-30T09:22:40.373Z",
+  "sourceEnvironmentName" : "Dev",
+  "sourceBranch" : "dev",
+  "sourceCommitHash" : "854a311355fab281c4ecd8f3f41384742b22fb0ff88ff28b74bd45d8cff09db1",
+  "sourceCommitMessage" : "Index notes by customer",
+  "schemaSnapshot" : {
+    "formatVersion" : 1,
+    "timestamp" : "2026-10-30T09:21:46.578Z",
+    "sourceDatabaseId" : "7702388226186100774:25196",
+    "serverVersion" : 160015,
+    "schemas" : [ "billing", "public", "sales" ],
+    "tables" : {
+      "sales.notes" : {
+        "oid" : 25746,
+        "schemaName" : "sales",
+        "name" : "notes",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : "ALWAYS",
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "body" : {
+            "attnum" : 3,
+            "name" : "body",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "customer_id" : {
+            "attnum" : 2,
+            "name" : "customer_id",
+            "dataType" : "bigint",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : {
+          "notes_pkey" : {
+            "oid" : 25752,
+            "name" : "notes_pkey",
+            "type" : "PRIMARY_KEY",
+            "definition" : "PRIMARY KEY (id)",
+            "columns" : [ "id" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "afaaf47df127d22c7ee4da44989eef39"
+          },
+          "notes_customer_id_fkey" : {
+            "oid" : 25753,
+            "name" : "notes_customer_id_fkey",
+            "type" : "FOREIGN_KEY",
+            "definition" : "FOREIGN KEY (customer_id) REFERENCES sales.customers(id)",
+            "columns" : [ "customer_id" ],
+            "referencedTable" : "sales.customers",
+            "referencedColumns" : [ "id" ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "34de9c10494a54a3b64ff44cfa6866d2"
+          }
+        },
+        "indexes" : {
+          "notes_customer_idx" : {
+            "oid" : 25759,
+            "name" : "notes_customer_idx",
+            "definition" : "CREATE INDEX notes_customer_idx ON sales.notes USING btree (customer_id)",
+            "unique" : false,
+            "method" : "btree",
+            "predicate" : null,
+            "signature" : "a2923c1afa7e6f810d107de7a2507f2c"
+          }
+        }
+      },
+      "sales.orders" : {
+        "oid" : 25218,
+        "schemaName" : "sales",
+        "name" : "orders",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "integer",
+            "nullable" : false,
+            "defaultValue" : "nextval('sales.orders_id_seq'::regclass)",
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "note" : {
+            "attnum" : 5,
+            "name" : "note",
+            "dataType" : "text",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "amount" : {
+            "attnum" : 3,
+            "name" : "amount",
+            "dataType" : "numeric(12,2)",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "status" : {
+            "attnum" : 4,
+            "name" : "status",
+            "dataType" : "text",
+            "nullable" : true,
+            "defaultValue" : "'new'::text",
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "customer_id" : {
+            "attnum" : 2,
+            "name" : "customer_id",
+            "dataType" : "bigint",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : {
+          "orders_pkey" : {
+            "oid" : 25226,
+            "name" : "orders_pkey",
+            "type" : "PRIMARY_KEY",
+            "definition" : "PRIMARY KEY (id)",
+            "columns" : [ "id" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "afaaf47df127d22c7ee4da44989eef39"
+          },
+          "orders_customer_id_fkey" : {
+            "oid" : 25227,
+            "name" : "orders_customer_id_fkey",
+            "type" : "FOREIGN_KEY",
+            "definition" : "FOREIGN KEY (customer_id) REFERENCES sales.customers(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED",
+            "columns" : [ "customer_id" ],
+            "referencedTable" : "sales.customers",
+            "referencedColumns" : [ "id" ],
+            "deferrable" : true,
+            "initiallyDeferred" : true,
+            "validated" : true,
+            "signature" : "f97d421e8a88a040bf3a7fefbe2020a2"
+          }
+        },
+        "indexes" : {
+          "orders_note_lower_idx" : {
+            "oid" : 25233,
+            "name" : "orders_note_lower_idx",
+            "definition" : "CREATE INDEX orders_note_lower_idx ON sales.orders USING btree (lower(note))",
+            "unique" : false,
+            "method" : "btree",
+            "predicate" : null,
+            "signature" : "71b878031fa6a05965875921e96ab9a8"
+          },
+          "orders_open_status_idx" : {
+            "oid" : 25232,
+            "name" : "orders_open_status_idx",
+            "definition" : "CREATE INDEX orders_open_status_idx ON sales.orders USING btree (status) WHERE (status <> 'done'::text)",
+            "unique" : false,
+            "method" : "btree",
+            "predicate" : "(status <> 'done'::text)",
+            "signature" : "b53aebc7c5a12c5f668069de8533318f"
+          }
+        }
+      },
+      "billing.events" : {
+        "oid" : 25235,
+        "schemaName" : "billing",
+        "name" : "events",
+        "partitioned" : true,
+        "partitionKeyDef" : "RANGE (created_on)",
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "kind" : {
+            "attnum" : 3,
+            "name" : "kind",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "payload" : {
+            "attnum" : 4,
+            "name" : "payload",
+            "dataType" : "jsonb",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "created_on" : {
+            "attnum" : 2,
+            "name" : "created_on",
+            "dataType" : "date",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : {
+          "events_pkey" : {
+            "oid" : 25239,
+            "name" : "events_pkey",
+            "type" : "PRIMARY_KEY",
+            "definition" : "PRIMARY KEY (id, created_on)",
+            "columns" : [ "id", "created_on" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "71803ccfafe6cacc73fff42a169bc792"
+          }
+        },
+        "indexes" : {
+          "events_kind_idx" : {
+            "oid" : 25240,
+            "name" : "events_kind_idx",
+            "definition" : "CREATE INDEX events_kind_idx ON ONLY billing.events USING btree (kind)",
+            "unique" : false,
+            "method" : "btree",
+            "predicate" : null,
+            "signature" : "160b051d83eaf551104c997df2756a11"
+          }
+        }
+      },
+      "sales.customers" : {
+        "oid" : 25205,
+        "schemaName" : "sales",
+        "name" : "customers",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : "ALWAYS",
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "name" : {
+            "attnum" : 3,
+            "name" : "name",
+            "dataType" : "character varying(100)",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : "\"C\"",
+            "inherited" : false
+          },
+          "email" : {
+            "attnum" : 2,
+            "name" : "email",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "score" : {
+            "attnum" : 5,
+            "name" : "score",
+            "dataType" : "numeric(5,2)",
+            "nullable" : true,
+            "defaultValue" : "0",
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "created_at" : {
+            "attnum" : 4,
+            "name" : "created_at",
+            "dataType" : "timestamp with time zone",
+            "nullable" : true,
+            "defaultValue" : "now()",
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : {
+          "customers_pkey" : {
+            "oid" : 25214,
+            "name" : "customers_pkey",
+            "type" : "PRIMARY_KEY",
+            "definition" : "PRIMARY KEY (id)",
+            "columns" : [ "id" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "afaaf47df127d22c7ee4da44989eef39"
+          },
+          "customers_email_key" : {
+            "oid" : 25216,
+            "name" : "customers_email_key",
+            "type" : "UNIQUE",
+            "definition" : "UNIQUE (email)",
+            "columns" : [ "email" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "395a8cfd008d0f8e4af17074a8c95ffb"
+          },
+          "customers_score_check" : {
+            "oid" : 25210,
+            "name" : "customers_score_check",
+            "type" : "CHECK",
+            "definition" : "CHECK ((score >= (0)::numeric))",
+            "columns" : [ "score" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "196f8bc579ccf61cb624fb8fc25050cb"
+          }
+        },
+        "indexes" : { }
+      },
+      "public.Mixed Case" : {
+        "oid" : 25296,
+        "schemaName" : "public",
+        "name" : "Mixed Case",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "order" : {
+            "attnum" : 2,
+            "name" : "order",
+            "dataType" : "text",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "Select" : {
+            "attnum" : 1,
+            "name" : "Select",
+            "dataType" : "integer",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : { },
+        "indexes" : { }
+      },
+      "billing.reservations" : {
+        "oid" : 25272,
+        "schemaName" : "billing",
+        "name" : "reservations",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : null,
+        "partitionBoundExpr" : null,
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "integer",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          },
+          "during" : {
+            "attnum" : 2,
+            "name" : "during",
+            "dataType" : "tsrange",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : false
+          }
+        },
+        "constraints" : {
+          "reservations_pkey" : {
+            "oid" : 25278,
+            "name" : "reservations_pkey",
+            "type" : "PRIMARY_KEY",
+            "definition" : "PRIMARY KEY (id)",
+            "columns" : [ "id" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "afaaf47df127d22c7ee4da44989eef39"
+          },
+          "reservations_no_overlap" : {
+            "oid" : 25280,
+            "name" : "reservations_no_overlap",
+            "type" : "EXCLUDE",
+            "definition" : "EXCLUDE USING gist (during WITH &&)",
+            "columns" : [ "during" ],
+            "referencedTable" : null,
+            "referencedColumns" : [ ],
+            "deferrable" : false,
+            "initiallyDeferred" : false,
+            "validated" : true,
+            "signature" : "9ee3b9c99b31fd52270aa2013245f5bb"
+          }
+        },
+        "indexes" : { }
+      },
+      "billing.events_2026_01" : {
+        "oid" : 25241,
+        "schemaName" : "billing",
+        "name" : "events_2026_01",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : "billing.events",
+        "partitionBoundExpr" : "FOR VALUES FROM ('2026-01-01') TO ('2026-02-01')",
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "kind" : {
+            "attnum" : 3,
+            "name" : "kind",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "payload" : {
+            "attnum" : 4,
+            "name" : "payload",
+            "dataType" : "jsonb",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "created_on" : {
+            "attnum" : 2,
+            "name" : "created_on",
+            "dataType" : "date",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          }
+        },
+        "constraints" : { },
+        "indexes" : {
+          "events_2026_01_payload_idx" : {
+            "oid" : 25271,
+            "name" : "events_2026_01_payload_idx",
+            "definition" : "CREATE INDEX events_2026_01_payload_idx ON billing.events_2026_01 USING btree (id) WHERE (payload IS NOT NULL)",
+            "unique" : false,
+            "method" : "btree",
+            "predicate" : "(payload IS NOT NULL)",
+            "signature" : "c75c16cfbc4a647ba084f74f9bffdbdc"
+          }
+        }
+      },
+      "billing.events_2026_04" : {
+        "oid" : 25255,
+        "schemaName" : "billing",
+        "name" : "events_2026_04",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : "billing.events_2026_q2",
+        "partitionBoundExpr" : "FOR VALUES FROM ('2026-04-01') TO ('2026-05-01')",
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "kind" : {
+            "attnum" : 3,
+            "name" : "kind",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "payload" : {
+            "attnum" : 4,
+            "name" : "payload",
+            "dataType" : "jsonb",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "created_on" : {
+            "attnum" : 2,
+            "name" : "created_on",
+            "dataType" : "date",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          }
+        },
+        "constraints" : { },
+        "indexes" : { }
+      },
+      "billing.events_2026_q2" : {
+        "oid" : 25249,
+        "schemaName" : "billing",
+        "name" : "events_2026_q2",
+        "partitioned" : true,
+        "partitionKeyDef" : "RANGE (created_on)",
+        "parentTable" : "billing.events",
+        "partitionBoundExpr" : "FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')",
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "kind" : {
+            "attnum" : 3,
+            "name" : "kind",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "payload" : {
+            "attnum" : 4,
+            "name" : "payload",
+            "dataType" : "jsonb",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "created_on" : {
+            "attnum" : 2,
+            "name" : "created_on",
+            "dataType" : "date",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          }
+        },
+        "constraints" : { },
+        "indexes" : { }
+      },
+      "billing.events_default" : {
+        "oid" : 25263,
+        "schemaName" : "billing",
+        "name" : "events_default",
+        "partitioned" : false,
+        "partitionKeyDef" : null,
+        "parentTable" : "billing.events",
+        "partitionBoundExpr" : "DEFAULT",
+        "columns" : {
+          "id" : {
+            "attnum" : 1,
+            "name" : "id",
+            "dataType" : "bigint",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "kind" : {
+            "attnum" : 3,
+            "name" : "kind",
+            "dataType" : "text",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "payload" : {
+            "attnum" : 4,
+            "name" : "payload",
+            "dataType" : "jsonb",
+            "nullable" : true,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          },
+          "created_on" : {
+            "attnum" : 2,
+            "name" : "created_on",
+            "dataType" : "date",
+            "nullable" : false,
+            "defaultValue" : null,
+            "identityGeneration" : null,
+            "generatedExpression" : null,
+            "collation" : null,
+            "inherited" : true
+          }
+        },
+        "constraints" : { },
+        "indexes" : { }
+      }
+    },
+    "views" : {
+      "sales.v_orders" : {
+        "oid" : 25281,
+        "schemaName" : "sales",
+        "name" : "v_orders",
+        "materialized" : false,
+        "definition" : " SELECT o.id,\n    o.amount,\n    c.email\n   FROM sales.orders o\n     JOIN sales.customers c ON c.id = o.customer_id;",
+        "populated" : true,
+        "signature" : "757474dbf560cdf6ab7dbb8495ab3a99",
+        "dependencies" : [ {
+          "relation" : "sales.customers",
+          "relationKind" : "r",
+          "column" : "email"
+        }, {
+          "relation" : "sales.customers",
+          "relationKind" : "r",
+          "column" : "id"
+        }, {
+          "relation" : "sales.orders",
+          "relationKind" : "r",
+          "column" : "amount"
+        }, {
+          "relation" : "sales.orders",
+          "relationKind" : "r",
+          "column" : "customer_id"
+        }, {
+          "relation" : "sales.orders",
+          "relationKind" : "r",
+          "column" : "id"
+        } ],
+        "indexes" : { }
+      },
+      "billing.mv_totals" : {
+        "oid" : 25289,
+        "schemaName" : "billing",
+        "name" : "mv_totals",
+        "materialized" : true,
+        "definition" : " SELECT customer_id,\n    sum(amount) AS total\n   FROM sales.orders\n  GROUP BY customer_id;",
+        "populated" : true,
+        "signature" : "4c6c800c23db74eb9035b58b2c5a86f3",
+        "dependencies" : [ {
+          "relation" : "sales.orders",
+          "relationKind" : "r",
+          "column" : "amount"
+        }, {
+          "relation" : "sales.orders",
+          "relationKind" : "r",
+          "column" : "customer_id"
+        } ],
+        "indexes" : {
+          "mv_totals_customer_idx" : {
+            "oid" : 25295,
+            "name" : "mv_totals_customer_idx",
+            "definition" : "CREATE UNIQUE INDEX mv_totals_customer_idx ON billing.mv_totals USING btree (customer_id)",
+            "unique" : true,
+            "method" : "btree",
+            "predicate" : null,
+            "signature" : "1796ab01a2d0dc3e38a502990c8a5d48"
+          }
+        }
+      },
+      "sales.v_big_orders" : {
+        "oid" : 25285,
+        "schemaName" : "sales",
+        "name" : "v_big_orders",
+        "materialized" : false,
+        "definition" : " SELECT id,\n    amount,\n    email\n   FROM sales.v_orders\n  WHERE amount > 100::numeric;",
+        "populated" : true,
+        "signature" : "3845664144a439a22a80dc2d38a0a9ec",
+        "dependencies" : [ {
+          "relation" : "sales.v_orders",
+          "relationKind" : "v",
+          "column" : "amount"
+        }, {
+          "relation" : "sales.v_orders",
+          "relationKind" : "v",
+          "column" : "email"
+        }, {
+          "relation" : "sales.v_orders",
+          "relationKind" : "v",
+          "column" : "id"
+        } ],
+        "indexes" : { }
+      }
+    },
+    "sequences" : {
+      "sales.invoice_no" : {
+        "oid" : 25234,
+        "schemaName" : "sales",
+        "name" : "invoice_no",
+        "dataType" : "integer",
+        "startValue" : 1000,
+        "incrementBy" : 5,
+        "minValue" : 1,
+        "maxValue" : 999999,
+        "cacheSize" : 1,
+        "cycle" : true,
+        "ownedByTable" : null,
+        "ownedByColumn" : null
+      },
+      "sales.orders_id_seq" : {
+        "oid" : 25217,
+        "schemaName" : "sales",
+        "name" : "orders_id_seq",
+        "dataType" : "integer",
+        "startValue" : 1,
+        "incrementBy" : 1,
+        "minValue" : 1,
+        "maxValue" : 2147483647,
+        "cacheSize" : 1,
+        "cycle" : false,
+        "ownedByTable" : "sales.orders",
+        "ownedByColumn" : "id"
+      }
+    }
+  }
+}

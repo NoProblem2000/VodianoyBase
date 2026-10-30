@@ -1,0 +1,33 @@
+2026-10-30T09:21:43.536Z  INFO 4215 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : Starting PgGitVcApplication v1.4.0 using Java 17.0.21 with PID 4215 (/tmp/tmp.R8M9qnUtn4/pg-git-vc.jar started by runner in /tmp/tmp.R8M9qnUtn4)
+2026-10-30T09:21:43.544Z  INFO 4215 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : No active profile set, falling back to 1 default profile: "default"
+2026-10-30T09:21:44.654Z  INFO 4215 --- [pg-git-vc] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 18766 (http)
+2026-10-30T09:21:44.824Z  INFO 4215 --- [pg-git-vc] [           main] c.v.p.e.EnvironmentManagerService        : Environments file: /tmp/tmp.R8M9qnUtn4/pgvc-environments.json (0 environment(s))
+2026-10-30T09:21:45.149Z  INFO 4215 --- [pg-git-vc] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 18766 (http) with context path '/'
+2026-10-30T09:21:45.163Z  INFO 4215 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : Started PgGitVcApplication in 2.195 seconds (process running for 2.686)
+2026-10-30T09:21:45.693Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-4] c.v.p.e.EnvironmentManagerService        : Environment added: Dev (dev)
+2026-10-30T09:21:45.708Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-6] c.v.p.e.EnvironmentManagerService        : Environment added: Stage (stage)
+2026-10-30T09:21:45.719Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-8] c.v.p.e.EnvironmentManagerService        : Environment added: Prod (prod)
+2026-10-30T09:21:45.729Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-9] c.v.p.e.EnvironmentManagerService        : Environment added: QA (qa)
+2026-10-30T09:21:45.737Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-3] c.v.p.e.EnvironmentManagerService        : Environment added: Customer (customer)
+2026-10-30T09:21:45.999Z  INFO 4215 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment dev
+2026-10-30T09:21:46.141Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-2] c.v.pgvc.vcs.VersionControlService       : Committed 1a2e0b41c3 on dev: Baseline: sales, billing and partitioned events
+2026-10-30T09:21:46.222Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment prod
+2026-10-30T09:21:46.334Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.vcs.VersionControlService       : Pushed 1 commit(s) dev -> prod: HEAD <none> -> 1a2e0b41c3
+2026-10-30T09:21:46.382Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment qa
+2026-10-30T09:21:46.454Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Committed 8a21e04472 on qa: QA baseline
+2026-10-30T09:21:46.536Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Executed and committed 39301265d5 on dev: Add customer notes
+2026-10-30T09:21:46.602Z  INFO 4215 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.vcs.VersionControlService       : Executed and committed 854a311355 on dev: Index notes by customer
+2026-10-30T09:21:46.657Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment stage
+2026-10-30T09:21:46.767Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.vcs.VersionControlService       : Pushed 3 commit(s) dev -> stage: HEAD <none> -> 854a311355
+2026-10-30T09:21:46.837Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.vcs.VersionControlService       : Executed and committed e2af2c3a0c on dev: Add February partition
+2026-10-30T09:21:46.912Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.vcs.VersionControlService       : Executed and committed a615f4b73d on prod: Prod hotfix: index orders by status
+2026-10-30T09:22:23.829Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.vcs.VersionControlService       : Committed 0972f85d21 on dev: Customer phone, rename note to remark
+2026-10-30T09:22:24.948Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-2] c.v.pgvc.vcs.VersionControlService       : Pushed 2 commit(s) dev -> stage: HEAD 854a311355 -> 0972f85d21
+2026-10-30T09:22:26.295Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Executed and committed 768fe9946a on dev: Add coupons
+2026-10-30T09:22:31.500Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.vcs.VersionControlService       : Rolled back dev from 768fe9946a to 854a311355
+2026-10-30T09:22:33.373Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Linked qa to the history of dev at 1a2e0b41c3 (previous HEAD 8a21e04472, 1 own commit(s) deleted)
+2026-10-30T09:22:34.451Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Pushed 2 commit(s) dev -> qa: HEAD 1a2e0b41c3 -> 854a311355
+2026-10-30T09:22:39.501Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.CommitDeletionService       : Deleted 1 commit(s) (BRANCH 768fe9946a) from {dev=1}
+2026-10-30T09:22:44.826Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment customer
+2026-10-30T09:22:44.879Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.vcs.VersionControlService       : Executed and committed 36e13b696e on customer: Sync with external snapshot [854a311]
+2026-10-30T09:22:44.879Z  INFO 4215 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.snapshot.SnapshotSyncService    : Applied external snapshot 854a311 to customer: commit 36e13b6
