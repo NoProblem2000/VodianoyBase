@@ -249,6 +249,12 @@ public class SchemaDiffEngine {
             return item;
         }
 
+        /** A warning of the whole migration that belongs to one change. */
+        private void warn(ChangeItem item, String message) {
+            warnings.add(message);
+            item.getWarnings().add(message);
+        }
+
         private void emit(int phase, ChangeItem item, String sql) {
             statements.add(new Statement(phase, statements.size(), item, sql));
         }
@@ -311,7 +317,7 @@ public class SchemaDiffEngine {
                 String key = f.getQualifiedName();
                 ChangeItem item = item(ChangeType.DELETED, tableType(f), key, "dropped, its data will be lost",
                         pairKey("table", id(f.getOid()), null));
-                warnings.add((f.isPartition() ? "Partition " : "Table ") + key + " is dropped: its data will be lost.");
+                warn(item, (f.isPartition() ? "Partition " : "Table ") + key + " is dropped: its data will be lost.");
                 for (ConstraintModel c : sorted(f.getConstraints())) {
                     if (c.getType() == ConstraintType.FOREIGN_KEY) {
                         emit(DROP_FOREIGN_KEY, item, "ALTER TABLE " + qualified(f.getSchemaName(), f.getName())
@@ -433,9 +439,9 @@ public class SchemaDiffEngine {
             if (f.isPartitioned() != t.isPartitioned() || !Objects.equals(f.getPartitionKeyDef(), t.getPartitionKeyDef())) {
                 String msg = "Partitioning of " + t.getQualifiedName() + " changed (" + describePartitioning(f) + " -> "
                         + describePartitioning(t) + "). PostgreSQL cannot change it in place: recreate the table manually.";
-                warnings.add(msg);
                 ChangeItem item = item(ChangeType.MODIFIED, tableType(t), t.getQualifiedName(), msg,
                         pairKey("table-partitioning", fromId, tableId));
+                warn(item, msg);
                 emit(ALTER_TABLE, item, "-- MANUAL ACTION REQUIRED: " + msg);
             }
 
@@ -489,7 +495,7 @@ public class SchemaDiffEngine {
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " DROP COLUMN " + ident(c.getName()) + ";");
                 affectedColumns.add(f.getQualifiedName() + "." + c.getName());
                 affectedTables.add(f.getQualifiedName());
-                warnings.add("Column " + name + " is dropped: its data will be lost.");
+                warn(item, "Column " + name + " is dropped: its data will be lost.");
             }
             for (ColumnModel c : cm.added) {
                 String name = t.getQualifiedName() + "." + c.getName();
@@ -498,7 +504,7 @@ public class SchemaDiffEngine {
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " ADD COLUMN " + columnDefinition(c) + ";");
                 if (!c.isNullable() && c.getDefaultValue() == null && c.getIdentityGeneration() == null
                         && c.getGeneratedExpression() == null) {
-                    warnings.add("Column " + name + " is added as NOT NULL without DEFAULT: fails if the table has rows.");
+                    warn(item, "Column " + name + " is added as NOT NULL without DEFAULT: fails if the table has rows.");
                 }
             }
             for (Matching.Pair<ColumnModel> p : cm.matched) {
@@ -527,6 +533,7 @@ public class SchemaDiffEngine {
 
             List<String> details = new ArrayList<>();
             List<String> sql = new ArrayList<>();
+            List<String> columnWarnings = new ArrayList<>();
             boolean typeChanged = !fc.getDataType().equals(tc.getDataType());
             boolean collationChanged = !Objects.equals(fc.getCollation(), tc.getCollation());
             if (fc.getIdentityGeneration() != null && tc.getIdentityGeneration() == null) {
@@ -539,7 +546,7 @@ public class SchemaDiffEngine {
                         + (typeChanged ? " USING " + col + "::" + tc.getDataType() : "") + ";");
                 if (typeChanged) {
                     details.add("type " + fc.getDataType() + " -> " + tc.getDataType());
-                    warnings.add("Column " + name + " changes type " + fc.getDataType() + " -> " + tc.getDataType()
+                    columnWarnings.add("Column " + name + " changes type " + fc.getDataType() + " -> " + tc.getDataType()
                             + ": check the USING expression.");
                 }
                 if (collationChanged) {
@@ -571,7 +578,7 @@ public class SchemaDiffEngine {
             }
             if (!Objects.equals(fc.getGeneratedExpression(), tc.getGeneratedExpression())) {
                 String msg = "Generated expression of " + name + " changed: drop and re-add the column manually.";
-                warnings.add(msg);
+                columnWarnings.add(msg);
                 details.add("generated expression changed (manual action required)");
                 sql.add("-- MANUAL ACTION REQUIRED: " + msg);
             }
@@ -579,6 +586,7 @@ public class SchemaDiffEngine {
                 ChangeItem item = item(ChangeType.MODIFIED, ObjectType.COLUMN, name, String.join(", ", details),
                         pairKey("column", fromId, toId));
                 sql.forEach(s -> emit(ALTER_TABLE, item, s));
+                columnWarnings.forEach(w -> warn(item, w));
             }
         }
 

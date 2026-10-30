@@ -44,6 +44,11 @@ public class ChangeItem {
     @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     private boolean extraInTargetDb;
 
+    /** Warnings that apply to this change (data loss, manual action ...); also listed in the result's warnings. */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private java.util.List<String> warnings = new java.util.ArrayList<>();
+
     /** Identity used to pair a change with its inverse from the reverse diff (not serialized). */
     @JsonIgnore
     private String pairKey;

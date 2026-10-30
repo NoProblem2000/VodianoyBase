@@ -155,6 +155,13 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
     }
   }
 
+  // warnings of the selected changes only
+  const selectedWarnings = useMemo(() => {
+    if (!comparison) return [];
+    const all = [...comparison.missingOrModifiedItems, ...comparison.destructiveItems];
+    return all.filter((i) => i.id !== undefined && selected.has(i.id)).flatMap((i) => i.warnings ?? []);
+  }, [comparison, selected]);
+
   const selectedDestructive = useMemo(
     () => (comparison?.destructiveItems ?? []).filter((i) => i.id !== undefined && selected.has(i.id)).length,
     [comparison, selected],
@@ -329,11 +336,11 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                   onToggle={toggle}
                   onToggleAll={(on) => toggleGroup(comparison.destructiveItems, on)}
                 />
-                {comparison.warnings.length > 0 && (
+                {selectedWarnings.length > 0 && (
                   <div className="rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
                     <div className="mb-1 font-semibold">{t('snapshot.warnings')}</div>
                     <ul className="space-y-1">
-                      {comparison.warnings.map((w, i) => (
+                      {selectedWarnings.map((w, i) => (
                         <li key={i} className="flex gap-1.5">
                           <TriangleAlert size={12} className="mt-px shrink-0" />
                           {w}

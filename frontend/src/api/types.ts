@@ -68,6 +68,8 @@ export interface ChangeItem {
   id?: number;
   /** snapshot compare only: the object exists only in this database, not in the reference snapshot */
   extraInTargetDb?: boolean;
+  /** warnings that apply to this change */
+  warnings?: string[];
 }
 
 export interface SchemaDiffResult {

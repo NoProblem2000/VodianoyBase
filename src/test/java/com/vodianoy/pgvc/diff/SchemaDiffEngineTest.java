@@ -305,6 +305,10 @@ class SchemaDiffEngineTest {
                 .findFirst().orElseThrow();
         assertEquals(ChangeType.ADDED, email.getChangeType());
         assertTrue(legacy.isExtraInTargetDb());
+        // warnings belong to their change: only the drop warns about data loss
+        assertTrue(legacy.getWarnings().stream().anyMatch(w -> w.contains("data will be lost")), legacy.toString());
+        assertTrue(email.getWarnings().isEmpty(), email.toString());
+        assertTrue(r.getWarnings().containsAll(legacy.getWarnings()));
 
         // every statement belongs to a known change
         for (ScriptStatement st : r.getUpStatements()) {
