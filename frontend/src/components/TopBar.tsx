@@ -1,4 +1,4 @@
-import { Database, Download, GitBranchPlus, Globe, Info, RefreshCw, Send, Settings2 } from 'lucide-react';
+import { Camera, Database, Download, GitBranchPlus, GitCompare, Globe, Info, RefreshCw, Send, Settings2 } from 'lucide-react';
 import type { EnvironmentView, PgVcStatus } from '../api/types';
 import { LANGS, useI18n } from '../i18n';
 
@@ -14,6 +14,8 @@ interface Props {
   onSync: () => void;
   onRefresh: () => void;
   onAbout: () => void;
+  onExportSnapshot: () => void;
+  onCompareSnapshot: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -70,6 +72,25 @@ export function TopBar(p: Props) {
       <button className="btn" onClick={p.onSync} disabled={!ready || p.environments.length < 2}>
         <Send size={15} />
         {t('topBar.sync')}
+      </button>
+      <button
+        className="btn px-2"
+        onClick={p.onExportSnapshot}
+        disabled={!p.status?.reachable}
+        title={t('topBar.exportSnapshot')}
+        aria-label={t('topBar.exportSnapshot')}
+      >
+        <Camera size={15} />
+      </button>
+      <button
+        className="btn px-2 min-[1760px]:px-3"
+        onClick={p.onCompareSnapshot}
+        disabled={!p.status?.reachable}
+        title={t('topBar.compareSnapshot')}
+        aria-label={t('topBar.compareSnapshot')}
+      >
+        <GitCompare size={15} />
+        <span className="hidden min-[1760px]:inline">{t('topBar.compareSnapshot')}</span>
       </button>
 
       <span className="mx-0.5 h-6 w-px bg-kraken-line" aria-hidden="true" />

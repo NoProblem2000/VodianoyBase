@@ -14,6 +14,8 @@ import type {
   DeletionPlan,
   DeletionResult,
   GlobalGraph,
+  SnapshotBundle,
+  SnapshotComparison,
   LinkResult,
   OfflineBundle,
   PgVcStatus,
@@ -32,12 +34,22 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// Turn backend errors ({status, error, message}) into Error(message)
+// Turn backend errors ({status, error, message}) into Error(message); blob requests (downloads) carry it as a Blob
 http.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const message: string | undefined = error?.response?.data?.message;
-    return Promise.reject(new Error(message || error?.message || (getLang() === 'ru' ? 'Ошибка запроса' : 'Request failed')));
+  async (error) => {
+    const fallback = error?.message || (getLang() === 'ru' ? 'Ошибка запроса' : 'Request failed');
+    const data = error?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text()) as { message?: string };
+        return Promise.reject(new Error(parsed.message || fallback));
+      } catch {
+        return Promise.reject(new Error(fallback));
+      }
+    }
+    const message: string | undefined = data?.message;
+    return Promise.reject(new Error(message || fallback));
   },
 );
 
@@ -86,6 +98,34 @@ export const api = {
   ) => post<RollbackResult>(`/environments/${e(id)}/vc/rollback`, body),
 
   about: () => get<AboutInfo>('/about'),
+
+  // reference snapshots (.pgsnap.json)
+  /** Downloads snapshot_<branch>_<hash>.pgsnap.json of a commit (default: HEAD, or the live schema). */
+  downloadSnapshot: async (envId: string, commitHash?: string | null): Promise<string> => {
+    const params: Record<string, string> = { envId };
+    if (commitHash) params.commitHash = commitHash;
+    const response = await http.get<Blob>('/vc/snapshot/export', { params, responseType: 'blob' });
+    const fileName = fileNameOf(response.headers['content-disposition']) ?? 'snapshot.pgsnap.json';
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return fileName;
+  },
+  compareSnapshot: (envId: string, bundle: SnapshotBundle) =>
+    post<SnapshotComparison>('/vc/snapshot/compare', { envId, bundle }),
+  applySnapshot: (body: {
+    envId: string;
+    upSql: string;
+    downSql: string;
+    author: string;
+    message: string;
+    sourceCommitHash: string | null;
+  }) => post<CommitResult>('/vc/snapshot/apply', body),
   deletionPlan: (hash: string, mode: DeletionMode) =>
     get<DeletionPlan>(`/vc/commits/${e(hash)}/deletion-plan`, { mode }),
   deleteCommit: (hash: string, mode: DeletionMode) =>
@@ -119,3 +159,12 @@ export const api = {
     return `/api/migrations/export?${q.toString()}`;
   },
 };
+
+/** File name from Content-Disposition (RFC 6266 filename* first). */
+function fileNameOf(header: string | undefined): string | null {
+  if (!header) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star) return decodeURIComponent(star[1].replace(/"/g, ''));
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain ? plain[1] : null;
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Download, RotateCcw, Trash2 } from 'lucide-react';
+import { Copy, Download, FileDown, RotateCcw, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { AuditLogEntry, CommitDetails, EnvironmentHead, GraphCommit, SchemaDiffResult } from '../api/types';
 import { formatDate, shortHash, timeOfDay } from '../lib/format';
@@ -22,6 +22,7 @@ interface Props {
   onExportSingle: () => void;
   onRollback: () => void;
   onDelete: () => void;
+  onExportSnapshot: () => void;
 }
 
 type Tab = 'changes' | 'up' | 'down' | 'snapshot' | 'ddl';
@@ -146,6 +147,9 @@ export function CommitInspector(p: Props) {
       <footer className="flex flex-wrap items-center gap-2 border-t border-kraken-line px-4 py-3">
         <button className="btn" onClick={p.onExportSingle}>
           <Download size={14} /> {t('commit.exportSingle')}
+        </button>
+        <button className="btn" onClick={p.onExportSnapshot} title={t('commit.exportSnapshotTitle')}>
+          <FileDown size={14} /> {t('commit.exportSnapshot')}
         </button>
         <span className="flex-1" />
         <button

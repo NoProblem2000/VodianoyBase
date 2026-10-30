@@ -99,14 +99,16 @@ class SnapshotSyncIntegrationTest {
         assertThat(cmp.targetHasUncommittedChanges()).isTrue();
         // the shared fixture objects match by name despite different OIDs: only the real differences are listed
         assertThat(cmp.missingOrModifiedItems()).extracting(ChangeItem::getObjectName)
-                .contains("sales.notes", "sales.notes_customer_idx", "billing.events_2026_02")
+                .contains("sales.notes", "billing.events_2026_02")
                 .doesNotContain("sales.orders", "public.customer_only");
         assertThat(cmp.missingOrModifiedItems()).allMatch(c -> !c.isExtraInTargetDb());
         assertThat(cmp.destructiveItems()).extracting(ChangeItem::getObjectName)
                 .contains("public.customer_only", "sales.customers.local_code");
         assertThat(cmp.destructiveItems()).allMatch(c -> c.getChangeType() == ChangeType.DELETED && c.isExtraInTargetDb());
         // the default script adds what is missing and drops nothing
-        assertThat(cmp.upSql()).contains("CREATE TABLE sales.notes").contains("PARTITION OF billing.events")
+        // indexes of a new table belong to the table's change (unselecting the table drops them from the script too)
+        assertThat(cmp.upSql()).contains("CREATE TABLE sales.notes").contains("notes_customer_idx")
+                .contains("PARTITION OF billing.events")
                 .doesNotContain("customer_only").doesNotContain("local_code");
         assertThat(cmp.downSql()).contains("DROP TABLE sales.notes");
         assertThat(cmp.upStatements()).isNotEmpty();
