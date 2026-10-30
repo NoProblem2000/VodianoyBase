@@ -83,6 +83,7 @@ public final class TestDatabases {
         public final VersionControlService vc;
         public final OfflineMigrationService offline;
         public final com.vodianoy.pgvc.vcs.CommitDeletionService deletion;
+        public final com.vodianoy.pgvc.snapshot.SnapshotSyncService snapshots;
 
         public Services(Path dir, String... databases) {
             PgVcProperties props = new PgVcProperties();
@@ -98,6 +99,7 @@ public final class TestDatabases {
             vc = new VersionControlService(environments, storage, introspector, engine, objectMapper(), history);
             offline = new OfflineMigrationService(environments, storage, history);
             deletion = new com.vodianoy.pgvc.vcs.CommitDeletionService(vc, environments, storage, history);
+            snapshots = new com.vodianoy.pgvc.snapshot.SnapshotSyncService(environments, storage, introspector, engine, vc);
         }
 
         @Override

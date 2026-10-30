@@ -64,6 +64,12 @@ export interface ChangeItem {
   details: string;
   upSql: string;
   downSql: string;
+  /** snapshot compare only: position of the change, referenced by ScriptStatement.changeId */
+  id?: number;
+  /** snapshot compare only: the object exists only in this database, not in the reference snapshot */
+  extraInTargetDb?: boolean;
+  /** warnings that apply to this change */
+  warnings?: string[];
 }
 
 export interface SchemaDiffResult {
@@ -273,4 +279,48 @@ export interface DeletionResult {
   mode: DeletionMode;
   deletedCommits: string[];
   perEnvironment: Record<string, number>;
+}
+
+/** One statement of a migration in execution order; changeId -1 = belongs to no single change. */
+export interface ScriptStatement {
+  changeId: number;
+  sql: string;
+}
+
+/** Contents of a .pgsnap.json file. */
+export interface SnapshotBundle {
+  formatVersion: string;
+  exportedAt: string;
+  sourceEnvironmentName: string;
+  sourceBranch: string;
+  sourceCommitHash: string | null;
+  sourceCommitMessage: string | null;
+  schemaSnapshot: DatabaseSnapshot;
+}
+
+export interface SnapshotSource {
+  formatVersion: string;
+  exportedAt: string;
+  sourceEnvironmentName: string;
+  sourceBranch: string;
+  sourceCommitHash: string | null;
+  sourceCommitMessage: string | null;
+  serverVersion: number;
+}
+
+export interface SnapshotComparison {
+  environmentId: string;
+  environmentName: string;
+  targetHead: string | null;
+  source: SnapshotSource;
+  identical: boolean;
+  missingOrModifiedItems: ChangeItem[];
+  destructiveItems: ChangeItem[];
+  upStatements: ScriptStatement[];
+  downStatements: ScriptStatement[];
+  upSql: string;
+  downSql: string;
+  warnings: string[];
+  targetHasUncommittedChanges: boolean;
+  serverVersion: number;
 }

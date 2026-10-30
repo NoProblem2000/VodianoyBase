@@ -253,4 +253,80 @@ class SchemaDiffEngineTest {
         assertEquals("ALTER TABLE public.users ADD COLUMN legacy text;",
                 only(r, ChangeType.DELETED, ObjectType.COLUMN).getDownSql());
     }
+
+    // ------------------------------------------------------------------ cross-database compare (Step 9)
+
+    @Test
+    void compareByNameIgnoresOidsAndAttnumsOfAnotherDatabase() {
+        // same structure, completely different identities (another server)
+        DatabaseSnapshot customer = snapshot("customer", List.of(table(500, "users", col(7, "id", "integer"),
+                col(8, "email", "text"))), List.of());
+        DatabaseSnapshot reference = snapshot("dev", List.of(table(10, "users", col(1, "id", "integer"),
+                col(3, "email", "text"))), List.of());
+        SchemaDiffResult r = engine.compare(customer, reference, true);
+        assertFalse(r.isHasChanges(), r.getUpSql());
+        assertTrue(r.getUpStatements().isEmpty());
+    }
+
+    @Test
+    void compareByNameNeverReportsRenamesEvenWithEqualIdentities() {
+        // a plain diff of the same database sees a rename (same oid); a name-only compare must not
+        DatabaseSnapshot current = snapshot("db1", List.of(table(10, "clients", col(1, "id", "integer"))), List.of());
+        DatabaseSnapshot target = snapshot("db1", List.of(table(10, "customers", col(1, "id", "integer"))), List.of());
+        only(engine.diff(current, target), ChangeType.RENAMED, ObjectType.TABLE);
+
+        SchemaDiffResult r = engine.compare(current, target, true);
+        ChangeItem added = only(r, ChangeType.ADDED, ObjectType.TABLE);
+        ChangeItem extra = only(r, ChangeType.DELETED, ObjectType.TABLE);
+        assertEquals("public.customers", added.getObjectName());
+        assertFalse(added.isExtraInTargetDb());
+        assertEquals("public.clients", extra.getObjectName());
+        assertTrue(extra.isExtraInTargetDb());
+        // every change has an id = its position
+        for (int i = 0; i < r.getChanges().size(); i++) {
+            assertEquals(i, r.getChanges().get(i).getId());
+        }
+    }
+
+    @Test
+    void selectedChangesAreAssembledInDependencySafeOrder() {
+        DatabaseSnapshot current = snapshot("customer", List.of(
+                table(500, "users", col(1, "id", "integer"), col(2, "legacy_code", "text"))), List.of());
+        DatabaseSnapshot target = snapshot("dev", List.of(
+                table(10, "users", col(1, "id", "integer"), col(2, "email", "text")),
+                table(11, "orders", col(1, "id", "integer"), col(2, "user_id", "integer"))), List.of());
+        SchemaDiffResult r = engine.compare(current, target, true);
+
+        ChangeItem email = r.getChanges().stream().filter(c -> c.getObjectName().equals("public.users.email"))
+                .findFirst().orElseThrow();
+        ChangeItem orders = r.getChanges().stream().filter(c -> c.getObjectName().equals("public.orders"))
+                .findFirst().orElseThrow();
+        ChangeItem legacy = r.getChanges().stream().filter(c -> c.getObjectName().equals("public.users.legacy_code"))
+                .findFirst().orElseThrow();
+        assertEquals(ChangeType.ADDED, email.getChangeType());
+        assertTrue(legacy.isExtraInTargetDb());
+        // warnings belong to their change: only the drop warns about data loss
+        assertTrue(legacy.getWarnings().stream().anyMatch(w -> w.contains("data will be lost")), legacy.toString());
+        assertTrue(email.getWarnings().isEmpty(), email.toString());
+        assertTrue(r.getWarnings().containsAll(legacy.getWarnings()));
+
+        // every statement belongs to a known change
+        for (ScriptStatement st : r.getUpStatements()) {
+            assertTrue(st.changeId() >= 0 && st.changeId() < r.getChanges().size(), st.toString());
+        }
+        String safe = SchemaDiffEngine.assemble(r.getUpStatements(), List.of(email.getId(), orders.getId()));
+        assertTrue(safe.contains("ADD COLUMN email"), safe);
+        assertTrue(safe.contains("CREATE TABLE public.orders"), safe);
+        assertFalse(safe.contains("legacy_code"), safe);
+        String down = SchemaDiffEngine.assemble(r.getDownStatements(), List.of(email.getId(), orders.getId()));
+        assertTrue(down.contains("DROP COLUMN email"), down);
+        assertTrue(down.contains("DROP TABLE public.orders"), down);
+        assertFalse(down.contains("legacy_code"), down);
+
+        String all = SchemaDiffEngine.assemble(r.getUpStatements(), List.of(email.getId(), orders.getId(), legacy.getId()));
+        assertTrue(all.contains("DROP COLUMN legacy_code"), all);
+        assertEquals("", SchemaDiffEngine.assemble(r.getUpStatements(), List.of()));
+        // the plain diff does not carry statements
+        assertTrue(engine.diff(current, target).getUpStatements().isEmpty());
+    }
 }

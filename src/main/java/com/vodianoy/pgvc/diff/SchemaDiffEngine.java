@@ -45,29 +45,89 @@ import static com.vodianoy.pgvc.util.SqlIdentifiers.qualifiedKey;
 public class SchemaDiffEngine {
 
     public SchemaDiffResult diff(DatabaseSnapshot headSnapshot, DatabaseSnapshot liveSnapshot) {
-        DatabaseSnapshot head = headSnapshot == null ? DatabaseSnapshot.builder().build() : headSnapshot;
-        DatabaseSnapshot live = liveSnapshot == null ? DatabaseSnapshot.builder().build() : liveSnapshot;
-        Run forward = new Run(head, live, true);
+        return run(headSnapshot, liveSnapshot, false, false);
+    }
+
+    /**
+     * Cross-database compare: what must change in {@code currentDbState} (e.g. the database of a customer) to reach
+     * {@code targetExternalSnapshot} (e.g. a snapshot exported from Dev).
+     *
+     * <p>With {@code matchByNameOnly} objects are paired strictly by their (case-sensitive) qualified names; OIDs and
+     * attnums are ignored, so nothing is reported as renamed. Objects of the target missing in the current database are
+     * {@code ADDED}; objects that exist only in the current database are {@code DELETED} with
+     * {@link ChangeItem#isExtraInTargetDb()} set — dropping them is the caller's explicit decision.
+     *
+     * <p>Every change gets an {@link ChangeItem#getId() id}, and the result carries the UP / DOWN scripts statement by
+     * statement ({@link SchemaDiffResult#getUpStatements()}), so a subset of the changes can be assembled into an
+     * executable script without losing the dependency-safe order (see {@link #assemble}).
+     */
+    public SchemaDiffResult compare(DatabaseSnapshot currentDbState, DatabaseSnapshot targetExternalSnapshot,
+                                    boolean matchByNameOnly) {
+        return run(currentDbState, targetExternalSnapshot, matchByNameOnly, true);
+    }
+
+    /**
+     * Joins the statements of the selected changes (in their original order). Statements that belong to no single
+     * change (id -1) are kept whenever anything is selected.
+     */
+    public static String assemble(List<ScriptStatement> statements, Collection<Integer> selectedChangeIds) {
+        Set<Integer> selected = new HashSet<>(selectedChangeIds);
+        if (selected.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ScriptStatement s : statements) {
+            if (s.changeId() < 0 || selected.contains(s.changeId())) {
+                sb.append(s.sql()).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private SchemaDiffResult run(DatabaseSnapshot fromSnapshot, DatabaseSnapshot toSnapshot, boolean byNameOnly,
+                                 boolean crossDatabase) {
+        DatabaseSnapshot head = fromSnapshot == null ? DatabaseSnapshot.builder().build() : fromSnapshot;
+        DatabaseSnapshot live = toSnapshot == null ? DatabaseSnapshot.builder().build() : toSnapshot;
+        Run forward = new Run(head, live, true, byNameOnly);
         forward.execute();
-        Run reverse = new Run(live, head, false);
+        Run reverse = new Run(live, head, false, byNameOnly);
         reverse.execute();
 
         Map<String, ChangeItem> inverseByKey = new HashMap<>();
         for (ChangeItem item : reverse.items) {
             inverseByKey.putIfAbsent(item.getPairKey() + "|" + item.getChangeType(), item);
         }
-        for (ChangeItem item : forward.items) {
+        Map<ChangeItem, Integer> forwardIdOfReverse = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < forward.items.size(); i++) {
+            ChangeItem item = forward.items.get(i);
             item.setUpSql(forward.sqlOf(item));
             ChangeItem inverse = inverseByKey.get(item.getPairKey() + "|" + item.getChangeType().inverse());
             item.setDownSql(inverse == null ? "" : reverse.sqlOf(inverse));
+            if (crossDatabase) {
+                item.setId(i);
+                item.setExtraInTargetDb(item.getChangeType() == ChangeType.DELETED);
+                if (inverse != null) {
+                    forwardIdOfReverse.put(inverse, i);
+                }
+            }
         }
-        return SchemaDiffResult.builder()
+        SchemaDiffResult.SchemaDiffResultBuilder result = SchemaDiffResult.builder()
                 .hasChanges(!forward.statements.isEmpty())
                 .changes(forward.items)
                 .upSql(forward.script())
                 .downSql(reverse.script())
-                .warnings(forward.warnings)
-                .build();
+                .warnings(forward.warnings);
+        if (crossDatabase) {
+            Map<ChangeItem, Integer> forwardIds = new java.util.IdentityHashMap<>();
+            for (int i = 0; i < forward.items.size(); i++) {
+                forwardIds.put(forward.items.get(i), i);
+            }
+            result.upStatements(forward.ordered().stream()
+                    .map(s -> new ScriptStatement(forwardIds.getOrDefault(s.item(), -1), s.sql())).toList());
+            result.downStatements(reverse.ordered().stream()
+                    .map(s -> new ScriptStatement(forwardIdOfReverse.getOrDefault(s.item(), -1), s.sql())).toList());
+        }
+        return result.build();
     }
 
     /** One direction of the comparison ("from" -> "to"). */
@@ -126,12 +186,13 @@ public class SchemaDiffEngine {
         private Matching<TableModel> tables;
         private Matching<ViewModel> views;
 
-        Run(DatabaseSnapshot from, DatabaseSnapshot to, boolean liveIsTo) {
+        Run(DatabaseSnapshot from, DatabaseSnapshot to, boolean liveIsTo, boolean byNameOnly) {
             this.from = from;
             this.to = to;
             this.liveIsTo = liveIsTo;
             String a = from.getSourceDatabaseId();
-            this.sameDb = a != null && !a.startsWith("unknown") && a.equals(to.getSourceDatabaseId());
+            // identities (oid / attnum) mean something only inside one database
+            this.sameDb = !byNameOnly && a != null && !a.startsWith("unknown") && a.equals(to.getSourceDatabaseId());
         }
 
         void execute() {
@@ -186,6 +247,12 @@ public class SchemaDiffEngine {
                     .details(details).pairKey(pairKey).build();
             items.add(item);
             return item;
+        }
+
+        /** A warning of the whole migration that belongs to one change. */
+        private void warn(ChangeItem item, String message) {
+            warnings.add(message);
+            item.getWarnings().add(message);
         }
 
         private void emit(int phase, ChangeItem item, String sql) {
@@ -250,7 +317,7 @@ public class SchemaDiffEngine {
                 String key = f.getQualifiedName();
                 ChangeItem item = item(ChangeType.DELETED, tableType(f), key, "dropped, its data will be lost",
                         pairKey("table", id(f.getOid()), null));
-                warnings.add((f.isPartition() ? "Partition " : "Table ") + key + " is dropped: its data will be lost.");
+                warn(item, (f.isPartition() ? "Partition " : "Table ") + key + " is dropped: its data will be lost.");
                 for (ConstraintModel c : sorted(f.getConstraints())) {
                     if (c.getType() == ConstraintType.FOREIGN_KEY) {
                         emit(DROP_FOREIGN_KEY, item, "ALTER TABLE " + qualified(f.getSchemaName(), f.getName())
@@ -372,9 +439,9 @@ public class SchemaDiffEngine {
             if (f.isPartitioned() != t.isPartitioned() || !Objects.equals(f.getPartitionKeyDef(), t.getPartitionKeyDef())) {
                 String msg = "Partitioning of " + t.getQualifiedName() + " changed (" + describePartitioning(f) + " -> "
                         + describePartitioning(t) + "). PostgreSQL cannot change it in place: recreate the table manually.";
-                warnings.add(msg);
                 ChangeItem item = item(ChangeType.MODIFIED, tableType(t), t.getQualifiedName(), msg,
                         pairKey("table-partitioning", fromId, tableId));
+                warn(item, msg);
                 emit(ALTER_TABLE, item, "-- MANUAL ACTION REQUIRED: " + msg);
             }
 
@@ -428,7 +495,7 @@ public class SchemaDiffEngine {
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " DROP COLUMN " + ident(c.getName()) + ";");
                 affectedColumns.add(f.getQualifiedName() + "." + c.getName());
                 affectedTables.add(f.getQualifiedName());
-                warnings.add("Column " + name + " is dropped: its data will be lost.");
+                warn(item, "Column " + name + " is dropped: its data will be lost.");
             }
             for (ColumnModel c : cm.added) {
                 String name = t.getQualifiedName() + "." + c.getName();
@@ -437,7 +504,7 @@ public class SchemaDiffEngine {
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " ADD COLUMN " + columnDefinition(c) + ";");
                 if (!c.isNullable() && c.getDefaultValue() == null && c.getIdentityGeneration() == null
                         && c.getGeneratedExpression() == null) {
-                    warnings.add("Column " + name + " is added as NOT NULL without DEFAULT: fails if the table has rows.");
+                    warn(item, "Column " + name + " is added as NOT NULL without DEFAULT: fails if the table has rows.");
                 }
             }
             for (Matching.Pair<ColumnModel> p : cm.matched) {
@@ -466,6 +533,7 @@ public class SchemaDiffEngine {
 
             List<String> details = new ArrayList<>();
             List<String> sql = new ArrayList<>();
+            List<String> columnWarnings = new ArrayList<>();
             boolean typeChanged = !fc.getDataType().equals(tc.getDataType());
             boolean collationChanged = !Objects.equals(fc.getCollation(), tc.getCollation());
             if (fc.getIdentityGeneration() != null && tc.getIdentityGeneration() == null) {
@@ -478,7 +546,7 @@ public class SchemaDiffEngine {
                         + (typeChanged ? " USING " + col + "::" + tc.getDataType() : "") + ";");
                 if (typeChanged) {
                     details.add("type " + fc.getDataType() + " -> " + tc.getDataType());
-                    warnings.add("Column " + name + " changes type " + fc.getDataType() + " -> " + tc.getDataType()
+                    columnWarnings.add("Column " + name + " changes type " + fc.getDataType() + " -> " + tc.getDataType()
                             + ": check the USING expression.");
                 }
                 if (collationChanged) {
@@ -510,7 +578,7 @@ public class SchemaDiffEngine {
             }
             if (!Objects.equals(fc.getGeneratedExpression(), tc.getGeneratedExpression())) {
                 String msg = "Generated expression of " + name + " changed: drop and re-add the column manually.";
-                warnings.add(msg);
+                columnWarnings.add(msg);
                 details.add("generated expression changed (manual action required)");
                 sql.add("-- MANUAL ACTION REQUIRED: " + msg);
             }
@@ -518,6 +586,7 @@ public class SchemaDiffEngine {
                 ChangeItem item = item(ChangeType.MODIFIED, ObjectType.COLUMN, name, String.join(", ", details),
                         pairKey("column", fromId, toId));
                 sql.forEach(s -> emit(ALTER_TABLE, item, s));
+                columnWarnings.forEach(w -> warn(item, w));
             }
         }
 

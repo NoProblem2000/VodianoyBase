@@ -165,6 +165,44 @@ await step('16c-delete-commit', async () => {
   await shot('16d-deleted');
 });
 
+// ---- reference snapshot: export from Dev, compare and apply on the customer database
+const snapshotFile = `${out}/reference.pgsnap.json`;
+await step('16e-export-snapshot', async () => {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 20000 }),
+    page.getByRole('button', { name: 'Export Snapshot (.pgsnap.json)' }).click(),
+  ]);
+  const name = download.suggestedFilename();
+  if (!/^snapshot_dev_[0-9a-f]{7}\.pgsnap\.json$/.test(name)) throw new Error(`unexpected file name ${name}`);
+  await download.saveAs(snapshotFile);
+  await toast(/Snapshot saved/);
+});
+await step('16f-compare-snapshot', async () => {
+  await page.getByLabel('Current environment').selectOption('customer');
+  await page.getByRole('button', { name: 'Compare with Snapshot' }).click();
+  await page.getByText('Drop a .pgsnap.json file here').waitFor({ timeout: 10000 });
+  await shot('16f-snapshot-drop');
+  await page.getByLabel('Reference snapshot file').setInputFiles(snapshotFile);
+  await page.getByText('Missing or different').first().waitFor({ timeout: 20000 });
+  const extra = page.getByRole('checkbox', { name: 'public.customer_only', exact: true });
+  if (await extra.isChecked()) throw new Error('the customer table must not be selected by default');
+  const notes = page.getByRole('checkbox', { name: 'sales.notes', exact: true });
+  if (!(await notes.isChecked())) throw new Error('sales.notes must be selected by default');
+  await shot('16f-compare-snapshot');
+  // unselect / select rebuilds the script
+  await notes.uncheck();
+  await notes.check();
+});
+await step('16g-apply-snapshot', async () => {
+  await page.getByRole('button', { name: 'Apply Selected Changes & Commit' }).click();
+  await toast(/Applied and committed/);
+  await page.getByText('Nothing here.').first().waitFor({ timeout: 20000 });
+  await shot('16g-applied');
+  await page.keyboard.press('Escape');
+  await page.getByText(/Sync with external snapshot/).first().waitFor({ timeout: 10000 });
+  await page.getByLabel('Current environment').selectOption('dev');
+});
+
 // ---- About & License, then the Russian UI
 await step('17-about', async () => {
   await page.getByRole('button', { name: 'About & License' }).click();

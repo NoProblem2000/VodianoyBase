@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.diff;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,4 +30,17 @@ public class SchemaDiffResult {
     /** Dangerous or manual-attention items of the UP migration (data loss, type changes ...). */
     @Builder.Default
     private List<String> warnings = new ArrayList<>();
+
+    /** {@link SchemaDiffEngine#compare} only: the UP migration statement by statement, in execution order. */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private List<ScriptStatement> upStatements = new ArrayList<>();
+
+    /**
+     * {@link SchemaDiffEngine#compare} only: the DOWN migration statement by statement, in execution order; each
+     * statement carries the id of the UP change it reverts.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private List<ScriptStatement> downStatements = new ArrayList<>();
 }

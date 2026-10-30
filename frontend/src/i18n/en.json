@@ -97,7 +97,9 @@
     "newMigration": "New SQL Migration (Mode B)",
     "export": "Export Offline .SQL",
     "sync": "Sync / Push to Env",
-    "about": "About & License"
+    "about": "About & License",
+    "exportSnapshot": "Export Snapshot (.pgsnap.json)",
+    "compareSnapshot": "Compare with Snapshot"
   },
   "app": {
     "cannotConnect": "Cannot connect to {{name}}: {{error}}",
@@ -171,7 +173,9 @@
     "rollbackTitle": "Revert the active environment to this commit",
     "delete": "Delete…",
     "deleteTitle": "Delete this commit from the version history",
-    "deleteBlocked": "Used by the current history of {{envs}}. Roll back to an earlier commit first."
+    "deleteBlocked": "Used by the current history of {{envs}}. Roll back to an earlier commit first.",
+    "exportSnapshot": "Snapshot .pgsnap",
+    "exportSnapshotTitle": "Export the schema of this commit as a reference snapshot (.pgsnap.json)"
   },
   "environments": {
     "title": "Environments",
@@ -317,5 +321,39 @@
     "loading": "Checking…",
     "deleting": "Deleting…",
     "done": "Deleted {{commits}}"
+  },
+  "snapshot": {
+    "exported": "Snapshot saved: {{file}}",
+    "title": "External Snapshot Synchronization",
+    "subtitle": "Compares the live schema of {{env}} with a reference snapshot exported from another installation and applies the missing changes as one commit.",
+    "dropTitle": "Drop a .pgsnap.json file here",
+    "dropHint": "or choose it on disk. The file is read in the browser and compared with {{env}}; nothing changes until you apply.",
+    "choose": "Choose file",
+    "fileLabel": "Reference snapshot file",
+    "reading": "Comparing…",
+    "badFile": "{{file}} is not a PgGitVisualizer snapshot (.pgsnap.json).",
+    "headerCommit": "Comparing the current database {{env}} with the reference snapshot of commit {{hash}} (branch {{branch}})",
+    "headerLive": "Comparing the current database {{env}} with a reference snapshot of the live schema of {{source}}",
+    "meta": "{{message}} · exported {{date}} from {{source}}",
+    "otherFile": "Load another file",
+    "identical": "The schema of {{env}} matches the reference snapshot: nothing to apply.",
+    "versionMismatch": "PostgreSQL versions differ ({{source}} → {{target}}): view definitions may be formatted differently and show up as modified.",
+    "uncommitted": "{{env}} has schema changes that are not committed (or no history yet). The new commit records the actual resulting schema.",
+    "missing": "Missing or different",
+    "missingHint": "Present in the snapshot, missing or different in this database. Selected by default.",
+    "destructive": "Extra in this database",
+    "destructiveHint": "Exist only in this database, not in the snapshot. Applying them DROPS the objects and their data — not selected by default.",
+    "destructiveBadge": "Destructive",
+    "selectAll": "Select all",
+    "none": "Nothing here.",
+    "rebuilt": "The SQL was rebuilt from the selection; manual edits were replaced.",
+    "resetSql": "Rebuild from selection",
+    "dropsSelected": "{{count}} destructive change(s) selected: objects will be dropped.",
+    "messageDefault": "Sync with external snapshot [{{hash}}]",
+    "apply": "Apply Selected Changes & Commit",
+    "applying": "Applying…",
+    "applied": "Applied and committed {{hash}} on {{env}}",
+    "nothingSelected": "Select at least one change.",
+    "warnings": "Warnings"
   }
 }

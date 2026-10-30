@@ -4,12 +4,15 @@
 set -euo pipefail
 export PGPASSWORD="$PGVC_TEST_PASSWORD"
 PSQL="psql -h localhost -U $PGVC_TEST_USER -v ON_ERROR_STOP=1 -qX"
-for db in demo_dev demo_stage demo_prod demo_qa; do
+for db in demo_dev demo_stage demo_prod demo_qa demo_customer; do
   $PSQL -d postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
 done
 $PSQL -d demo_dev -f src/test/resources/fixtures/rich-schema.sql
 # QA already has the same schema and gets its own baseline: its history is not connected to dev (link scenario)
 $PSQL -d demo_qa -f src/test/resources/fixtures/rich-schema.sql
+# an isolated customer installation: its own table first (other OIDs), then the same initial schema; no _pgvc
+$PSQL -d demo_customer -c "CREATE TABLE public.customer_only (id int PRIMARY KEY, note text)"
+$PSQL -d demo_customer -f src/test/resources/fixtures/rich-schema.sql
 
 workdir=$(mktemp -d)
 cp target/pg-git-vc-*.jar "$workdir/pg-git-vc.jar"
@@ -24,6 +27,7 @@ add_env Dev '#22c55e' demo_dev
 add_env Stage '#f59e0b' demo_stage
 add_env Prod '#ef4444' demo_prod
 add_env QA '#38bdf8' demo_qa
+add_env Customer '#a855f7' demo_customer
 
 json -X POST $API/environments/dev/pgvc/initialize > /dev/null
 json -X POST $API/environments/dev/vc/commit -d '{"message":"Baseline: sales, billing and partitioned events","author":"alice"}' > /dev/null

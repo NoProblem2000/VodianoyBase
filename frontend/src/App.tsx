@@ -16,6 +16,7 @@ import { ExportModal } from './components/ExportModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
 import { RollbackModal } from './components/RollbackModal';
 import { SchemaExplorer } from './components/SchemaExplorer';
+import { SnapshotSyncModal } from './components/SnapshotSyncModal';
 import { SyncModal } from './components/SyncModal';
 import { ToastProvider, useToast } from './components/Toasts';
 import { TopBar } from './components/TopBar';
@@ -29,7 +30,8 @@ type ModalState =
   | { kind: 'sync' }
   | { kind: 'rollback'; target: string }
   | { kind: 'about' }
-  | { kind: 'delete'; target: string };
+  | { kind: 'delete'; target: string }
+  | { kind: 'snapshot-sync' };
 
 export function App() {
   return (
@@ -102,6 +104,16 @@ function Workspace() {
     [data],
   );
 
+  /** Downloads the reference snapshot of a commit (default: HEAD of the active environment, or its live schema). */
+  async function exportSnapshot(envId: string, commitHash?: string | null) {
+    try {
+      const file = await api.downloadSnapshot(envId, commitHash);
+      toast.success(t('snapshot.exported', { file }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function initialize() {
     if (!activeEnv) return;
     setInitializing(true);
@@ -133,6 +145,8 @@ function Workspace() {
         onSync={() => setModal({ kind: 'sync' })}
         onRefresh={() => void data.refresh()}
         onAbout={() => setModal({ kind: 'about' })}
+        onExportSnapshot={() => activeEnv && void exportSnapshot(activeEnv.id)}
+        onCompareSnapshot={() => setModal({ kind: 'snapshot-sync' })}
       />
 
       {activeEnv && status && !status.reachable && (
@@ -217,6 +231,7 @@ function Workspace() {
               onRollback={() => setModal({ kind: 'rollback', target: selectedCommit.hash })}
               deleteBlockedReason={deleteBlockedReason(selectedCommit)}
               onDelete={() => setModal({ kind: 'delete', target: selectedCommit.hash })}
+              onExportSnapshot={() => void exportSnapshot(inspectorSource, selectedCommit.hash)}
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-gray-400">
@@ -263,6 +278,18 @@ function Workspace() {
         />
       )}
       {modal.kind === 'about' && <AboutModal onClose={closeModal} />}
+      {modal.kind === 'snapshot-sync' && activeEnv && (
+        <SnapshotSyncModal
+          env={activeEnv}
+          author={author}
+          onAuthorChange={setAuthor}
+          onApplied={(r) => {
+            setSelected(r.commit.hash);
+            void data.refresh();
+          }}
+          onClose={closeModal}
+        />
+      )}
       {modal.kind === 'delete' && graph && (
         <DeleteCommitModal
           hash={modal.target}

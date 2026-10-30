@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.3.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.4.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -25,6 +25,10 @@ Open source under the [Apache License 2.0](LICENSE).
 - **Rollback** of a database to any earlier commit, with an editable script and a schema check afterwards.
 - **Delete** commits that are no longer used (left behind by a rollback) — a single commit with the commits on top of
   it, or a whole abandoned branch. Commits in the current history of any environment are protected.
+- **Reference snapshots for isolated sites.** Export the schema of any commit as `snapshot_<branch>_<hash>.pgsnap.json`,
+  load it into the installation at the customer, see what the customer database lacks or has extra (matched by object
+  names — OIDs of another server mean nothing), pick the changes, adjust the SQL and **Apply Selected Changes &
+  Commit** in one transaction. Objects that exist only at the customer are never dropped unless you select them.
 - **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
   records them — all inside `BEGIN … COMMIT`.
 - **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
@@ -37,7 +41,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.3.0.jar
+java -jar pg-git-vc-1.4.0.jar
 ```
 
 Open http://localhost:8765.
@@ -48,9 +52,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.3.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.4.0.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.3.0.jar
+java -jar target/pg-git-vc-1.4.0.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -71,7 +75,8 @@ UI development with hot reload: start the jar, then `cd frontend && npm ci && np
 ### Interface
 
 - **Top bar:** environment switcher and **Environments**; **New SQL Migration (Mode B)**; **Export Offline .SQL**;
-  **Sync / Push to Env**; language switch **RU | EN**; **About & License**.
+  **Sync / Push to Env**; **Export Snapshot** (camera) and **Compare with Snapshot**; language switch **RU | EN**;
+  **About & License**.
 - **Left:** Schema Explorer (Tables / Partitions / Views / Sequences) with a filter and change indicators
   **A** added · **M** modified · **R** renamed · **D** deleted; below it the **Live DDL Audit Log**.
 - **Center:** commit graph growing upwards, with environment badges and a separate lane for diverged histories.
@@ -93,6 +98,7 @@ src/main/java/com/vodianoy/pgvc/
   diff/                           SchemaDiffEngine: snapshot A -> B = ordered UP / DOWN DDL
   vcs/                            commit (Mode A/B), rollback, compare, push, link, global graph
   migration/                      offline .sql bundles
+  snapshot/                       .pgsnap.json reference snapshots: export, compare by name, apply as a commit
   about/, common/, config/        /api/about, errors and i18n (resources/i18n/messages_*.properties)
 ```
 
@@ -144,6 +150,11 @@ either express or implied. See the License for the specific language governing p
 - **Откат** базы к любому более раннему коммиту — с редактируемым скриптом и проверкой схемы после него.
 - **Удаление** ненужных коммитов (оставшихся после отката): один коммит вместе с коммитами поверх него или целиком
   брошенная ветка. Коммиты из текущей истории любого окружения защищены от удаления.
+- **Эталонные слепки для изолированных площадок.** Схема любого коммита выгружается в
+  `snapshot_<ветка>_<хеш>.pgsnap.json`; на площадке заказчика файл загружается в приложение, и видно, чего в его базе
+  не хватает и что в ней лишнее (сопоставление по именам объектов — OID другого сервера ничего не значат). Нужные
+  изменения отмечаются галочками, SQL можно поправить, и **«Применить выбранное и закоммитить»** накатывает их одной
+  транзакцией. Объекты, которые есть только у заказчика, не удаляются, пока их явно не выбрать.
 - **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
   коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
 - Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
@@ -157,7 +168,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.3.0.jar
+java -jar pg-git-vc-1.4.0.jar
 ```
 
 Откройте http://localhost:8765.
@@ -168,9 +179,9 @@ java -jar pg-git-vc-1.3.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.3.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.4.0.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.3.0.jar
+java -jar target/pg-git-vc-1.4.0.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -191,7 +202,8 @@ java -jar target/pg-git-vc-1.3.0.jar
 ### Интерфейс
 
 - **Верхняя панель:** переключатель окружения и **Окружения**; **Новая SQL-миграция (Mode B)**;
-  **Экспорт офлайн .SQL**; **Синхронизация / Push**; переключатель языка **RU | EN**; **О проекте и лицензии**.
+  **Экспорт офлайн .SQL**; **Синхронизация / Push**; **Экспорт слепка** (камера) и **Сравнить со слепком**; переключатель языка **RU | EN**;
+  **О проекте и лицензии**.
 - **Слева:** обозреватель схемы (Таблицы / Партиции / Представления / Последовательности) с фильтром и индикаторами
   **A** добавлено · **M** изменено · **R** переименовано · **D** удалено; ниже — **Журнал DDL (онлайн)**.
 - **В центре:** граф коммитов растёт снизу вверх, с бейджами окружений и отдельной линией для разошедшихся историй.
@@ -213,6 +225,7 @@ src/main/java/com/vodianoy/pgvc/
   diff/                           SchemaDiffEngine: снимок A -> B = упорядоченный UP / DOWN DDL
   vcs/                            коммит (Mode A/B), откат, сравнение, push, привязка, общий граф
   migration/                      офлайн .sql-бандлы
+  snapshot/                       эталонные слепки .pgsnap.json: экспорт, сравнение по именам, накат коммитом
   about/, common/, config/        /api/about, ошибки и i18n (resources/i18n/messages_*.properties)
 ```
 
