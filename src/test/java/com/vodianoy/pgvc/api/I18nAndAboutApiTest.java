@@ -65,6 +65,14 @@ class I18nAndAboutApiTest {
         mvc.perform(get("/api/vc/commits/abc123/deletion-plan").header(HttpHeaders.ACCEPT_LANGUAGE, "ru"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Коммит abc123 не найден ни в одном доступном окружении"));
+        mvc.perform(get("/api/vc/snapshot/export").param("envId", "nope").header(HttpHeaders.ACCEPT_LANGUAGE, "ru"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Окружение не найдено: nope"));
+        mvc.perform(post("/api/vc/snapshot/compare").header(HttpHeaders.ACCEPT_LANGUAGE, "ru")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"envId\": \"\", \"bundle\": {\"formatVersion\": \"1.0\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Не указан environmentId"));
         mvc.perform(get("/api/vc/commits/abc123/deletion-plan").param("mode", "NOPE"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/environments").header(HttpHeaders.ACCEPT_LANGUAGE, "ru")
