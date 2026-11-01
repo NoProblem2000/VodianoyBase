@@ -26,7 +26,7 @@ class SqlScriptsTest {
                 """;
         List<String> statements = SqlScripts.statements(script);
         assertThat(statements).hasSize(3);
-        assertThat(statements.get(0)).startsWith("-- a comment").endsWith("int);");
+        assertThat(statements.get(0)).startsWith("CREATE TABLE t").endsWith("int);");
         assertThat(statements.get(1)).contains("$body$;").contains("RETURN 1;");
         assertThat(statements.get(2)).startsWith("INSERT INTO t").contains("E'it\\'s;ok'");
         assertThat(SqlScripts.steps(script)).hasSize(1);

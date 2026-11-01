@@ -216,8 +216,10 @@ await step('16h-safety-analysis', async () => {
 await step('16i-zero-downtime-pattern', async () => {
   await page.getByRole('button', { name: /Use Zero-Downtime Pattern/ }).first().click();
   await toast(/Zero-downtime pattern inserted/);
-  await page.getByText('CONCURRENTLY', { exact: false }).first().waitFor({ timeout: 10000 });
-  await page.getByText(/2 steps/).first().waitFor({ timeout: 15000 });
+  await page.getByText('CREATE INDEX CONCURRENTLY ledger_account_idx').first().waitFor({ timeout: 10000 });
+  // the re-analysis sees a step that runs outside of a transaction, and nothing dangerous any more
+  await page.getByText('Outside transaction').first().waitFor({ timeout: 15000 });
+  await page.locator('[data-risk="SAFE"]').first().waitFor({ timeout: 15000 });
   await shot('16i-zero-downtime-pattern');
 });
 await step('16j-dry-run', async () => {
@@ -230,7 +232,7 @@ await step('16j-dry-run', async () => {
 await step('16k-execute-steps', async () => {
   await page.getByPlaceholder('What does this migration do?').fill('Index ledger by account (zero-downtime)');
   await page.getByRole('button', { name: /Execute & Commit/ }).click();
-  await toast(/Executed and committed .* steps/);
+  await toast(/Executed and committed .*step/);
   await page.getByText('Index ledger by account (zero-downtime)').first().waitFor({ timeout: 10000 });
   await shot('16k-executed');
 });

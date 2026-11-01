@@ -171,6 +171,16 @@ class MigrationSafetyAnalyzerTest {
     }
 
     @Test
+    void commentsBeforeAStatementDoNotHideIt() {
+        SqlSafetyReport r = analyzer.analyzeSql("-- UP SQL: template comment\n\nCREATE INDEX orders_amount_idx ON orders (amount);",
+                schema(160000));
+        assertThat(r.statements()).singleElement().satisfies(s -> {
+            assertThat(s.sql()).isEqualTo("CREATE INDEX orders_amount_idx ON orders (amount);");
+            assertThat(s.report().getZeroDowntimeAlternativeSql()).contains("CREATE INDEX CONCURRENTLY orders_amount_idx");
+        });
+    }
+
+    @Test
     void dataLossIsDangerous() {
         assertThat(one("ALTER TABLE customers DROP COLUMN email;").isCausesDataLoss()).isTrue();
         assertThat(one("ALTER TABLE customers DROP COLUMN email;").getRiskLevel()).isEqualTo(RiskLevel.DANGEROUS);

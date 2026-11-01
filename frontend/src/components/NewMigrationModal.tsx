@@ -82,7 +82,9 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
       const steps = result.steps ?? [];
       toast.success(
         t('migration.done', { hash: result.commit.hash.slice(0, 7), env: env.name }) +
-          (steps.length > 1 ? ` (${t('exec.stepsDone', { steps: steps.length, ms: result.elapsedMs ?? 0 })})` : ''),
+          (steps.length > 1 || steps.some((st) => !st.transactional)
+            ? ` (${t('exec.stepsDone', { steps: steps.length, ms: result.elapsedMs ?? 0 })})`
+            : ''),
       );
       onDone(result);
     } catch (e) {

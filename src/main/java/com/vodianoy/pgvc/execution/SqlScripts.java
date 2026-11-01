@@ -22,7 +22,7 @@ public final class SqlScripts {
     private SqlScripts() {
     }
 
-    /** Statements of the script (including their leading comments, ending with ';' when they had one). */
+    /** Statements of the script (without the comments before them, ending with ';' when they had one). */
     public static List<String> statements(String script) {
         List<String> result = new ArrayList<>();
         for (List<String> step : steps(script)) {
@@ -146,10 +146,30 @@ public final class SqlScripts {
     }
 
     private static void addStatement(List<String> into, String text) {
-        String t = text.strip();
+        String t = stripLeadingComments(text).strip();
         if (!t.isEmpty() && !normalize(t).isEmpty()) {
             into.add(t);
         }
+    }
+
+    /** Comments written before a statement are not part of it (so patterns and replacements see the statement). */
+    static String stripLeadingComments(String text) {
+        int i = 0;
+        int n = text.length();
+        while (i < n) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+            } else if (c == '-' && i + 1 < n && text.charAt(i + 1) == '-') {
+                int end = text.indexOf('\n', i);
+                i = end < 0 ? n : end + 1;
+            } else if (c == '/' && i + 1 < n && text.charAt(i + 1) == '*') {
+                i = skipBlockComment(text, i);
+            } else {
+                break;
+            }
+        }
+        return text.substring(i);
     }
 
     private static int skipBlockComment(String s, int i) {
