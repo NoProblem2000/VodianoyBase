@@ -268,7 +268,7 @@ public class PostgresSchemaIntrospector {
     }
 
     /** Same output as PostgreSQL's pg_size_pretty(bigint). */
-    static String prettySize(long bytes) {
+    public static String prettySize(long bytes) {
         long size = bytes;
         long limit = 10 * 1024;
         long limit2 = limit * 2 - 1;
