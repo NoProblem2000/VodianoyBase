@@ -79,7 +79,7 @@ class SafeExecutionIntegrationTest {
     }
 
     @Test
-    void tableSizeStatisticsAreIntrospected() {
+    void tableSizeStatisticsAreIntrospected() throws Exception {
         DatabaseSnapshot live = s.introspector.introspect(dev);
         TableModel orders = live.getTables().get("public.orders");
         assertThat(orders.getEstimatedRows()).isBetween(140_000L, 160_000L);
@@ -165,7 +165,7 @@ class SafeExecutionIntegrationTest {
     }
 
     @Test
-    void failedStepLeavesEarlierStepsAsUncommittedChanges() {
+    void failedStepLeavesEarlierStepsAsUncommittedChanges() throws Exception {
         String head = s.storage.getHead(dev).orElseThrow();
         String up = "ALTER TABLE public.orders ADD COLUMN status text;\n-- pgvc:step\nALTER TABLE public.orders ADD COLUMN status text;";
         assertThatThrownBy(() -> s.vc.executeAndCommitSql(dev, migration("Broken", up)))
@@ -210,7 +210,7 @@ class SafeExecutionIntegrationTest {
     }
 
     @Test
-    void preAndPostScriptsAreStoredWithTheCommit() {
+    void preAndPostScriptsAreStoredWithTheCommit() throws Exception {
         CommitResult r = s.vc.executeAndCommitSql(dev, new ExecuteMigrationRequest("With scripts", "dev",
                 "ALTER TABLE public.customers ADD COLUMN vip boolean;", null, false, null, null,
                 "CREATE TABLE public.migration_log (msg text);", "INSERT INTO public.migration_log VALUES ('done');", false));

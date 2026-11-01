@@ -62,6 +62,18 @@
       "few": "Delete {{count}} commits",
       "many": "Delete {{count}} commits",
       "other": "Delete {{count}} commits"
+    },
+    "statements": {
+      "one": "{{count}} statement",
+      "few": "{{count}} statements",
+      "many": "{{count}} statements",
+      "other": "{{count}} statements"
+    },
+    "steps": {
+      "one": "{{count}} step",
+      "few": "{{count}} steps",
+      "many": "{{count}} steps",
+      "other": "{{count}} steps"
     }
   },
   "changeType": {
@@ -355,5 +367,50 @@
     "applied": "Applied and committed {{hash}} on {{env}}",
     "nothingSelected": "Select at least one change.",
     "warnings": "Warnings"
+  },
+  "safety": {
+    "risk": {
+      "SAFE": "Safe",
+      "WARNING": "Warning",
+      "DANGEROUS": "Dangerous"
+    },
+    "lockTitle": "PostgreSQL table lock: {{lock}}",
+    "size": "{{size}} / {{rows}} rows",
+    "sizeTitle": "Table {{table}}: {{size}}, ≈ {{rows}} rows (planner estimate)",
+    "dataLoss": "Data Loss",
+    "rewrite": "Table Rewrite",
+    "longRunning": "Long-running",
+    "nonTx": "Outside transaction",
+    "usePattern": "⚡ Use Zero-Downtime Pattern",
+    "patternApplied": "Zero-downtime pattern inserted into the UP SQL",
+    "patternNotFound": "The original statement is no longer in the editor (it was edited): nothing was replaced.",
+    "patternUsed": "Zero-downtime pattern in use",
+    "title": "Safety analysis",
+    "analyzing": "Analyzing…",
+    "noStatements": "No statements to analyze.",
+    "overall": "Overall: {{risk}}",
+    "statement": "#{{index}} · step {{step}}",
+    "stepHint": "A line -- pgvc:step splits the script into steps: each step runs in its own transaction, CREATE INDEX CONCURRENTLY runs outside of one."
+  },
+  "exec": {
+    "lockTimeout": "lock_timeout",
+    "statementTimeout": "statement_timeout",
+    "timeoutsHint": "SET LOCAL at the start of every transaction (e.g. 3s, 500ms, 2min; 0 = no limit)",
+    "preScript": "Pre-Script",
+    "postScript": "Post-Script",
+    "dryRun": "🧪 Dry-Run (Test in Rollback Transaction)",
+    "dryRunning": "Testing…",
+    "dryTitle": "Dry-Run",
+    "dryOk": "Dry-run succeeded in {{ms}} ms. Everything was rolled back: nothing was changed or recorded.",
+    "dryFailed": "Dry-run failed at step {{step}}. Everything was rolled back.",
+    "step": "Step {{index}}",
+    "stepTx": "transaction",
+    "stepNonTx": "outside a transaction for real (tested inside the rollback transaction)",
+    "rewritten": "These statements cannot run inside a transaction; the test ran them as plain statements (a real run executes them as written in a step of their own):",
+    "dryChanges": "Schema changes made by the script (rolled back)",
+    "dryUncommitted": "The database has {{count}} uncommitted schema change(s): a real run includes them in the commit.",
+    "dryTimeouts": "lock_timeout {{lock}} · statement_timeout {{statement}}",
+    "notRun": "Not run yet: press Dry-Run to test the script on the real database without keeping anything.",
+    "stepsDone": "{{steps}} step(s) in {{ms}} ms"
   }
 }

@@ -11,6 +11,8 @@ import type {
   EnvironmentInput,
   EnvironmentView,
   DeletionMode,
+  DryRunResult,
+  SqlSafetyReport,
   DeletionPlan,
   DeletionResult,
   GlobalGraph,
@@ -55,6 +57,32 @@ http.interceptors.response.use(
 
 const e = encodeURIComponent;
 
+/** Mode B request (dryRun is set by the client function). */
+export interface MigrationBody {
+  message: string;
+  author: string;
+  upSql: string;
+  downSql: string;
+  allowDirty: boolean;
+  lockTimeout?: string;
+  statementTimeout?: string;
+  preScript?: string;
+  postScript?: string;
+}
+
+export interface SnapshotApplyBody {
+  envId: string;
+  upSql: string;
+  downSql: string;
+  author: string;
+  message: string;
+  sourceCommitHash: string | null;
+  lockTimeout?: string;
+  statementTimeout?: string;
+  preScript?: string;
+  postScript?: string;
+}
+
 async function get<T>(url: string, params?: Record<string, string | undefined>): Promise<T> {
   return (await http.get<T>(url, { params })).data;
 }
@@ -85,8 +113,13 @@ export const api = {
   workingTree: (id: string) => get<WorkingTreeStatus>(`/environments/${e(id)}/vc/working-tree`),
   commit: (id: string, body: { message: string; author: string; upSql: string; downSql: string; expectedHead: string }) =>
     post<CommitResult>(`/environments/${e(id)}/vc/commit`, body),
-  execute: (id: string, body: { message: string; author: string; upSql: string; downSql: string; allowDirty: boolean }) =>
-    post<CommitResult>(`/environments/${e(id)}/vc/execute`, body),
+  execute: (id: string, body: MigrationBody) =>
+    post<CommitResult>(`/environments/${e(id)}/vc/execute`, { ...body, dryRun: false }),
+  /** runs the migration in a transaction that is rolled back */
+  dryRun: (id: string, body: MigrationBody) =>
+    post<DryRunResult>(`/environments/${e(id)}/vc/execute`, { ...body, dryRun: true }),
+  analyze: (id: string, body: { sql: string; preScript?: string; postScript?: string }) =>
+    post<SqlSafetyReport>(`/environments/${e(id)}/vc/analyze`, body),
   commitDetails: (id: string, hash: string) => get<CommitDetails>(`/environments/${e(id)}/vc/commits/${e(hash)}`),
   commitChanges: (id: string, hash: string) =>
     get<SchemaDiffResult>(`/environments/${e(id)}/vc/commits/${e(hash)}/changes`),
@@ -118,14 +151,8 @@ export const api = {
   },
   compareSnapshot: (envId: string, bundle: SnapshotBundle) =>
     post<SnapshotComparison>('/vc/snapshot/compare', { envId, bundle }),
-  applySnapshot: (body: {
-    envId: string;
-    upSql: string;
-    downSql: string;
-    author: string;
-    message: string;
-    sourceCommitHash: string | null;
-  }) => post<CommitResult>('/vc/snapshot/apply', body),
+  applySnapshot: (body: SnapshotApplyBody) => post<CommitResult>('/vc/snapshot/apply', { ...body, dryRun: false }),
+  dryRunSnapshot: (body: SnapshotApplyBody) => post<DryRunResult>('/vc/snapshot/apply', { ...body, dryRun: true }),
   deletionPlan: (hash: string, mode: DeletionMode) =>
     get<DeletionPlan>(`/vc/commits/${e(hash)}/deletion-plan`, { mode }),
   deleteCommit: (hash: string, mode: DeletionMode) =>
