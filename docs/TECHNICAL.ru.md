@@ -16,6 +16,7 @@
 | 7 | Интерфейс и сообщения сервера на русском и английском, лицензия Apache 2.0, окно «О проекте» |
 | 8 | Удаление брошенных коммитов и веток |
 | 9 | Эталонные слепки `.pgsnap.json`: экспорт, сравнение с базой заказчика, накат |
+| 10 | Анализатор безопасности миграций, Dry-Run, таймауты, Pre/Post-скрипты, многошаговые миграции |
 
 ## Окружения
 
@@ -60,7 +61,7 @@
 | GET | `/api/environments/{id}/schema/snapshot[?schemas=a,b]` | снимок схемы из `pg_catalog` (по умолчанию — все схемы) |
 | GET | `/api/environments/{id}/vc/working-tree` | незакоммиченные изменения: список изменений, UP/DOWN SQL, перехваченный DDL |
 | POST | `/api/environments/{id}/vc/commit` | Mode A: закоммитить working tree (`message`, `author`, `upSql`, `downSql`, `expectedHead`) |
-| POST | `/api/environments/{id}/vc/execute` | Mode B: выполнить миграцию и закоммитить (`message`, `author`, `upSql`, `downSql`, `allowDirty`) |
+| POST | `/api/environments/{id}/vc/execute` | Mode B: `message`, `author`, `upSql`, `downSql`, `allowDirty`, `lockTimeout`, `statementTimeout`, `preScript`, `postScript`, `dryRun` (при `dryRun: true` — отчёт `DryRunResult`, ничего не сохраняется) |
 | GET | `/api/environments/{id}/vc/commits/{hash}` | коммит целиком: SQL, снимок схемы, история DDL |
 | GET | `/api/environments/{id}/vc/commits/{hash}/changes` | список изменений коммита относительно родителя |
 | GET | `/api/environments/{id}/vc/rollback-plan?target={hash}` | SQL, который выполнит откат до коммита |
@@ -76,6 +77,7 @@
 | GET | `/api/vc/snapshot/export?envId=dev[&commitHash=..]` | скачать эталонный слепок `snapshot_<ветка>_<хеш>.pgsnap.json` |
 | POST | `/api/vc/snapshot/compare` | `{envId, bundle}`: живая схема окружения против слепка |
 | POST | `/api/vc/snapshot/apply` | `envId`, `upSql`, `downSql`, `author`, `message`, `sourceCommitHash`: накат и коммит |
+| POST | `/api/environments/{id}/vc/analyze` | `{sql, preScript, postScript}`: анализ безопасности произвольного SQL |
 | GET | `/api/about` | название, версия сборки, лицензия и её полный текст (окно «О проекте») |
 
 Контроллеры: `EnvironmentController` (окружения), `VcController` (`_pgvc`, схема, коммиты, откат, граф, сравнение,
@@ -211,6 +213,51 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
 
 В UI: **Sync / Push to Env** → при несвязанных историях появляется панель **Link … to the history of …** с найденным
 коммитом и кнопкой **Link to …**; после привязки окно сразу показывает коммиты для push.
+
+## Безопасность миграций и безопасное выполнение (Шаг 10)
+
+**Статистика размеров.** `TableModel` хранит `estimatedRows` (`pg_class.reltuples`; 0, если таблица ни разу не
+анализировалась), `totalSizeBytes` (`pg_total_relation_size`) и `prettySize` (`pg_size_pretty`). У
+партиционированной таблицы — суммы по всем её партициям. Diff Engine эти поля не сравнивает.
+
+**`MigrationSafetyAnalyzer`** разбирает текст команд (без полноценного парсера; `SqlScripts` понимает строки,
+`$$`-тела, комментарии) и для каждой выдаёт `SafetyReport`: `riskLevel`, `lockType`, `causesTableRewrite`,
+`causesDataLoss`, `longRunning`, `nonTransactional`, таблицу и её размер, `estimatedDurationHint` (грубая оценка по
+размеру: сканирование ≈ 400 МБ/с, перезапись ≈ 80 МБ/с, индекс ≈ 100 МБ/с), пояснения и
+`zeroDowntimeAlternativeSql` (+ `alternatives`: точные замены «команда → шаблон»). Правила риска:
+
+- потеря данных (`DROP TABLE/COLUMN`, `TRUNCATE`, `DELETE`, сужение типа) — **DANGEROUS**;
+- долгая операция (сканирование, перезапись, построение индекса) под блокировкой, мешающей записи (`SHARE` и сильнее),
+  на **большой** таблице (> 100 МБ или > 100 000 строк) — **DANGEROUS**, на таблице с данными — **WARNING**;
+- короткая `ACCESS EXCLUSIVE` (например, `ADD COLUMN` без перезаписи) на большой таблице — **WARNING**: сама она
+  мгновенная, но в очереди за долгими запросами блокирует всё (ограничивается `lock_timeout`);
+- объекты, созданные тем же скриптом, и неблокирующие операции (`VALIDATE`, `CONCURRENTLY`) — **SAFE**.
+
+Шаблоны: `ADD CONSTRAINT … FOREIGN KEY/CHECK` → `… NOT VALID;` + шаг + `VALIDATE CONSTRAINT`; `CREATE INDEX` на таблице
+с данными → `CREATE INDEX CONCURRENTLY` отдельным шагом (не для партиционированных таблиц); `PRIMARY KEY/UNIQUE` →
+`CREATE UNIQUE INDEX CONCURRENTLY` + `ADD CONSTRAINT … USING INDEX`; `ADD COLUMN … NOT NULL` без DEFAULT и
+`SET NOT NULL` → nullable-колонка + `CHECK (col IS NOT NULL) NOT VALID` + шаг + `VALIDATE` (+ на PG12+
+`SET NOT NULL`, который использует проверенный CHECK без сканирования, и `DROP CONSTRAINT`); `DROP INDEX` на большой
+таблице → `DROP INDEX CONCURRENTLY`. Анализ показывается у изменений Working Tree, при сравнении окружений и со
+слепком, а для произвольного SQL — `POST …/vc/analyze`.
+
+**Шаги.** Строка `-- pgvc:step` делит скрипт. Без маркеров и `CONCURRENTLY` миграция — одна транзакция вместе с
+записью коммита, как раньше. С шагами: проверка состояния → каждый шаг в своей транзакции (`SET LOCAL lock_timeout /
+statement_timeout`), шаг с `CREATE/DROP INDEX CONCURRENTLY`, `REINDEX … CONCURRENTLY`, `DETACH … CONCURRENTLY` или
+`VACUUM` — по одной команде вне транзакции (`SET`/`RESET` на уровне сеанса) → запись коммита. Если шаг упал,
+предыдущие остаются в базе и видны как незакоммиченные изменения (Working Tree). Pre/Post-скрипты добавляются в
+начало и конец (`-- pgvc:pre-script`, `-- pgvc:post-script`) и сохраняются в `up_sql` коммита, поэтому push повторяет и
+их. Push коммитов с шагами идёт коммит за коммитом (HEAD цели сдвигается после каждого); обычные коммиты — одной
+транзакцией. Офлайн-бандл и откат — одна транзакция: в них `CONCURRENTLY` убирается (с пометкой в скрипте).
+
+**Таймауты.** `pgvc.lock-timeout` (3s) и `pgvc.statement-timeout` (60s) — значения по умолчанию для Mode B, наката
+слепка, отката и push; запрос может их переопределить. Значения проверяются (`3s`, `500ms`, `2min`, `0`) до
+подстановки в `SET LOCAL`. Срабатывание (`55P03` / `57014`) превращается в понятное сообщение.
+
+**Dry-Run** (`dryRun: true`): pre + up + post выполняются на реальной базе с теми же таймаутами в одной транзакции,
+которая всегда откатывается (в том числе журнал DDL). Отчёт: успех или ошибка и шаг, реальное время по шагам,
+изменения схемы, сгенерированный DOWN SQL, анализ безопасности; команды, которые нельзя выполнить в транзакции,
+выполняются в обычной форме и перечисляются.
 
 ## Эталонные слепки и сравнение с базой заказчика (Шаг 9)
 
