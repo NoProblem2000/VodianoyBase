@@ -273,7 +273,6 @@ public class VersionControlService {
             }
             DatabaseSnapshot after = introspector.introspect(envId);
             SchemaDiffResult change = diffEngine.diff(before, after);
-            safety.annotate(change, before);
             log.info("Dry-run on {}: {} step(s) in {} ms, {} change(s), rolled back", envId, steps.size(), elapsed,
                     change.getChanges().size());
             return new DryRunResult(true, elapsed, reports, steps.size(), null, null, change.getChanges(),

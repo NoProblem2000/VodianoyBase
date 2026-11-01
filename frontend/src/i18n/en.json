@@ -213,8 +213,8 @@
   },
   "migration": {
     "title": "New SQL Migration (Mode B)",
-    "subtitle": "Runs on {{env}} in a single transaction; the resulting schema is recorded as a new commit.",
-    "template": "-- UP SQL: executed in one transaction together with the commit.\n-- If any statement fails, nothing is applied.\n\n",
+    "subtitle": "Runs on {{env}} in one transaction (or one per -- pgvc:step); the resulting schema is recorded as a new commit.",
+    "template": "-- UP SQL. Without -- pgvc:step everything runs in one transaction together with the commit.\n-- If any statement fails, nothing is applied.\n\n",
     "downGenerated": "DOWN SQL (generated if empty)",
     "allowDirty": "Also include uncommitted changes that are already in the database",
     "messagePlaceholder": "What does this migration do?",
