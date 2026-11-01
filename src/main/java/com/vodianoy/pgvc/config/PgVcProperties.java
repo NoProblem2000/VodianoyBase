@@ -16,4 +16,10 @@ public class PgVcProperties {
 
     /** Maximum number of pooled connections per environment. */
     private int maxPoolSize = 4;
+
+    /** Default {@code lock_timeout} of migrations, rollbacks and pushes (a request can override it). */
+    private String lockTimeout = "3s";
+
+    /** Default {@code statement_timeout} of migrations, rollbacks and pushes (a request can override it). */
+    private String statementTimeout = "60s";
 }

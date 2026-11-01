@@ -43,6 +43,7 @@ public class SnapshotSyncService {
     private final PostgresSchemaIntrospector introspector;
     private final SchemaDiffEngine diffEngine;
     private final VersionControlService versionControl;
+    private final com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer safety;
 
     /**
      * @param commitHash blank: HEAD of the environment, or its live schema when it has no commits yet
@@ -77,6 +78,7 @@ public class SnapshotSyncService {
 
         DatabaseSnapshot current = introspector.introspect(envId);
         SchemaDiffResult diff = diffEngine.compare(current, bundle.getSchemaSnapshot(), true);
+        safety.annotate(diff, current);
 
         List<ChangeItem> missing = diff.getChanges().stream().filter(c -> !c.isExtraInTargetDb()).toList();
         List<ChangeItem> destructive = diff.getChanges().stream().filter(ChangeItem::isExtraInTargetDb).toList();
@@ -112,11 +114,23 @@ public class SnapshotSyncService {
         String message = isBlank(request.message())
                 ? "Sync with external snapshot [" + shortHash(request.sourceCommitHash()) + "]"
                 : request.message().strip();
-        CommitResult result = versionControl.executeAndCommitSql(envId,
-                new ExecuteMigrationRequest(message, request.author(), request.upSql(), request.downSql(), true));
+        CommitResult result = versionControl.executeAndCommitSql(envId, migration(request, message, false));
         log.info("Applied external snapshot {} to {}: commit {}", shortHash(request.sourceCommitHash()), envId,
                 shortHash(result.commit().hash()));
         return result;
+    }
+
+    /** Dry-run of the reviewed SQL on the database: runs in a transaction that is rolled back. */
+    public com.vodianoy.pgvc.vcs.DryRunResult dryRun(SnapshotApplyRequest request) {
+        String envId = request == null ? null : request.envId();
+        requireEnvironment(envId);
+        requireReachable(envId);
+        return versionControl.dryRun(envId, migration(request, "dry-run", true));
+    }
+
+    private static ExecuteMigrationRequest migration(SnapshotApplyRequest r, String message, boolean dryRun) {
+        return new ExecuteMigrationRequest(message, r.author(), r.upSql(), r.downSql(), true, r.lockTimeout(),
+                r.statementTimeout(), r.preScript(), r.postScript(), dryRun);
     }
 
     // ------------------------------------------------------------------ helpers

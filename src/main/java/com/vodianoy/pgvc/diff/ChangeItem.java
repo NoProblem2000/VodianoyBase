@@ -49,6 +49,10 @@ public class ChangeItem {
     @Builder.Default
     private java.util.List<String> warnings = new java.util.ArrayList<>();
 
+    /** Safety of {@link #upSql} on the target database (set by the migration safety analyzer, otherwise null). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private com.vodianoy.pgvc.safety.SafetyReport safety;
+
     /** Identity used to pair a change with its inverse from the reverse diff (not serialized). */
     @JsonIgnore
     private String pairKey;

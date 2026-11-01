@@ -1,4 +1,5 @@
 -- Ordinary and partitioned tables (relkind r / p) of the given schemas.
+-- Size statistics: estimated rows (reltuples) and total size with indexes and TOAST.
 -- Partitions get their parent through pg_inherits and their bound through pg_get_expr(relpartbound).
 SELECT c.oid                                                    AS table_oid,
        n.nspname                                                AS schema_name,
@@ -7,7 +8,11 @@ SELECT c.oid                                                    AS table_oid,
        CASE WHEN c.relkind = 'p' THEN pg_catalog.pg_get_partkeydef(c.oid) END AS partition_key_def,
        pn.nspname                                               AS parent_schema,
        pc.relname                                               AS parent_table,
-       CASE WHEN c.relispartition THEN pg_catalog.pg_get_expr(c.relpartbound, c.oid) END AS partition_bound_expr
+       CASE WHEN c.relispartition THEN pg_catalog.pg_get_expr(c.relpartbound, c.oid) END AS partition_bound_expr,
+       -- size statistics (planner estimate of the row count; -1 / 0 when the table was never analyzed)
+       GREATEST(c.reltuples, 0)::bigint                         AS estimated_rows,
+       pg_catalog.pg_total_relation_size(c.oid)                 AS total_size_bytes,
+       pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) AS pretty_size
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_catalog.pg_inherits inh ON inh.inhrelid = c.oid AND c.relispartition
