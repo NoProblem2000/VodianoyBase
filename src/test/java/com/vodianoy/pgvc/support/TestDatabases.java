@@ -84,6 +84,9 @@ public final class TestDatabases {
         public final OfflineMigrationService offline;
         public final com.vodianoy.pgvc.vcs.CommitDeletionService deletion;
         public final com.vodianoy.pgvc.snapshot.SnapshotSyncService snapshots;
+        public final org.springframework.context.MessageSource messages = new com.vodianoy.pgvc.config.I18nConfig().messageSource();
+        public final com.vodianoy.pgvc.execution.MigrationRunner runner;
+        public final com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer safety;
 
         public Services(Path dir, String... databases) {
             PgVcProperties props = new PgVcProperties();
@@ -96,10 +99,12 @@ public final class TestDatabases {
             storage = new PgVcStorageService(environments);
             introspector = new PostgresSchemaIntrospector(environments);
             history = new CommitHistory(storage);
-            vc = new VersionControlService(environments, storage, introspector, engine, objectMapper(), history);
+            runner = new com.vodianoy.pgvc.execution.MigrationRunner(environments, props, messages);
+            safety = new com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer(messages);
+            vc = new VersionControlService(environments, storage, introspector, engine, objectMapper(), history, runner, safety);
             offline = new OfflineMigrationService(environments, storage, history);
             deletion = new com.vodianoy.pgvc.vcs.CommitDeletionService(vc, environments, storage, history);
-            snapshots = new com.vodianoy.pgvc.snapshot.SnapshotSyncService(environments, storage, introspector, engine, vc);
+            snapshots = new com.vodianoy.pgvc.snapshot.SnapshotSyncService(environments, storage, introspector, engine, vc, safety);
         }
 
         @Override

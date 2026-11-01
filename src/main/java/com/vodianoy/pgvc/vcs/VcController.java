@@ -102,10 +102,27 @@ public class VcController {
         return versionControl.commitWorkingTree(envId, request);
     }
 
-    /** Mode B: execute a migration and commit it in one transaction. */
+    /**
+     * Mode B: execute a migration (one transaction, or one per {@code -- pgvc:step}) and commit it. With
+     * {@code dryRun: true} the migration runs in a transaction that is rolled back and a {@link DryRunResult} is
+     * returned instead of a {@link CommitResult}.
+     */
     @PostMapping("/environments/{envId}/vc/execute")
-    public CommitResult execute(@PathVariable String envId, @RequestBody ExecuteMigrationRequest request) {
-        return versionControl.executeAndCommitSql(envId, request);
+    public Object execute(@PathVariable String envId, @RequestBody ExecuteMigrationRequest request) {
+        return request.dryRun() ? versionControl.dryRun(envId, request) : versionControl.executeAndCommitSql(envId, request);
+    }
+
+    /** Migration Safety &amp; Lock Analyzer for arbitrary SQL against the live schema and table sizes. */
+    @PostMapping("/environments/{envId}/vc/analyze")
+    public com.vodianoy.pgvc.safety.SqlSafetyReport analyze(@PathVariable String envId, @RequestBody AnalyzeRequest request) {
+        ExecuteMigrationRequest r = new ExecuteMigrationRequest("analyze", null,
+                request.sql() == null || request.sql().isBlank() ? "-- empty" : request.sql(), null, false, null, null,
+                request.preScript(), request.postScript(), false);
+        return versionControl.analyzeSql(envId, VersionControlService.migrationScript(r));
+    }
+
+    /** SQL to analyze; pre / post scripts are analyzed with it. */
+    public record AnalyzeRequest(String sql, String preScript, String postScript) {
     }
 
     @GetMapping("/environments/{envId}/vc/commits/{hash}")

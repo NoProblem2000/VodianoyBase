@@ -3,7 +3,6 @@ package com.vodianoy.pgvc.snapshot;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.vodianoy.pgvc.vcs.CommitResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -53,8 +52,9 @@ public class SnapshotSyncController {
         return snapshots.compare(request);
     }
 
+    /** Applies and commits; with {@code dryRun: true} returns a dry-run report instead (nothing is stored). */
     @PostMapping("/apply")
-    public CommitResult apply(@RequestBody SnapshotApplyRequest request) {
-        return snapshots.apply(request);
+    public Object apply(@RequestBody SnapshotApplyRequest request) {
+        return request != null && request.dryRun() ? snapshots.dryRun(request) : snapshots.apply(request);
     }
 }

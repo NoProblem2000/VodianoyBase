@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { CheckCircle2, FileUp, GitCompare, Info, TriangleAlert, Upload } from 'lucide-react';
+import { CheckCircle2, FileUp, FlaskConical, GitCompare, Info, TriangleAlert, Upload } from 'lucide-react';
 import { api } from '../api/client';
-import type { ChangeItem, CommitResult, EnvironmentView, ScriptStatement, SnapshotBundle, SnapshotComparison } from '../api/types';
+import type {
+  ChangeItem,
+  CommitResult,
+  DryRunResult,
+  EnvironmentView,
+  ExecutionOptions,
+  ScriptStatement,
+  SnapshotBundle,
+  SnapshotComparison,
+} from '../api/types';
+import { DEFAULT_EXECUTION, DryRunPanel, TimeoutFields } from './ExecutionPanels';
+import { SafetyBadges, ZeroDowntimeButton } from './SafetyBadges';
 import { useI18n } from '../i18n';
 import { formatDate, shortHash } from '../lib/format';
 import { ChangeBadge } from './Badges';
@@ -19,14 +30,17 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'up' | 'down';
+type Tab = 'pre' | 'up' | 'down' | 'post' | 'dry';
 
-/** Statements of the selected changes, in their original (dependency-safe) order; mirrors SchemaDiffEngine.assemble. */
-export function assemble(statements: ScriptStatement[], selected: Set<number>): string {
+/**
+ * Statements of the selected changes, in their original (dependency-safe) order; mirrors SchemaDiffEngine.assemble.
+ * {@code overrides} replace single statements (zero-downtime patterns).
+ */
+export function assemble(statements: ScriptStatement[], selected: Set<number>, overrides?: Map<string, string>): string {
   if (selected.size === 0) return '';
   return statements
     .filter((s) => s.changeId < 0 || selected.has(s.changeId))
-    .map((s) => `${s.sql}\n`)
+    .map((s) => `${overrides?.get(s.sql) ?? s.sql}\n`)
     .join('');
 }
 
@@ -57,7 +71,10 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
   const [rebuiltOverEdits, setRebuiltOverEdits] = useState(false);
   const [tab, setTab] = useState<Tab>('up');
   const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'apply' | 'dry' | null>(null);
+  const [options, setOptions] = useState<ExecutionOptions>(DEFAULT_EXECUTION);
+  const [patterns, setPatterns] = useState<Set<number>>(new Set());
+  const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
 
   const compare = useCallback(
     async (b: SnapshotBundle) => {
@@ -68,6 +85,8 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
         const defaults = new Set(c.missingOrModifiedItems.map((i) => i.id ?? -1).filter((id) => id >= 0));
         setComparison(c);
         setSelected(defaults);
+        setPatterns(new Set());
+        setDryRun(null);
         setUp(c.upSql);
         setDown(c.downSql);
         setEdited(false);
@@ -102,14 +121,68 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
     if (file) void readFile(file);
   }
 
+  /** statement -> zero-downtime replacement for the changes whose pattern is in use */
+  function overridesOf(ids: Set<number>): Map<string, string> {
+    const map = new Map<string, string>();
+    if (!comparison) return map;
+    for (const item of [...comparison.missingOrModifiedItems, ...comparison.destructiveItems]) {
+      if (item.id !== undefined && ids.has(item.id)) {
+        for (const a of item.safety?.alternatives ?? []) map.set(a.statement, a.replacement);
+      }
+    }
+    return map;
+  }
+
   // checkbox changes rebuild both scripts from the statements of the selected changes
-  function changeSelection(next: Set<number>) {
+  function changeSelection(next: Set<number>, nextPatterns: Set<number> = patterns) {
     if (!comparison) return;
     setSelected(next);
     setRebuiltOverEdits(edited);
     setEdited(false);
-    setUp(assemble(comparison.upStatements, next));
+    setUp(assemble(comparison.upStatements, next, overridesOf(nextPatterns)));
     setDown(assemble(comparison.downStatements, next));
+  }
+
+  function togglePattern(id: number) {
+    const nextPatterns = new Set(patterns);
+    if (nextPatterns.has(id)) nextPatterns.delete(id);
+    else nextPatterns.add(id);
+    setPatterns(nextPatterns);
+    const nextSelected = new Set(selected).add(id);
+    changeSelection(nextSelected, nextPatterns);
+    setTab('up');
+    toast.success(t('safety.patternApplied'));
+  }
+
+  function applyBody() {
+    return {
+      envId: env.id,
+      upSql: up,
+      downSql: down,
+      author,
+      message,
+      sourceCommitHash: comparison?.source.sourceCommitHash ?? null,
+      lockTimeout: options.lockTimeout,
+      statementTimeout: options.statementTimeout,
+      preScript: options.preScript,
+      postScript: options.postScript,
+    };
+  }
+
+  async function runDry() {
+    if (!up.trim()) {
+      toast.error(t('snapshot.nothingSelected'));
+      return;
+    }
+    setBusy('dry');
+    try {
+      setDryRun(await api.dryRunSnapshot(applyBody()));
+      setTab('dry');
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
   }
 
   function toggle(id: number) {
@@ -135,23 +208,16 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
       toast.error(t('snapshot.nothingSelected'));
       return;
     }
-    setBusy(true);
+    setBusy('apply');
     try {
-      const result = await api.applySnapshot({
-        envId: env.id,
-        upSql: up,
-        downSql: down,
-        author,
-        message,
-        sourceCommitHash: comparison.source.sourceCommitHash,
-      });
+      const result = await api.applySnapshot(applyBody());
       toast.success(t('snapshot.applied', { hash: shortHash(result.commit.hash), env: env.name }));
       onApplied(result);
       if (bundle) await compare(bundle);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -197,6 +263,10 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
               <span className="label">{t('common.commitMessage')}</span>
               <input className="input" value={message} onChange={(e) => setMessage(e.target.value)} />
             </label>
+            <TimeoutFields value={options} onChange={setOptions} />
+            <button className="btn self-end" onClick={() => void runDry()} disabled={busy !== null || !up.trim()}>
+              <FlaskConical size={14} /> {busy === 'dry' ? t('exec.dryRunning') : t('exec.dryRun')}
+            </button>
             <div className="flex flex-col items-end gap-1 self-end">
               {selectedDestructive > 0 && (
                 <span className="text-xs text-red-300">{t('snapshot.dropsSelected', { count: selectedDestructive })}</span>
@@ -204,9 +274,9 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
               <button
                 className={`btn ${selectedDestructive > 0 ? 'btn-danger' : 'btn-primary'}`}
                 onClick={() => void apply()}
-                disabled={busy || !up.trim()}
+                disabled={busy !== null || !up.trim()}
               >
-                <GitCompare size={14} /> {busy ? t('snapshot.applying') : t('snapshot.apply')}
+                <GitCompare size={14} /> {busy === 'apply' ? t('snapshot.applying') : t('snapshot.apply')}
               </button>
             </div>
           </>
@@ -326,6 +396,8 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                   selected={selected}
                   onToggle={toggle}
                   onToggleAll={(on) => toggleGroup(comparison.missingOrModifiedItems, on)}
+                  patterns={patterns}
+                  onUsePattern={togglePattern}
                 />
                 <ChangeGroup
                   destructive
@@ -335,6 +407,8 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                   selected={selected}
                   onToggle={toggle}
                   onToggleAll={(on) => toggleGroup(comparison.destructiveItems, on)}
+                  patterns={patterns}
+                  onUsePattern={togglePattern}
                 />
                 {selectedWarnings.length > 0 && (
                   <div className="rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
@@ -356,8 +430,11 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                   <div className="flex-1">
                     <Tabs<Tab>
                       tabs={[
+                        { id: 'pre', label: t('exec.preScript') + (options.preScript.trim() ? ' •' : '') },
                         { id: 'up', label: t('common.upSql') },
                         { id: 'down', label: t('common.downSql') },
+                        { id: 'post', label: t('exec.postScript') + (options.postScript.trim() ? ' •' : '') },
+                        { id: 'dry', label: t('exec.dryTitle') },
                       ]}
                       active={tab}
                       onChange={setTab}
@@ -374,7 +451,10 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                   </div>
                 </div>
                 <div className="min-h-0 flex-1">
-                  {tab === 'up' ? (
+                  {tab === 'pre' && (
+                    <SqlEditor value={options.preScript} onChange={(v) => setOptions({ ...options, preScript: v })} />
+                  )}
+                  {tab === 'up' && (
                     <SqlEditor
                       value={up}
                       onChange={(v) => {
@@ -382,7 +462,8 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                         setEdited(true);
                       }}
                     />
-                  ) : (
+                  )}
+                  {tab === 'down' && (
                     <SqlEditor
                       value={down}
                       onChange={(v) => {
@@ -391,6 +472,10 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
                       }}
                     />
                   )}
+                  {tab === 'post' && (
+                    <SqlEditor value={options.postScript} onChange={(v) => setOptions({ ...options, postScript: v })} />
+                  )}
+                  {tab === 'dry' && <DryRunPanel result={dryRun} />}
                 </div>
               </div>
             </div>
@@ -409,9 +494,12 @@ interface GroupProps {
   destructive?: boolean;
   onToggle: (id: number) => void;
   onToggleAll: (on: boolean) => void;
+  /** changes whose zero-downtime pattern is in use */
+  patterns: Set<number>;
+  onUsePattern: (id: number) => void;
 }
 
-function ChangeGroup({ title, hint, items, selected, destructive, onToggle, onToggleAll }: GroupProps) {
+function ChangeGroup({ title, hint, items, selected, destructive, onToggle, onToggleAll, patterns, onUsePattern }: GroupProps) {
   const { t } = useI18n();
   const all = items.length > 0 && items.every((i) => i.id !== undefined && selected.has(i.id));
   return (
@@ -459,6 +547,14 @@ function ChangeGroup({ title, hint, items, selected, destructive, onToggle, onTo
                       )}
                     </span>
                     <span className="block truncate text-xs text-gray-400">{c.details}</span>
+                    {c.safety && (
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <SafetyBadges report={c.safety} />
+                        {!!c.safety.alternatives?.length && (
+                          <ZeroDowntimeButton used={patterns.has(id)} onClick={() => onUsePattern(id)} />
+                        )}
+                      </span>
+                    )}
                   </span>
                 </label>
               </li>

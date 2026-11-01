@@ -203,6 +203,40 @@ await step('16g-apply-snapshot', async () => {
   await page.getByLabel('Current environment').selectOption('dev');
 });
 
+// ---- Migration Safety & Lock Analyzer, zero-downtime pattern, dry-run, multi-step execution (Mode B)
+await step('16h-safety-analysis', async () => {
+  await page.getByRole('button', { name: /New SQL Migration/ }).click();
+  await page.locator('.monaco-editor').first().click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('CREATE INDEX ledger_account_idx ON billing.ledger (account);');
+  await page.locator('[data-risk="DANGEROUS"]').first().waitFor({ timeout: 20000 });
+  await page.getByText('SHARE', { exact: true }).first().waitFor({ timeout: 5000 });
+  await shot('16h-safety-analysis');
+});
+await step('16i-zero-downtime-pattern', async () => {
+  await page.getByRole('button', { name: /Use Zero-Downtime Pattern/ }).first().click();
+  await toast(/Zero-downtime pattern inserted/);
+  await page.getByText('CREATE INDEX CONCURRENTLY ledger_account_idx').first().waitFor({ timeout: 10000 });
+  // the re-analysis sees a step that runs outside of a transaction, and nothing dangerous any more
+  await page.getByText('Outside transaction').first().waitFor({ timeout: 15000 });
+  await page.locator('[data-risk="SAFE"]').first().waitFor({ timeout: 15000 });
+  await shot('16i-zero-downtime-pattern');
+});
+await step('16j-dry-run', async () => {
+  await page.getByLabel('statement_timeout').fill('90s');
+  await page.getByRole('button', { name: /Dry-Run \(Test in Rollback Transaction\)/ }).click();
+  await page.getByText(/Dry-run succeeded in/).waitFor({ timeout: 30000 });
+  await page.getByText(/outside a transaction for real/).first().waitFor({ timeout: 5000 });
+  await shot('16j-dry-run');
+});
+await step('16k-execute-steps', async () => {
+  await page.getByPlaceholder('What does this migration do?').fill('Index ledger by account (zero-downtime)');
+  await page.getByRole('button', { name: /Execute & Commit/ }).click();
+  await toast(/Executed and committed .*step/);
+  await page.getByText('Index ledger by account (zero-downtime)').first().waitFor({ timeout: 10000 });
+  await shot('16k-executed');
+});
+
 // ---- About & License, then the Russian UI
 await step('17-about', async () => {
   await page.getByRole('button', { name: 'About & License' }).click();

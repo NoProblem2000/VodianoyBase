@@ -24,6 +24,16 @@ public final class Messages {
         } catch (MissingResourceException e) {
             return code;
         }
-        return args == null || args.length == 0 ? pattern : new MessageFormat(pattern, locale).format(args);
+        if (args == null || args.length == 0) {
+            return pattern;
+        }
+        Object[] rendered = args.clone();
+        for (int i = 0; i < rendered.length; i++) {
+            if (rendered[i] instanceof org.springframework.context.MessageSourceResolvable r && r.getCodes() != null
+                    && r.getCodes().length > 0) {
+                rendered[i] = format(locale, r.getCodes()[0], r.getArguments());
+            }
+        }
+        return new MessageFormat(pattern, locale).format(rendered);
     }
 }

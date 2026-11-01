@@ -114,6 +114,9 @@ public class PostgresSchemaIntrospector {
                     .partitionKeyDef(rs.getString("partition_key_def"))
                     .parentTable(qualified(rs.getString("parent_schema"), rs.getString("parent_table")))
                     .partitionBoundExpr(rs.getString("partition_bound_expr"))
+                    .estimatedRows(rs.getLong("estimated_rows"))
+                    .totalSizeBytes(rs.getLong("total_size_bytes"))
+                    .prettySize(rs.getString("pretty_size"))
                     .build();
             tablesByOid.put(t.getOid(), t);
             snapshot.getTables().put(t.getQualifiedName(), t);
@@ -225,7 +228,62 @@ public class PostgresSchemaIntrospector {
             snapshot.getSequences().put(s.getQualifiedName(), s);
         });
 
+        aggregatePartitionStatistics(snapshot.getTables());
         return snapshot;
+    }
+
+    /**
+     * A partitioned table stores nothing itself: its rows and size are the sums over its partitions (recursively,
+     * sub-partitioned partitions included).
+     */
+    static void aggregatePartitionStatistics(Map<String, TableModel> tables) {
+        Map<String, List<TableModel>> children = new HashMap<>();
+        for (TableModel t : tables.values()) {
+            if (t.getParentTable() != null) {
+                children.computeIfAbsent(t.getParentTable(), k -> new java.util.ArrayList<>()).add(t);
+            }
+        }
+        for (TableModel t : tables.values()) {
+            if (t.isPartitioned() && t.getParentTable() == null) {
+                sumPartitions(t, children);
+            }
+        }
+    }
+
+    private static long[] sumPartitions(TableModel t, Map<String, List<TableModel>> children) {
+        if (!t.isPartitioned()) {
+            return new long[]{t.getEstimatedRows(), t.getTotalSizeBytes()};
+        }
+        long rows = 0;
+        long bytes = t.getTotalSizeBytes();
+        for (TableModel child : children.getOrDefault(t.getQualifiedName(), List.of())) {
+            long[] sub = sumPartitions(child, children);
+            rows += sub[0];
+            bytes += sub[1];
+        }
+        t.setEstimatedRows(rows);
+        t.setTotalSizeBytes(bytes);
+        t.setPrettySize(prettySize(bytes));
+        return new long[]{rows, bytes};
+    }
+
+    /** Same output as PostgreSQL's pg_size_pretty(bigint). */
+    public static String prettySize(long bytes) {
+        long size = bytes;
+        long limit = 10 * 1024;
+        long limit2 = limit * 2 - 1;
+        if (Math.abs(size) < limit) {
+            return size + " bytes";
+        }
+        String[] units = {"kB", "MB", "GB", "TB", "PB"};
+        size >>= 9; // keep one extra bit for rounding
+        for (int i = 0; i < units.length; i++) {
+            if (Math.abs(size) < limit2 || i == units.length - 1) {
+                return ((size + 1) / 2) + " " + units[i];
+            }
+            size >>= 10;
+        }
+        return bytes + " bytes";
     }
 
     private List<String> resolveSchemas(JdbcTemplate jdbc, Collection<String> filter) {

@@ -15,6 +15,9 @@ pgvc:
   environments-file: ./pgvc-environments.json
   connect-timeout-seconds: 5
   max-pool-size: 4
+  # defaults for every executed migration / rollback / push (SET LOCAL ...)
+  lock-timeout: 3s
+  statement-timeout: 60s
 
 logging:
   level:

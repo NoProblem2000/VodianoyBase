@@ -8,8 +8,13 @@ for db in demo_dev demo_stage demo_prod demo_qa demo_customer; do
   $PSQL -d postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
 done
 $PSQL -d demo_dev -f src/test/resources/fixtures/rich-schema.sql
+# a big table (200k rows) so the safety analyzer has something to warn about
+$PSQL -d demo_dev -c "CREATE TABLE billing.ledger (id bigint PRIMARY KEY, account int NOT NULL, amount numeric(12,2), memo text)" \
+  -c "INSERT INTO billing.ledger SELECT g, g % 5000, (g % 1000) / 10.0, md5(g::text) FROM generate_series(1, 200000) g" \
+  -c "ANALYZE billing.ledger"
 # QA already has the same schema and gets its own baseline: its history is not connected to dev (link scenario)
 $PSQL -d demo_qa -f src/test/resources/fixtures/rich-schema.sql
+$PSQL -d demo_qa -c "CREATE TABLE billing.ledger (id bigint PRIMARY KEY, account int NOT NULL, amount numeric(12,2), memo text)"
 # an isolated customer installation: its own table first (other OIDs), then the same initial schema; no _pgvc
 $PSQL -d demo_customer -c "CREATE TABLE public.customer_only (id int PRIMARY KEY, note text)"
 $PSQL -d demo_customer -f src/test/resources/fixtures/rich-schema.sql

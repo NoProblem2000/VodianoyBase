@@ -9,6 +9,13 @@ import com.vodianoy.pgvc.diff.SchemaDiffEngine;
 import com.vodianoy.pgvc.diff.SchemaDiffResult;
 import com.vodianoy.pgvc.environment.Environment;
 import com.vodianoy.pgvc.environment.EnvironmentManagerService;
+import com.vodianoy.pgvc.execution.MigrationRunner;
+import com.vodianoy.pgvc.execution.MigrationStep;
+import com.vodianoy.pgvc.execution.StepReport;
+import com.vodianoy.pgvc.execution.Timeouts;
+import com.vodianoy.pgvc.execution.TransactionalScript;
+import com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer;
+import com.vodianoy.pgvc.safety.SqlSafetyReport;
 import com.vodianoy.pgvc.introspection.PostgresSchemaIntrospector;
 import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
 import com.vodianoy.pgvc.storage.AuditLogEntry;
@@ -67,6 +74,8 @@ public class VersionControlService {
     private final SchemaDiffEngine diffEngine;
     private final ObjectMapper objectMapper;
     private final CommitHistory history;
+    private final MigrationRunner runner;
+    private final MigrationSafetyAnalyzer safety;
 
     // ------------------------------------------------------------------ Mode A
 
@@ -76,6 +85,8 @@ public class VersionControlService {
         DatabaseSnapshot base = headSnapshot(envId, head.orElse(null));
         DatabaseSnapshot live = introspector.introspect(envId);
         SchemaDiffResult diff = diffEngine.diff(base, live);
+        // how the UP SQL would behave on a database still at HEAD (structure of HEAD, current table sizes)
+        safety.annotate(diff, MigrationSafetyAnalyzer.withSizes(base, live));
         return new WorkingTreeStatus(envId, head.orElse(null), diff, storage.readAuditLog(envId));
     }
 
@@ -118,40 +129,196 @@ public class VersionControlService {
     // ------------------------------------------------------------------ Mode B
 
     /**
-     * Executes the migration, reads the new schema inside the same transaction, generates DOWN SQL when none was
-     * given, stores the commit and commits. Any error rolls everything back.
+     * Executes the migration ({@code preScript} + {@code upSql} + {@code postScript}) with {@code lock_timeout} /
+     * {@code statement_timeout}, reads the new schema, generates DOWN SQL when none was given and stores the commit.
+     * <ul>
+     *   <li>One step (no {@code -- pgvc:step} markers, no CONCURRENTLY): everything - including the commit record - runs
+     *       in one transaction; any error rolls everything back.</li>
+     *   <li>Several steps: every step is a transaction of its own (a CONCURRENTLY step runs outside of a transaction);
+     *       the commit is recorded after the last one. If a step fails, the steps before it stay applied and show up
+     *       as uncommitted changes (Working Tree).</li>
+     * </ul>
+     * With {@code dryRun} see {@link #dryRun}.
      */
     public CommitResult executeAndCommitSql(String envId, ExecuteMigrationRequest request) {
+        if (request.dryRun()) {
+            throw new IllegalArgumentException("Use dryRun() for a dry-run request");
+        }
         String message = requireMessage(request.message());
         String author = author(request.author(), envId);
-        if (isBlank(request.upSql())) {
-            throw ApiException.badRequest("migration.upSqlEmpty");
-        }
-        if (TRANSACTION_CONTROL.matcher(request.upSql()).find()) {
-            throw ApiException.badRequest("migration.transactionControl");
+        String script = migrationScript(request);
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
+        List<MigrationStep> steps = MigrationStep.plan(script);
+        if (MigrationStep.isMultiStep(steps)) {
+            return executeSteps(envId, request, script, steps, timeouts, message, author);
         }
         return environments.getTransactionTemplate(envId).execute(tx -> {
+            runner.applyLocal(envId, timeouts);
             storage.lockHistory(envId);
             String head = storage.getHead(envId).orElse(null);
             DatabaseSnapshot before = introspector.introspect(envId);
-            SchemaDiffResult drift = diffEngine.diff(headSnapshot(envId, head), before);
-            if (drift.isHasChanges() && !request.allowDirty()) {
-                throw ApiException.conflict("migration.dirty", drift.getChanges().size(), summary(drift.getChanges()));
-            }
+            requireClean(envId, head, before, request.allowDirty());
 
-            environments.getJdbcTemplate(envId).execute(request.upSql());
+            long elapsed = runner.execute(envId, script, timeouts);
 
             DatabaseSnapshot after = introspector.introspect(envId);
             SchemaDiffResult change = diffEngine.diff(before, after);
             String downSql = isBlank(request.downSql()) ? change.getDownSql() : request.downSql();
             List<AuditLogEntry> audit = storage.readAuditLog(envId);
-            CommitRecord commit = newCommit(head, author, message, request.upSql(), downSql, after, audit);
+            CommitRecord commit = newCommit(head, author, message, script, downSql, after, audit);
             storage.insertCommit(envId, commit);
             storage.setHead(envId, commit.getHash());
             storage.clearAuditLog(envId);
-            log.info("Executed and committed {} on {}: {}", shortHash(commit.getHash()), envId, message);
-            return new CommitResult(commit.toNode(), change.getChanges());
+            log.info("Executed and committed {} on {} in {} ms: {}", shortHash(commit.getHash()), envId, elapsed, message);
+            return new CommitResult(commit.toNode(), change.getChanges(),
+                    List.of(new StepReport(1, true, steps.isEmpty() ? 0 : steps.get(0).statements().size(), elapsed)),
+                    elapsed);
         });
+    }
+
+    private CommitResult executeSteps(String envId, ExecuteMigrationRequest request, String script,
+                                      List<MigrationStep> steps, Timeouts timeouts, String message, String author) {
+        // 1. preconditions, and the schema before the first step
+        record Start(String head, DatabaseSnapshot before) {
+        }
+        Start start = environments.getTransactionTemplate(envId).execute(tx -> {
+            runner.applyLocal(envId, timeouts);
+            storage.lockHistory(envId);
+            String head = storage.getHead(envId).orElse(null);
+            DatabaseSnapshot before = introspector.introspect(envId);
+            requireClean(envId, head, before, request.allowDirty());
+            return new Start(head, before);
+        });
+
+        // 2. the steps, each in its own transaction (or outside of one)
+        List<StepReport> reports = new ArrayList<>();
+        long elapsed = 0;
+        for (MigrationStep step : steps) {
+            try {
+                StepReport r = runner.run(envId, step, timeouts);
+                reports.add(r);
+                elapsed += r.elapsedMs();
+            } catch (RuntimeException e) {
+                Object cause = MigrationRunner.messageArgument(e);
+                if (step.index() == 1) {
+                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "migration.stepFailedFirst", steps.size(), cause);
+                }
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "migration.stepFailed", step.index(),
+                        steps.size(), cause, step.index() - 1);
+            }
+        }
+
+        // 3. record the commit
+        long total = elapsed;
+        return environments.getTransactionTemplate(envId).execute(tx -> {
+            runner.applyLocal(envId, timeouts);
+            storage.lockHistory(envId);
+            String head = storage.getHead(envId).orElse(null);
+            if (!Objects.equals(head, start.head())) {
+                throw ApiException.conflict("migration.headMovedAfterSteps", envId, shortHash(head));
+            }
+            DatabaseSnapshot after = introspector.introspect(envId);
+            SchemaDiffResult change = diffEngine.diff(start.before(), after);
+            String downSql = isBlank(request.downSql()) ? change.getDownSql() : request.downSql();
+            List<AuditLogEntry> audit = storage.readAuditLog(envId);
+            CommitRecord commit = newCommit(head, author, message, script, downSql, after, audit);
+            storage.insertCommit(envId, commit);
+            storage.setHead(envId, commit.getHash());
+            storage.clearAuditLog(envId);
+            log.info("Executed {} steps and committed {} on {} in {} ms: {}", steps.size(), shortHash(commit.getHash()),
+                    envId, total, message);
+            return new CommitResult(commit.toNode(), change.getChanges(), reports, total);
+        });
+    }
+
+    /**
+     * Dry-run: {@code preScript} + {@code upSql} + {@code postScript} run on the real database with the requested
+     * timeouts inside ONE transaction that is always rolled back. Reports success or the error, the real time per
+     * step, the schema changes and the generated DOWN SQL; nothing is stored. Statements that cannot run inside a
+     * transaction run in a modified form (CONCURRENTLY removed) and are listed.
+     */
+    public DryRunResult dryRun(String envId, ExecuteMigrationRequest request) {
+        String script = migrationScript(request);
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
+        List<MigrationStep> original = MigrationStep.plan(script);
+        TransactionalScript transactional = TransactionalScript.of(script);
+        List<MigrationStep> steps = MigrationStep.plan(transactional.sql());
+
+        return environments.getTransactionTemplate(envId).execute(tx -> {
+            tx.setRollbackOnly();
+            runner.applyLocal(envId, timeouts);
+            String head = storage.getStatus(envId).initialized() ? storage.getHead(envId).orElse(null) : null;
+            DatabaseSnapshot before = introspector.introspect(envId);
+            int uncommitted = head == null && before.isEmpty() ? 0
+                    : diffEngine.diff(headSnapshot(envId, head), before).getChanges().size();
+            SqlSafetyReport report = safety.analyzeSql(script, before);
+
+            List<StepReport> reports = new ArrayList<>();
+            long elapsed = 0;
+            for (MigrationStep step : steps) {
+                long t0 = System.nanoTime();
+                try {
+                    runner.execute(envId, step.sql(), timeouts);
+                } catch (RuntimeException e) {
+                    long ms = (System.nanoTime() - t0) / 1_000_000;
+                    reports.add(new StepReport(step.index(), stepTransactional(original, step.index()),
+                            step.statements().size(), ms));
+                    return new DryRunResult(false, elapsed + ms, reports, steps.size(), step.index(), runner.describe(e),
+                            List.of(), null, transactional.rewritten(), uncommitted, report, timeouts);
+                }
+                long ms = (System.nanoTime() - t0) / 1_000_000;
+                elapsed += ms;
+                reports.add(new StepReport(step.index(), stepTransactional(original, step.index()),
+                        step.statements().size(), ms));
+            }
+            DatabaseSnapshot after = introspector.introspect(envId);
+            SchemaDiffResult change = diffEngine.diff(before, after);
+            log.info("Dry-run on {}: {} step(s) in {} ms, {} change(s), rolled back", envId, steps.size(), elapsed,
+                    change.getChanges().size());
+            return new DryRunResult(true, elapsed, reports, steps.size(), null, null, change.getChanges(),
+                    change.getDownSql(), transactional.rewritten(), uncommitted, report, timeouts);
+        });
+    }
+
+    private static boolean stepTransactional(List<MigrationStep> original, int index) {
+        return index > original.size() || original.get(index - 1).transactional();
+    }
+
+    /** {@code preScript} + {@code upSql} + {@code postScript}; validated (no transaction control, UP not empty). */
+    static String migrationScript(ExecuteMigrationRequest request) {
+        if (isBlank(request.upSql())) {
+            throw ApiException.badRequest("migration.upSqlEmpty");
+        }
+        for (String part : new String[]{request.preScript(), request.upSql(), request.postScript()}) {
+            if (!isBlank(part) && TRANSACTION_CONTROL.matcher(part).find()) {
+                throw ApiException.badRequest("migration.transactionControl");
+            }
+        }
+        if (isBlank(request.preScript()) && isBlank(request.postScript())) {
+            return request.upSql();
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!isBlank(request.preScript())) {
+            sb.append("-- pgvc:pre-script\n").append(request.preScript().strip()).append("\n\n");
+        }
+        sb.append(request.upSql().strip()).append('\n');
+        if (!isBlank(request.postScript())) {
+            sb.append("\n-- pgvc:post-script\n").append(request.postScript().strip()).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** Refuses to run on top of uncommitted schema changes unless allowed. */
+    private void requireClean(String envId, String head, DatabaseSnapshot live, boolean allowDirty) {
+        SchemaDiffResult drift = diffEngine.diff(headSnapshot(envId, head), live);
+        if (drift.isHasChanges() && !allowDirty) {
+            throw ApiException.conflict("migration.dirty", drift.getChanges().size(), summary(drift.getChanges()));
+        }
+    }
+
+    /** Safety of an arbitrary script against the live schema (and table sizes) of the environment. */
+    public SqlSafetyReport analyzeSql(String envId, String sql) {
+        return safety.analyzeSql(sql, introspector.introspect(envId));
     }
 
     // ------------------------------------------------------------------ rollback
@@ -172,7 +339,9 @@ public class VersionControlService {
         if (!isBlank(request.customRollbackSql()) && TRANSACTION_CONTROL.matcher(request.customRollbackSql()).find()) {
             throw ApiException.badRequest("rollback.transactionControl");
         }
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
         return environments.getTransactionTemplate(envId).execute(tx -> {
+            runner.applyLocal(envId, timeouts);
             storage.lockHistory(envId);
             String head = storage.getHead(envId).orElseThrow(() ->
                     ApiException.conflict("rollback.noCommits", envId));
@@ -187,7 +356,8 @@ public class VersionControlService {
             }
 
             String sql = isBlank(request.customRollbackSql()) ? rollbackSql(chain) : request.customRollbackSql();
-            environments.getJdbcTemplate(envId).execute(sql);
+            // a rollback is one transaction: CONCURRENTLY statements run as plain ones
+            runner.execute(envId, TransactionalScript.of(sql).sql(), timeouts);
 
             boolean verify = !request.skipVerification();
             if (verify) {
@@ -256,6 +426,7 @@ public class VersionControlService {
                 ? diffEngine.diff(headSnapshot(targetEnvId, targetHead), targetLive).isHasChanges()
                 : !targetLive.isEmpty();
         SchemaDiffResult schemaDiff = diffEngine.diff(targetLive, headSnapshot(sourceEnvId, sourceHead));
+        safety.annotate(schemaDiff, targetLive);
         boolean unconnected = relation == HistoryRelation.DIVERGED
                 || ((relation == HistoryRelation.TARGET_EMPTY || relation == HistoryRelation.TARGET_NOT_INITIALIZED)
                 && !targetLive.isEmpty());
@@ -358,57 +529,152 @@ public class VersionControlService {
         if (!requireReachable(targetEnvId).initialized()) {
             storage.initializeEnvironment(targetEnvId);
         }
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
+        boolean verify = !request.skipVerification();
+
+        // commits written as several steps (zero-downtime patterns, CONCURRENTLY) are pushed one by one
+        String knownHead = storage.getHead(targetEnvId).orElse(null);
+        List<CommitRecord> preview = knownHead == null || history.ancestors(sourceEnvId, tip).contains(knownHead)
+                ? history.range(sourceEnvId, knownHead, tip) : List.of();
+        if (preview.stream().anyMatch(c -> MigrationStep.isMultiStep(MigrationStep.plan(c.getUpSql())))) {
+            return pushStepwise(request, tip, timeouts, verify);
+        }
 
         return environments.getTransactionTemplate(targetEnvId).execute(tx -> {
+            runner.applyLocal(targetEnvId, timeouts);
             storage.lockHistory(targetEnvId);
             String targetHead = storage.getHead(targetEnvId).orElse(null);
-            if (tip.equals(targetHead)) {
-                throw ApiException.badRequest("sync.alreadyAt", targetEnvId, shortHash(tip));
-            }
-            if (targetHead != null && !history.ancestors(sourceEnvId, tip).contains(targetHead)) {
-                throw ApiException.conflict("push.notAncestor", shortHash(targetHead), targetEnvId, shortHash(tip), sourceEnvId);
-            }
-            List<CommitRecord> commits = history.range(sourceEnvId, targetHead, tip);
-
-            if (!request.allowDirty()) {
-                DatabaseSnapshot live = introspector.introspect(targetEnvId);
-                if (targetHead == null && !live.isEmpty()) {
-                    throw ApiException.conflict("push.untrackedTarget", targetEnvId);
-                }
-                if (targetHead != null) {
-                    SchemaDiffResult drift = diffEngine.diff(headSnapshot(targetEnvId, targetHead), live);
-                    if (drift.isHasChanges()) {
-                        throw ApiException.conflict("push.dirty", targetEnvId, summary(drift.getChanges()));
-                    }
-                }
-            }
+            List<CommitRecord> commits = commitsToPush(request, tip, targetHead);
 
             for (CommitRecord c : commits) {
-                try {
-                    environments.getJdbcTemplate(targetEnvId).execute(c.getUpSql());
-                } catch (DataAccessException e) {
-                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "push.commitFailed", shortHash(c.getHash()),
-                            c.getMessage(), targetEnvId, NestedExceptionUtils.getMostSpecificCause(e).getMessage());
-                }
+                applyCommitSql(targetEnvId, c, c.getUpSql(), timeouts);
                 storage.insertCommit(targetEnvId, c);
             }
             storage.setHead(targetEnvId, tip);
             storage.clearAuditLog(targetEnvId);
-
-            boolean verify = !request.skipVerification();
             if (verify) {
-                CommitRecord last = commits.get(commits.size() - 1);
-                SchemaDiffResult rest = diffEngine.diff(parseSnapshot(last.getSchemaSnapshotJson()),
-                        introspector.introspect(targetEnvId));
-                if (rest.isHasChanges()) {
-                    throw ApiException.conflict("push.verifyFailed", targetEnvId, shortHash(tip), summary(rest.getChanges()));
-                }
+                verifyPushed(targetEnvId, commits.get(commits.size() - 1));
             }
             log.info("Pushed {} commit(s) {} -> {}: HEAD {} -> {}", commits.size(), sourceEnvId, targetEnvId,
                     shortHash(targetHead), shortHash(tip));
             return new PushResult(sourceEnvId, targetEnvId, targetHead, tip,
                     commits.stream().map(CommitRecord::toNode).toList(), verify);
         });
+    }
+
+    /**
+     * Commit by commit: a single-step commit in one transaction together with its record; a multi-step commit step by
+     * step (CONCURRENTLY outside of a transaction), then its record. HEAD advances after every commit, so a failure
+     * leaves the target at the last fully pushed commit (and the applied steps of the failed one as uncommitted
+     * changes).
+     */
+    private PushResult pushStepwise(PushRequest request, String tip, Timeouts timeouts, boolean verify) {
+        String sourceEnvId = request.sourceEnvironmentId();
+        String targetEnvId = request.targetEnvironmentId();
+        record Start(String head, List<CommitRecord> commits) {
+        }
+        Start start = environments.getTransactionTemplate(targetEnvId).execute(tx -> {
+            runner.applyLocal(targetEnvId, timeouts);
+            storage.lockHistory(targetEnvId);
+            String targetHead = storage.getHead(targetEnvId).orElse(null);
+            return new Start(targetHead, commitsToPush(request, tip, targetHead));
+        });
+
+        String expected = start.head();
+        List<CommitRecord> pushed = new ArrayList<>();
+        for (CommitRecord c : start.commits()) {
+            List<MigrationStep> steps = MigrationStep.plan(c.getUpSql());
+            String parent = expected;
+            if (!MigrationStep.isMultiStep(steps)) {
+                environments.getTransactionTemplate(targetEnvId).executeWithoutResult(tx -> {
+                    runner.applyLocal(targetEnvId, timeouts);
+                    storage.lockHistory(targetEnvId);
+                    requireHead(targetEnvId, parent);
+                    applyCommitSql(targetEnvId, c, c.getUpSql(), timeouts);
+                    recordPushed(targetEnvId, c, verify);
+                });
+            } else {
+                for (MigrationStep step : steps) {
+                    try {
+                        runner.run(targetEnvId, step, timeouts);
+                    } catch (RuntimeException e) {
+                        throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "push.stepFailed", shortHash(c.getHash()),
+                                c.getMessage(), step.index(), steps.size(), targetEnvId, MigrationRunner.messageArgument(e));
+                    }
+                }
+                environments.getTransactionTemplate(targetEnvId).executeWithoutResult(tx -> {
+                    runner.applyLocal(targetEnvId, timeouts);
+                    storage.lockHistory(targetEnvId);
+                    requireHead(targetEnvId, parent);
+                    recordPushed(targetEnvId, c, verify);
+                });
+            }
+            pushed.add(c);
+            expected = c.getHash();
+        }
+        log.info("Pushed {} commit(s) {} -> {} commit by commit: HEAD {} -> {}", pushed.size(), sourceEnvId,
+                targetEnvId, shortHash(start.head()), shortHash(tip));
+        return new PushResult(sourceEnvId, targetEnvId, start.head(), tip,
+                pushed.stream().map(CommitRecord::toNode).toList(), verify);
+    }
+
+    /** Validates a push (inside the target's history lock) and returns the commits to apply, oldest first. */
+    private List<CommitRecord> commitsToPush(PushRequest request, String tip, String targetHead) {
+        String sourceEnvId = request.sourceEnvironmentId();
+        String targetEnvId = request.targetEnvironmentId();
+        if (tip.equals(targetHead)) {
+            throw ApiException.badRequest("sync.alreadyAt", targetEnvId, shortHash(tip));
+        }
+        if (targetHead != null && !history.ancestors(sourceEnvId, tip).contains(targetHead)) {
+            throw ApiException.conflict("push.notAncestor", shortHash(targetHead), targetEnvId, shortHash(tip), sourceEnvId);
+        }
+        List<CommitRecord> commits = history.range(sourceEnvId, targetHead, tip);
+        if (!request.allowDirty()) {
+            DatabaseSnapshot live = introspector.introspect(targetEnvId);
+            if (targetHead == null && !live.isEmpty()) {
+                throw ApiException.conflict("push.untrackedTarget", targetEnvId);
+            }
+            if (targetHead != null) {
+                SchemaDiffResult drift = diffEngine.diff(headSnapshot(targetEnvId, targetHead), live);
+                if (drift.isHasChanges()) {
+                    throw ApiException.conflict("push.dirty", targetEnvId, summary(drift.getChanges()));
+                }
+            }
+        }
+        return commits;
+    }
+
+    private void applyCommitSql(String targetEnvId, CommitRecord c, String sql, Timeouts timeouts) {
+        try {
+            runner.execute(targetEnvId, TransactionalScript.of(sql).sql(), timeouts);
+        } catch (DataAccessException e) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "push.commitFailed", shortHash(c.getHash()),
+                    c.getMessage(), targetEnvId, NestedExceptionUtils.getMostSpecificCause(e).getMessage());
+        }
+    }
+
+    private void requireHead(String envId, String expected) {
+        String head = storage.getHead(envId).orElse(null);
+        if (!Objects.equals(head, expected)) {
+            throw ApiException.conflict("migration.headMovedAfterSteps", envId, shortHash(head));
+        }
+    }
+
+    private void recordPushed(String targetEnvId, CommitRecord c, boolean verify) {
+        if (verify) {
+            verifyPushed(targetEnvId, c);
+        }
+        storage.insertCommit(targetEnvId, c);
+        storage.setHead(targetEnvId, c.getHash());
+        storage.clearAuditLog(targetEnvId);
+    }
+
+    private void verifyPushed(String targetEnvId, CommitRecord last) {
+        SchemaDiffResult rest = diffEngine.diff(parseSnapshot(last.getSchemaSnapshotJson()),
+                introspector.introspect(targetEnvId));
+        if (rest.isHasChanges()) {
+            throw ApiException.conflict("push.verifyFailed", targetEnvId, shortHash(last.getHash()), summary(rest.getChanges()));
+        }
     }
 
     /** Commits of all environments merged into one graph, with the HEAD of every environment. */

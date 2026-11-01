@@ -86,7 +86,10 @@ class VersionControlServiceIntegrationTest {
         environments.addEnvironment(Environment.builder().name("Replica").jdbcUrl(url(REPLICA)).username(USER).password(PASSWORD).build());
         storage = new PgVcStorageService(environments);
         introspector = new PostgresSchemaIntrospector(environments);
-        vc = new VersionControlService(environments, storage, introspector, engine, mapper, new CommitHistory(storage));
+        org.springframework.context.MessageSource messages = new com.vodianoy.pgvc.config.I18nConfig().messageSource();
+        vc = new VersionControlService(environments, storage, introspector, engine, mapper, new CommitHistory(storage),
+                new com.vodianoy.pgvc.execution.MigrationRunner(environments, props, messages),
+                new com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer(messages));
         storage.initializeEnvironment("dev");
     }
 

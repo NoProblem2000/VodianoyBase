@@ -35,6 +35,18 @@ public class TableModel {
     /** pg_get_expr(relpartbound, oid) of a partition, e.g. {@code FOR VALUES FROM ('2026-01-01') TO ('2026-02-01')}. */
     private String partitionBoundExpr;
 
+    /**
+     * Estimated number of rows ({@code pg_class.reltuples}; 0 when never analyzed). For a partitioned table: the sum
+     * over its partitions. Statistics only: never compared by the diff engine.
+     */
+    private long estimatedRows;
+
+    /** {@code pg_total_relation_size}: table, indexes and TOAST in bytes (partitioned table: sum of its partitions). */
+    private long totalSizeBytes;
+
+    /** {@code pg_size_pretty(pg_total_relation_size)}, e.g. {@code 1234 MB}. */
+    private String prettySize;
+
     /** Columns by name, in attnum order. */
     @Builder.Default
     private Map<String, ColumnModel> columns = new LinkedHashMap<>();

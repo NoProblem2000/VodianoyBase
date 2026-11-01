@@ -70,6 +70,8 @@ export interface ChangeItem {
   extraInTargetDb?: boolean;
   /** warnings that apply to this change */
   warnings?: string[];
+  /** Migration Safety & Lock Analyzer result for upSql on the target database */
+  safety?: SafetyReport;
 }
 
 export interface SchemaDiffResult {
@@ -98,6 +100,9 @@ export interface CommitNode {
 export interface CommitResult {
   commit: CommitNode;
   changes: ChangeItem[];
+  /** Mode B: how the steps went */
+  steps?: StepReport[];
+  elapsedMs?: number;
 }
 
 export interface CommitDetails {
@@ -323,4 +328,80 @@ export interface SnapshotComparison {
   warnings: string[];
   targetHasUncommittedChanges: boolean;
   serverVersion: number;
+}
+
+export type RiskLevel = 'SAFE' | 'WARNING' | 'DANGEROUS';
+
+export interface SqlAlternative {
+  /** exact statement text in the script */
+  statement: string;
+  replacement: string;
+}
+
+export interface SafetyReport {
+  riskLevel: RiskLevel;
+  /** PostgreSQL lock mode, e.g. "ACCESS EXCLUSIVE"; absent for new objects */
+  lockType?: string;
+  causesTableRewrite: boolean;
+  causesDataLoss: boolean;
+  longRunning: boolean;
+  nonTransactional: boolean;
+  table?: string;
+  estimatedRows?: number;
+  totalSizeBytes?: number;
+  prettySize?: string;
+  estimatedSeconds?: number;
+  estimatedDurationHint?: string;
+  notes: string[];
+  zeroDowntimeAlternativeSql?: string;
+  alternatives?: SqlAlternative[];
+}
+
+export interface StatementSafety {
+  index: number;
+  step: number;
+  sql: string;
+  report: SafetyReport;
+}
+
+export interface SqlSafetyReport {
+  overall: SafetyReport;
+  statements: StatementSafety[];
+  steps: number;
+  multiStep: boolean;
+}
+
+export interface StepReport {
+  index: number;
+  transactional: boolean;
+  statements: number;
+  elapsedMs: number;
+}
+
+export interface Timeouts {
+  lockTimeout: string;
+  statementTimeout: string;
+}
+
+export interface DryRunResult {
+  success: boolean;
+  elapsedMs: number;
+  steps: StepReport[];
+  totalSteps: number;
+  failedStep: number | null;
+  error: string | null;
+  changes: ChangeItem[];
+  generatedDownSql: string | null;
+  rewrittenStatements: string[];
+  uncommittedChanges: number;
+  safety: SqlSafetyReport;
+  timeouts: Timeouts;
+}
+
+/** Execution settings shared by Mode B and snapshot apply. */
+export interface ExecutionOptions {
+  lockTimeout: string;
+  statementTimeout: string;
+  preScript: string;
+  postScript: string;
 }

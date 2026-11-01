@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.4.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.5.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -29,6 +29,13 @@ Open source under the [Apache License 2.0](LICENSE).
   load it into the installation at the customer, see what the customer database lacks or has extra (matched by object
   names — OIDs of another server mean nothing), pick the changes, adjust the SQL and **Apply Selected Changes &
   Commit** in one transaction. Objects that exist only at the customer are never dropped unless you select them.
+- **Migration Safety & Lock Analyzer.** Every change and every statement gets a risk level (SAFE / WARNING /
+  DANGEROUS), the PostgreSQL lock it takes, the table size (`1229 MB / 4.5M rows`), Data Loss / Table Rewrite markers
+  and a duration estimate — and, where one exists, **⚡ Use Zero-Downtime Pattern** (`NOT VALID` + `VALIDATE`,
+  `CREATE INDEX CONCURRENTLY`, nullable column + `CHECK … NOT VALID`).
+- **Safe execution.** `lock_timeout` / `statement_timeout` (`SET LOCAL`, defaults 3s / 60s), Pre- and Post-Scripts,
+  multi-step migrations (`-- pgvc:step`: one transaction per step, `CONCURRENTLY` outside of a transaction) and
+  **🧪 Dry-Run** — the script runs on the real database in a transaction that is rolled back, with real timings.
 - **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
   records them — all inside `BEGIN … COMMIT`.
 - **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
@@ -41,7 +48,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.4.0.jar
+java -jar pg-git-vc-1.5.0.jar
 ```
 
 Open http://localhost:8765.
@@ -52,9 +59,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.4.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.5.0.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.4.0.jar
+java -jar target/pg-git-vc-1.5.0.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -99,6 +106,8 @@ src/main/java/com/vodianoy/pgvc/
   vcs/                            commit (Mode A/B), rollback, compare, push, link, global graph
   migration/                      offline .sql bundles
   snapshot/                       .pgsnap.json reference snapshots: export, compare by name, apply as a commit
+  safety/                         Migration Safety & Lock Analyzer (locks, rewrites, data loss, zero-downtime patterns)
+  execution/                      steps (-- pgvc:step), timeouts, CONCURRENTLY outside of transactions
   about/, common/, config/        /api/about, errors and i18n (resources/i18n/messages_*.properties)
 ```
 
@@ -115,6 +124,8 @@ snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bund
 | `pgvc.environments-file` | `./pgvc-environments.json` (passwords in plain text — keep it private) |
 | `pgvc.connect-timeout-seconds` | `5` |
 | `pgvc.max-pool-size` | `4` connections per environment |
+| `pgvc.lock-timeout` | `3s` (default of every migration, rollback and push) |
+| `pgvc.statement-timeout` | `60s` |
 
 ### Releases
 
@@ -155,6 +166,13 @@ either express or implied. See the License for the specific language governing p
   не хватает и что в ней лишнее (сопоставление по именам объектов — OID другого сервера ничего не значат). Нужные
   изменения отмечаются галочками, SQL можно поправить, и **«Применить выбранное и закоммитить»** накатывает их одной
   транзакцией. Объекты, которые есть только у заказчика, не удаляются, пока их явно не выбрать.
+- **Анализатор безопасности миграций.** У каждого изменения и каждой команды — уровень риска (SAFE / WARNING /
+  DANGEROUS), блокировка PostgreSQL, размер таблицы (`1229 MB / 4.5M строк`), отметки «Потеря данных» / «Перезапись
+  таблицы» и оценка времени, а где возможно — **⚡ безопасный шаблон без простоя** (`NOT VALID` + `VALIDATE`,
+  `CREATE INDEX CONCURRENTLY`, nullable-колонка + `CHECK … NOT VALID`).
+- **Безопасное выполнение.** `lock_timeout` / `statement_timeout` (`SET LOCAL`, по умолчанию 3s / 60s), Pre- и
+  Post-скрипты, многошаговые миграции (`-- pgvc:step`: каждый шаг — своя транзакция, `CONCURRENTLY` — вне транзакции)
+  и **🧪 Dry-Run** — скрипт выполняется на реальной базе в транзакции, которая откатывается, с реальным временем.
 - **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
   коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
 - Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
@@ -168,7 +186,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.4.0.jar
+java -jar pg-git-vc-1.5.0.jar
 ```
 
 Откройте http://localhost:8765.
@@ -179,9 +197,9 @@ java -jar pg-git-vc-1.4.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.4.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.5.0.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.4.0.jar
+java -jar target/pg-git-vc-1.5.0.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -226,6 +244,8 @@ src/main/java/com/vodianoy/pgvc/
   vcs/                            коммит (Mode A/B), откат, сравнение, push, привязка, общий граф
   migration/                      офлайн .sql-бандлы
   snapshot/                       эталонные слепки .pgsnap.json: экспорт, сравнение по именам, накат коммитом
+  safety/                         анализатор безопасности (блокировки, перезапись, потеря данных, шаблоны без простоя)
+  execution/                      шаги (-- pgvc:step), таймауты, CONCURRENTLY вне транзакций
   about/, common/, config/        /api/about, ошибки и i18n (resources/i18n/messages_*.properties)
 ```
 
@@ -242,6 +262,8 @@ src/main/java/com/vodianoy/pgvc/
 | `pgvc.environments-file` | `./pgvc-environments.json` (пароли открытым текстом — не публикуйте файл) |
 | `pgvc.connect-timeout-seconds` | `5` |
 | `pgvc.max-pool-size` | `4` соединения на окружение |
+| `pgvc.lock-timeout` | `3s` (по умолчанию для миграций, откатов и push) |
+| `pgvc.statement-timeout` | `60s` |
 
 ### Релизы
 

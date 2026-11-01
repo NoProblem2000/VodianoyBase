@@ -119,7 +119,8 @@ public class OfflineMigrationService {
             i++;
             sb.append("-- >>> ").append(i).append('/').append(commits.size()).append(' ').append(c.getHash()).append('\n');
             sb.append("-- >>> ").append(oneLine(c.getMessage())).append('\n');
-            sb.append(c.getUpSql().strip()).append("\n;\n\n");
+            // the bundle is one transaction: CONCURRENTLY statements run as plain ones (marked in the script)
+            sb.append(com.vodianoy.pgvc.execution.TransactionalScript.of(c.getUpSql()).sql().strip()).append("\n;\n\n");
         }
 
         section(sb, "4. Commit metadata and HEAD");
