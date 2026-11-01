@@ -14,6 +14,7 @@ $PSQL -d demo_dev -c "CREATE TABLE billing.ledger (id bigint PRIMARY KEY, accoun
   -c "ANALYZE billing.ledger"
 # QA already has the same schema and gets its own baseline: its history is not connected to dev (link scenario)
 $PSQL -d demo_qa -f src/test/resources/fixtures/rich-schema.sql
+$PSQL -d demo_qa -c "CREATE TABLE billing.ledger (id bigint PRIMARY KEY, account int NOT NULL, amount numeric(12,2), memo text)"
 # an isolated customer installation: its own table first (other OIDs), then the same initial schema; no _pgvc
 $PSQL -d demo_customer -c "CREATE TABLE public.customer_only (id int PRIMARY KEY, note text)"
 $PSQL -d demo_customer -f src/test/resources/fixtures/rich-schema.sql
