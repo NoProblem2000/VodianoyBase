@@ -106,10 +106,10 @@ public final class SqlScripts {
             if (c == '-' && i + 1 < n && s.charAt(i + 1) == '-') {
                 int end = s.indexOf('\n', i);
                 i = end < 0 ? n : end;
-                sb.append(' ');
+                space(sb);
             } else if (c == '/' && i + 1 < n && s.charAt(i + 1) == '*') {
                 i = skipBlockComment(s, i);
-                sb.append(' ');
+                space(sb);
             } else if (c == '\'' || c == '"') {
                 int end = skipQuoted(s, i, c, false);
                 sb.append(s, i, end);
@@ -126,12 +126,23 @@ public final class SqlScripts {
                     i++;
                 }
             } else {
-                sb.append(Character.isWhitespace(c) ? ' ' : c);
+                if (Character.isWhitespace(c)) {
+                    space(sb);
+                } else {
+                    sb.append(c);
+                }
                 i++;
             }
         }
-        String result = sb.toString().replaceAll(" {2,}", " ").strip();
+        String result = sb.toString().strip();
         return result.endsWith(";") ? result.substring(0, result.length() - 1).strip() : result;
+    }
+
+    /** One space for any run of whitespace / comments outside of literals. */
+    private static void space(StringBuilder sb) {
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) != ' ') {
+            sb.append(' ');
+        }
     }
 
     private static void addStatement(List<String> into, String text) {

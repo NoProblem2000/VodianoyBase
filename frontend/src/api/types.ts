@@ -100,6 +100,9 @@ export interface CommitNode {
 export interface CommitResult {
   commit: CommitNode;
   changes: ChangeItem[];
+  /** Mode B: how the steps went */
+  steps?: StepReport[];
+  elapsedMs?: number;
 }
 
 export interface CommitDetails {

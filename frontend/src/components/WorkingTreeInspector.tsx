@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { GitCommitHorizontal, TriangleAlert } from 'lucide-react';
 import { api } from '../api/client';
-import type { CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
+import type { ChangeItem, CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
+import { applyAlternatives } from './SafetyBadges';
 import { shortHash } from '../lib/format';
 import { ChangeList } from './ChangeList';
 import { SqlEditor } from './SqlEditor';
@@ -36,6 +37,22 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   }, [diff.upSql, diff.downSql]);
 
   const edited = up !== diff.upSql || down !== diff.downSql;
+  const [patternUsed, setPatternUsed] = useState<Set<number>>(new Set());
+
+  // new DDL arrived: patterns have to be chosen again
+  useEffect(() => setPatternUsed(new Set()), [diff.upSql]);
+
+  function usePattern(change: ChangeItem) {
+    const next = applyAlternatives(up, change.safety?.alternatives ?? []);
+    if (next === null) {
+      toast.error(t('safety.patternNotFound'));
+      return;
+    }
+    setUp(next);
+    setTab('up');
+    setPatternUsed(new Set([...patternUsed, diff.changes.indexOf(change)]));
+    toast.success(t('safety.patternApplied'));
+  }
 
   async function commit() {
     if (!message.trim()) {
@@ -96,7 +113,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
         </div>
       </div>
       <div className="max-h-[32%] min-h-[80px] overflow-auto px-3">
-        <ChangeList changes={diff.changes} />
+        <ChangeList changes={diff.changes} onUsePattern={usePattern} patternUsed={patternUsed} />
       </div>
 
       <div className="mt-2 flex min-h-[180px] flex-1 flex-col border-t border-kraken-line">
@@ -141,6 +158,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                 onClick={() => {
                   setUp(diff.upSql);
                   setDown(diff.downSql);
+                  setPatternUsed(new Set());
                 }}
               >
                 {t('common.reset')}

@@ -175,7 +175,8 @@ class SafeExecutionIntegrationTest {
         assertThat(s.vc.getWorkingTreeStatus(dev).diff().getChanges()).extracting(c -> c.getObjectName())
                 .containsExactly("public.orders.status");
 
-        // first step fails: nothing applied
+        // first step fails: nothing applied (the leftover column is removed first, or the dirty check refuses)
+        sql(DEV_DB, "ALTER TABLE public.orders DROP COLUMN status");
         assertThatThrownBy(() -> s.vc.executeAndCommitSql(dev, migration("Broken", "ALTER TABLE nope ADD COLUMN x int;\n-- pgvc:step\nSELECT 1;")))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("Nothing was applied"));
     }
