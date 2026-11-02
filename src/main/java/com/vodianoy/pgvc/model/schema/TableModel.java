@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Ordinary table, partitioned table or partition (pg_class.relkind IN ('r', 'p')). */
@@ -47,6 +48,24 @@ public class TableModel {
     /** {@code pg_size_pretty(pg_total_relation_size)}, e.g. {@code 1234 MB}. */
     private String prettySize;
 
+    /** COMMENT ON TABLE, null when there is none. */
+    private String comment;
+
+    /** Owner role; null when owners are not tracked (ignore rules or an older snapshot). */
+    private String owner;
+
+    /**
+     * Privileges granted to other roles than the owner: {@code grantee=PRIVILEGE} or {@code grantee=PRIVILEGE*} (with
+     * grant option), grantee quoted when needed, {@code PUBLIC} for everyone. Null when grants are not tracked.
+     */
+    private List<String> acl;
+
+    /**
+     * Tablespace of the table (the database default tablespace when none is set); null when tablespaces are not
+     * tracked.
+     */
+    private String tablespace;
+
     /** Columns by name, in attnum order. */
     @Builder.Default
     private Map<String, ColumnModel> columns = new LinkedHashMap<>();
@@ -58,6 +77,10 @@ public class TableModel {
     /** Standalone indexes by name (indexes backing PK / UNIQUE / EXCLUDE constraints are omitted). */
     @Builder.Default
     private Map<String, IndexModel> indexes = new LinkedHashMap<>();
+
+    /** User triggers by name. */
+    @Builder.Default
+    private Map<String, TriggerModel> triggers = new LinkedHashMap<>();
 
     @JsonIgnore
     public String getQualifiedName() {

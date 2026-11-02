@@ -87,6 +87,7 @@ public final class TestDatabases {
         public final org.springframework.context.MessageSource messages = new com.vodianoy.pgvc.config.I18nConfig().messageSource();
         public final com.vodianoy.pgvc.execution.MigrationRunner runner;
         public final com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer safety;
+        public final com.vodianoy.pgvc.matrix.MatrixCompareService matrix;
 
         public Services(Path dir, String... databases) {
             PgVcProperties props = new PgVcProperties();
@@ -105,6 +106,7 @@ public final class TestDatabases {
             offline = new OfflineMigrationService(environments, storage, history);
             deletion = new com.vodianoy.pgvc.vcs.CommitDeletionService(vc, environments, storage, history);
             snapshots = new com.vodianoy.pgvc.snapshot.SnapshotSyncService(environments, storage, introspector, engine, vc, safety);
+            matrix = new com.vodianoy.pgvc.matrix.MatrixCompareService(environments, introspector, engine);
         }
 
         @Override

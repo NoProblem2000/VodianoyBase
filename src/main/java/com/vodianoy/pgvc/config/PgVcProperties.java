@@ -11,6 +11,12 @@ public class PgVcProperties {
     /** JSON file with the environment list, relative to the working directory (next to the jar). */
     private String environmentsFile = "./pgvc-environments.json";
 
+    /**
+     * JSON file with the installation settings (default ignore rules of comparisons). Blank: {@code pgvc-settings.json}
+     * next to the environments file.
+     */
+    private String settingsFile = "";
+
     /** Timeout for opening a connection to an environment, in seconds. */
     private int connectTimeoutSeconds = 5;
 

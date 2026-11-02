@@ -6,9 +6,13 @@ import com.vodianoy.pgvc.model.schema.ColumnModel;
 import com.vodianoy.pgvc.model.schema.ConstraintModel;
 import com.vodianoy.pgvc.model.schema.ConstraintType;
 import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
+import com.vodianoy.pgvc.model.schema.EnumTypeModel;
+import com.vodianoy.pgvc.model.schema.ExtensionModel;
+import com.vodianoy.pgvc.model.schema.FunctionModel;
 import com.vodianoy.pgvc.model.schema.IndexModel;
 import com.vodianoy.pgvc.model.schema.SequenceModel;
 import com.vodianoy.pgvc.model.schema.TableModel;
+import com.vodianoy.pgvc.model.schema.TriggerModel;
 import com.vodianoy.pgvc.model.schema.ViewDependency;
 import com.vodianoy.pgvc.model.schema.ViewModel;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +46,10 @@ import java.util.Set;
  * Reads the complete schema of an environment from pg_catalog (never information_schema, which hides partitions
  * and OIDs) into a {@link DatabaseSnapshot}. Works on PostgreSQL 11+.
  *
+ * <p>Covers tables (with columns, constraints, indexes, triggers), partitions, views, materialized views, sequences,
+ * functions / procedures, ENUM types and extensions, plus comments, owners, privileges and tablespaces. Ignore rules
+ * are not applied here: the snapshot is complete, the diff engine filters it.
+ *
  * <p>All queries run in one read-only REPEATABLE READ transaction, so they see one consistent state of the catalog.
  * When a transaction is already open on the environment (e.g. a migration that has just executed DDL), the
  * introspector joins it and sees the uncommitted changes.
@@ -60,6 +68,10 @@ public class PostgresSchemaIntrospector {
     private static final String SEQUENCES = sql("sequences.sql");
     private static final String VIEWS = sql("views.sql");
     private static final String VIEW_DEPENDENCIES = sql("view-dependencies.sql");
+    private static final String FUNCTIONS = sql("functions.sql");
+    private static final String TRIGGERS = sql("triggers.sql");
+    private static final String ENUMS = sql("enums.sql");
+    private static final String EXTENSIONS = sql("extensions.sql");
 
     private final EnvironmentManagerService environments;
 
@@ -117,6 +129,10 @@ public class PostgresSchemaIntrospector {
                     .estimatedRows(rs.getLong("estimated_rows"))
                     .totalSizeBytes(rs.getLong("total_size_bytes"))
                     .prettySize(rs.getString("pretty_size"))
+                    .comment(rs.getString("comment"))
+                    .owner(rs.getString("owner"))
+                    .acl(stringList(rs.getArray("acl")))
+                    .tablespace(rs.getString("tablespace_name"))
                     .build();
             tablesByOid.put(t.getOid(), t);
             snapshot.getTables().put(t.getQualifiedName(), t);
@@ -140,6 +156,7 @@ public class PostgresSchemaIntrospector {
                     .identityGeneration(rs.getString("identity_generation"))
                     .collation(rs.getString("collation_name"))
                     .inherited(rs.getBoolean("inherited"))
+                    .comment(rs.getString("comment"))
                     .build();
             t.getColumns().put(c.getName(), c);
         });
@@ -175,6 +192,9 @@ public class PostgresSchemaIntrospector {
                     .definition(rs.getString("definition"))
                     .populated(rs.getBoolean("populated"))
                     .signature(rs.getString("signature"))
+                    .comment(rs.getString("comment"))
+                    .owner(rs.getString("owner"))
+                    .acl(stringList(rs.getArray("acl")))
                     .build();
             viewsByOid.put(v.getOid(), v);
             snapshot.getViews().put(v.getQualifiedName(), v);
@@ -224,8 +244,65 @@ public class PostgresSchemaIntrospector {
                     .cycle(rs.getBoolean("cycle"))
                     .ownedByTable(qualified(rs.getString("owned_by_schema"), rs.getString("owned_by_table")))
                     .ownedByColumn(rs.getString("owned_by_column"))
+                    .owner(rs.getString("owner"))
+                    .acl(stringList(rs.getArray("acl")))
                     .build();
             snapshot.getSequences().put(s.getQualifiedName(), s);
+        });
+
+        String triggersSql = TRIGGERS.replace("{{TRIGGER_CLONES}}", serverVersion >= 130000 ? "AND t.tgparentid = 0" : "");
+        query(jdbc, triggersSql, schemaArray, rs -> {
+            TableModel t = tablesByOid.get(rs.getLong("table_oid"));
+            if (t == null) {
+                return;
+            }
+            TriggerModel tr = TriggerModel.builder()
+                    .oid(rs.getLong("trigger_oid"))
+                    .name(rs.getString("trigger_name"))
+                    .definition(rs.getString("definition"))
+                    .enabled(rs.getString("enabled"))
+                    .functionKey(FunctionModel.key(rs.getString("function_schema"), rs.getString("function_name"),
+                            rs.getString("function_arguments")))
+                    .build();
+            t.getTriggers().put(tr.getName(), tr);
+        });
+
+        query(jdbc, FUNCTIONS, schemaArray, rs -> {
+            FunctionModel f = FunctionModel.builder()
+                    .oid(rs.getLong("function_oid"))
+                    .schemaName(rs.getString("schema_name"))
+                    .name(rs.getString("function_name"))
+                    .identityArguments(rs.getString("identity_arguments"))
+                    .kind(rs.getString("kind"))
+                    .resultType(rs.getString("result_type"))
+                    .language(rs.getString("language_name"))
+                    .definition(rs.getString("definition"))
+                    .owner(rs.getString("owner"))
+                    .acl(stringList(rs.getArray("acl")))
+                    .comment(rs.getString("comment"))
+                    .build();
+            snapshot.getFunctions().put(f.getKey(), f);
+        });
+
+        query(jdbc, ENUMS, schemaArray, rs -> {
+            EnumTypeModel e = EnumTypeModel.builder()
+                    .oid(rs.getLong("type_oid"))
+                    .schemaName(rs.getString("schema_name"))
+                    .name(rs.getString("type_name"))
+                    .values(stringList(rs.getArray("enum_values")))
+                    .owner(rs.getString("owner"))
+                    .comment(rs.getString("comment"))
+                    .build();
+            snapshot.getEnumTypes().put(e.getQualifiedName(), e);
+        });
+
+        jdbc.query(EXTENSIONS, (RowCallbackHandler) rs -> {
+            ExtensionModel e = ExtensionModel.builder()
+                    .name(rs.getString("extension_name"))
+                    .schemaName(rs.getString("schema_name"))
+                    .version(rs.getString("extension_version"))
+                    .build();
+            snapshot.getExtensions().put(e.getName(), e);
         });
 
         aggregatePartitionStatistics(snapshot.getTables());

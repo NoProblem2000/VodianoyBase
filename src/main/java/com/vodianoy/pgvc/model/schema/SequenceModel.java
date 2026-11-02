@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /** Sequence from pg_sequence (relkind 'S'). Sequences of identity columns belong to the column and are not listed. */
 @Data
 @Builder(toBuilder = true)
@@ -39,6 +41,15 @@ public class SequenceModel {
 
     /** Owning column of a serial sequence, otherwise null. */
     private String ownedByColumn;
+
+    /** Owner role; null when owners are not tracked (ignore rules or an older snapshot). */
+    private String owner;
+
+    /**
+     * Privileges granted to other roles than the owner: {@code grantee=PRIVILEGE} or {@code grantee=PRIVILEGE*} (with
+     * grant option), grantee quoted when needed, {@code PUBLIC} for everyone. Null when grants are not tracked.
+     */
+    private List<String> acl;
 
     @JsonIgnore
     public String getQualifiedName() {

@@ -30,6 +30,16 @@ public class ChangeItem {
     /** Qualified name in the new state, e.g. {@code sales.orders}, {@code sales.orders.amount}. */
     private String objectName;
 
+    /**
+     * Top-level object the change belongs to (columns, constraints, indexes, triggers and comments belong to their
+     * table / view / function), e.g. {@code TABLE sales.orders} for the column {@code sales.orders.amount}. Equal to
+     * {@link #objectType} / {@link #objectName} for top-level objects. Used to group changes per object (N-database
+     * matrix).
+     */
+    private ObjectType rootType;
+
+    private String rootName;
+
     /** Human readable description of what changed. */
     private String details;
 

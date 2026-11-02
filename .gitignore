@@ -6,6 +6,9 @@ frontend/dist/
 # local runtime configuration (contains passwords)
 pgvc-environments.json
 pgvc-environments.json.tmp
+# local settings (default ignore rules)
+pgvc-settings.json
+pgvc-settings.json.tmp
 
 # IDE
 .idea/

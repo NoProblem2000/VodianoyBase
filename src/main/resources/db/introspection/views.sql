@@ -8,7 +8,15 @@ SELECT c.oid                                                    AS view_oid,
        c.relispopulated                                         AS populated,
        (SELECT md5(string_agg(r.ev_action::text, '|' ORDER BY r.rulename))
         FROM pg_catalog.pg_rewrite r
-        WHERE r.ev_class = c.oid)                               AS signature
+        WHERE r.ev_class = c.oid)                               AS signature,
+       pg_catalog.obj_description(c.oid, 'pg_class')            AS comment,
+       pg_catalog.pg_get_userbyid(c.relowner)                   AS owner,
+       ARRAY(SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC'
+                           ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(a.grantee)) END
+                    || '=' || a.privilege_type || CASE WHEN a.is_grantable THEN '*' ELSE '' END
+             FROM pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+             WHERE a.grantee <> c.relowner
+             ORDER BY 1)                                             AS acl
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('v', 'm')

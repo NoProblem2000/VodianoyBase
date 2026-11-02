@@ -77,7 +77,9 @@ public class SnapshotSyncService {
         PgVcStatus status = requireReachable(envId);
 
         DatabaseSnapshot current = introspector.introspect(envId);
-        SchemaDiffResult diff = diffEngine.compare(current, bundle.getSchemaSnapshot(), true);
+        com.vodianoy.pgvc.diff.DiffIgnoreRules rules = request.ignoreRules() == null ? null
+                : request.ignoreRules().validated();
+        SchemaDiffResult diff = diffEngine.compare(current, bundle.getSchemaSnapshot(), true, rules);
         safety.annotate(diff, current);
 
         List<ChangeItem> missing = diff.getChanges().stream().filter(c -> !c.isExtraInTargetDb()).toList();
@@ -88,7 +90,7 @@ public class SnapshotSyncService {
         boolean dirty;
         if (head != null) {
             DatabaseSnapshot headSnapshot = versionControl.getCommit(envId, head).schemaSnapshot();
-            dirty = diffEngine.diff(headSnapshot, current).isHasChanges();
+            dirty = diffEngine.diff(headSnapshot, current, rules).isHasChanges();
         } else {
             dirty = !current.isEmpty();
         }
@@ -135,7 +137,8 @@ public class SnapshotSyncService {
 
     // ------------------------------------------------------------------ helpers
 
-    private static SnapshotBundleDto validate(SnapshotBundleDto bundle) {
+    /** Checks that the uploaded file is a supported reference snapshot. */
+    public static SnapshotBundleDto validate(SnapshotBundleDto bundle) {
         if (bundle == null || bundle.getSchemaSnapshot() == null) {
             throw ApiException.badRequest("snapshot.missingSchema");
         }

@@ -12,7 +12,14 @@ SELECT c.oid                                                    AS sequence_oid,
        s.seqcycle                                               AS cycle,
        own_n.nspname                                            AS owned_by_schema,
        own_c.relname                                            AS owned_by_table,
-       own_a.attname                                            AS owned_by_column
+       own_a.attname                                            AS owned_by_column,
+       pg_catalog.pg_get_userbyid(c.relowner)                   AS owner,
+       ARRAY(SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC'
+                           ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(a.grantee)) END
+                    || '=' || a.privilege_type || CASE WHEN a.is_grantable THEN '*' ELSE '' END
+             FROM pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('s', c.relowner))) a
+             WHERE a.grantee <> c.relowner
+             ORDER BY 1)                                             AS acl
 FROM pg_catalog.pg_sequence s
 JOIN pg_catalog.pg_class c ON c.oid = s.seqrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
