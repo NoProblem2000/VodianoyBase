@@ -18,7 +18,8 @@
     "skipVerification": "Не проверять схему после выполнения",
     "loadingEditor": "Загрузка редактора…",
     "requestFailed": "Ошибка запроса",
-    "dismiss": "Закрыть уведомление"
+    "dismiss": "Закрыть уведомление",
+    "loading": "Загрузка…"
   },
   "plural": {
     "changes": {
@@ -96,7 +97,8 @@
     "TRIGGER": "триггер",
     "TYPE": "enum-тип",
     "EXTENSION": "расширение",
-    "COMMENT": "комментарий"
+    "COMMENT": "комментарий",
+    "DATA": "справочные данные"
   },
   "time": {
     "justNow": "только что"
@@ -119,7 +121,9 @@
     "exportSnapshot": "Экспорт слепка (.pgsnap.json)",
     "compareSnapshot": "Сравнить со слепком",
     "matrix": "Матрица N баз",
-    "ignoreRules": "Правила игнорирования"
+    "ignoreRules": "Правила игнорирования",
+    "referenceData": "📌 Справочники",
+    "gitExport": "📁 Экспорт в Git-папку (.zip / локальный путь)"
   },
   "app": {
     "cannotConnect": "Не удалось подключиться к {{name}}: {{error}}",
@@ -156,7 +160,8 @@
     "functions": "Функции",
     "types": "Enum-типы",
     "extensions": "Расширения",
-    "procedure": "процедура"
+    "procedure": "процедура",
+    "tracked": "справочник: {{rows}} строк"
   },
   "audit": {
     "title": "Журнал DDL (онлайн)",
@@ -496,5 +501,48 @@
       "UNAVAILABLE": "недоступна"
     },
     "legend": "Обозначения"
+  },
+  "refdata": {
+    "title": "📌 Справочники",
+    "subtitle": "Строки этих таблиц находятся под контролем версий в {{env}}: изменения становятся INSERT … ON CONFLICT / DELETE в коммитах, push и слепках.",
+    "track": "📌 Отслеживать как справочник",
+    "filter": "Фильтр таблиц…",
+    "filterLabel": "Фильтр таблиц",
+    "table": "Таблица",
+    "rows": "Строки",
+    "status": "Состояние",
+    "rowsTracked": "{{rows}} строк",
+    "rowsEstimated": "≈{{rows}} строк",
+    "noPk": "нет PRIMARY KEY",
+    "tooBig": "больше {{max}} строк",
+    "overLimit": "превышен лимит: не сравнивается",
+    "trackedBy": "отмечено: {{who}} · {{when}}",
+    "tracked": "{{table}} теперь справочник: закоммитьте Working Tree, чтобы записать его строки",
+    "untracked": "{{table}} больше не отслеживается как справочник",
+    "hint": "Справочником можно сделать только небольшую таблицу с PRIMARY KEY (до {{max}} строк). Сразу после пометки Working Tree покажет её строки как добавленные: закоммитьте их, и push перенесёт справочник в другие окружения.",
+    "notInitialized": "Сначала инициализируйте контроль версий в этом окружении.",
+    "onlyTracked": "Только отслеживаемые",
+    "none": "Таблиц нет."
+  },
+  "gitExport": {
+    "title": "📁 Экспорт в Git-папку",
+    "subtitle": "Схема {{env}} по файлу на объект для код-ревью: schema/tables, views, functions, triggers, enums, reference_data и migrations/.",
+    "source": "Схема",
+    "head": "HEAD окружения {{env}}",
+    "commit": "коммит {{hash}}",
+    "live": "живая база (коммитов ещё нет)",
+    "migrations": "Записать и migrations/NNNN_хеш_slug.up.sql / .down.sql",
+    "zip": "Скачать .zip",
+    "folder": "Записать в локальную папку",
+    "path": "Абсолютный путь к папке (например, рабочей копии Git)",
+    "pathPlaceholder": "C:\\work\\db-schema или /home/me/db-schema",
+    "pathHint": "Папка должна существовать. Записываются только schema/ и migrations/; сгенерированные файлы объектов, которых больше нет, там удаляются. Ничего не коммитится — проверьте через git diff.",
+    "export": "Экспортировать",
+    "exporting": "Экспортирую…",
+    "downloaded": "Скачан {{file}}",
+    "written": "записано {{written}} · без изменений {{unchanged}} · удалено {{deleted}} (всего {{files}} файлов) в {{path}}",
+    "writtenTitle": "Записаны",
+    "deletedTitle": "Удалены",
+    "nothingChanged": "Всё уже было актуально."
   }
 }

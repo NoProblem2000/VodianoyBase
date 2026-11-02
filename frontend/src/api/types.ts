@@ -69,7 +69,8 @@ export type ObjectType =
   | 'TRIGGER'
   | 'TYPE'
   | 'EXTENSION'
-  | 'COMMENT';
+  | 'COMMENT'
+  | 'DATA';
 
 export interface ChangeItem {
   changeType: ChangeType;
@@ -248,6 +249,8 @@ export interface TableModel {
   indexes: Record<string, unknown>;
   triggers?: Record<string, TriggerModel>;
   comment?: string | null;
+  /** rows of a reference-data table (dictionary) */
+  referenceData?: { rowCount: number; truncated: boolean; columns: string[] } | null;
 }
 
 export interface TriggerModel {
@@ -301,6 +304,34 @@ export interface DatabaseSnapshot {
   functions?: Record<string, FunctionModel>;
   enumTypes?: Record<string, EnumTypeModel>;
   extensions?: Record<string, ExtensionModel>;
+}
+
+// ---- reference data, Git folder export
+
+export interface ReferenceDataTable {
+  key: string;
+  schemaName: string;
+  tableName: string;
+  tracked: boolean;
+  hasPrimaryKey: boolean;
+  estimatedRows: number;
+  rowCount: number | null;
+  overLimit: boolean;
+  eligible: boolean;
+  columns: number;
+  trackedBy: string | null;
+  trackedAt: string | null;
+  maxRows: number;
+}
+
+export interface GitExportResult {
+  envId: string;
+  commitHash: string | null;
+  targetPath: string;
+  written: string[];
+  unchanged: number;
+  deleted: string[];
+  files: number;
 }
 
 // ---- ignore rules, N-database matrix

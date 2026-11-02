@@ -2,11 +2,13 @@ import {
   Camera,
   Database,
   Download,
+  FolderGit2,
   GitBranchPlus,
   GitCompare,
   Globe,
   Info,
   LayoutGrid,
+  Pin,
   RefreshCw,
   Send,
   Settings2,
@@ -31,6 +33,8 @@ interface Props {
   onCompareSnapshot: () => void;
   onMatrix: () => void;
   onIgnoreRules: () => void;
+  onReferenceData: () => void;
+  onGitExport: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -116,6 +120,24 @@ export function TopBar(p: Props) {
       >
         <LayoutGrid size={15} />
         <span className="hidden min-[1600px]:inline">{t('topBar.matrix')}</span>
+      </button>
+      <button
+        className="btn px-2"
+        onClick={p.onGitExport}
+        disabled={!p.status?.reachable}
+        title={t('topBar.gitExport')}
+        aria-label={t('topBar.gitExport')}
+      >
+        <FolderGit2 size={15} />
+      </button>
+      <button
+        className="btn btn-ghost px-2"
+        onClick={p.onReferenceData}
+        disabled={!p.status?.reachable}
+        title={t('topBar.referenceData')}
+        aria-label={t('topBar.referenceData')}
+      >
+        <Pin size={15} />
       </button>
       <button
         className="btn btn-ghost px-2"

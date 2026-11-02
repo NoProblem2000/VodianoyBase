@@ -55,7 +55,13 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
         if (tbl.parentTable) {
           result.partitions.push({ ...entry, hint: `↳ ${tbl.parentTable.split('.').slice(1).join('.')}` });
         } else {
-          result.tables.push({ ...entry, hint: tbl.partitioned ? t('explorer.partitioned') : undefined });
+          const hint = [
+            tbl.partitioned ? t('explorer.partitioned') : null,
+            tbl.referenceData ? `📌 ${t('explorer.tracked', { rows: tbl.referenceData.rowCount })}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          result.tables.push({ ...entry, hint: hint || undefined });
         }
       }
       for (const [key, v] of Object.entries(snapshot.views)) {
