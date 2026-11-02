@@ -20,13 +20,17 @@ run() { # name expected-exit-codes args...
 }
 run usage 1
 run unknown-env 1 --action=check-drift --env=nope
-# dev has uncommitted changes made "in an external IDE"
+# an uncommitted change "made in an external IDE" (the UI scenarios committed everything before)
+PGPASSWORD="$PGVC_TEST_PASSWORD" psql -h localhost -U "$PGVC_TEST_USER" -d demo_dev -v ON_ERROR_STOP=1 -qX \
+  -c "ALTER TABLE sales.customers ADD COLUMN cli_note text" -c "ALTER TABLE sales.customers DROP COLUMN score"
 run check-drift-dev 2 --action=check-drift --env=dev --output="$out/drift-dev.md"
 run check-drift-stage "0 2" --action=check-drift --env=stage
 run diff-report-stage "0 2" --action=diff-report --env=stage --snapshot=/tmp/ui-artifacts/screenshots/reference.pgsnap.json \
   --output="$out/pr-comment.md" --fail-on=dangerous
-run diff-report-working-tree 0 --action=diff-report --env=dev --output="$out/working-tree.md"
+run diff-report-working-tree 2 --action=diff-report --env=dev --output="$out/working-tree.md" --fail-on=dangerous
 for f in working-tree.md drift-dev.md; do
-  grep -q '| Change | Object | Risk |' "$out/$f" || { echo "::error::no change table in $f"; fail=1; }
+  grep -qF '| Change | Object | Risk |' "$out/$f" || { echo "::error::no change table in $f"; fail=1; }
 done
+
+if grep -q ' INFO ' "$out"/*.txt; then echo "::error::INFO logs in the CLI output"; fail=1; fi
 exit $fail

@@ -36,8 +36,13 @@ public class PgGitVcApplication {
             app.setWebApplicationType(WebApplicationType.NONE);
             app.setBannerMode(Banner.Mode.OFF);
             app.setLogStartupInfo(false);
-            app.setDefaultProperties(Map.of("logging.level.root", "WARN", "logging.level.com.vodianoy", "WARN",
-                    "logging.level.com.zaxxer.hikari", "ERROR"));
+            // system properties win over application.yml (command-line arguments still win over them)
+            Map.of("logging.level.root", "WARN", "logging.level.com.vodianoy", "WARN",
+                    "logging.level.com.zaxxer.hikari", "ERROR").forEach((k, v) -> {
+                if (System.getProperty(k) == null) {
+                    System.setProperty(k, v);
+                }
+            });
             ConfigurableApplicationContext context = app.run(args);
             System.exit(SpringApplication.exit(context));
             return;
