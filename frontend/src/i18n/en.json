@@ -18,7 +18,8 @@
     "skipVerification": "Skip schema verification",
     "loadingEditor": "Loading editor…",
     "requestFailed": "Request failed",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "loading": "Loading…"
   },
   "plural": {
     "changes": {
@@ -96,7 +97,8 @@
     "TRIGGER": "trigger",
     "TYPE": "enum type",
     "EXTENSION": "extension",
-    "COMMENT": "comment"
+    "COMMENT": "comment",
+    "DATA": "reference data"
   },
   "time": {
     "justNow": "just now"
@@ -119,7 +121,9 @@
     "exportSnapshot": "Export Snapshot (.pgsnap.json)",
     "compareSnapshot": "Compare with Snapshot",
     "matrix": "N-Database Matrix",
-    "ignoreRules": "Ignore rules"
+    "ignoreRules": "Ignore rules",
+    "referenceData": "📌 Reference Data Tables",
+    "gitExport": "📁 Export Git Folder (.zip / Local Path)"
   },
   "app": {
     "cannotConnect": "Cannot connect to {{name}}: {{error}}",
@@ -156,7 +160,8 @@
     "functions": "Functions",
     "types": "Enum types",
     "extensions": "Extensions",
-    "procedure": "procedure"
+    "procedure": "procedure",
+    "tracked": "reference data: {{rows}} rows"
   },
   "audit": {
     "title": "Live DDL Audit Log",
@@ -496,5 +501,48 @@
       "UNAVAILABLE": "unavailable"
     },
     "legend": "Legend"
+  },
+  "refdata": {
+    "title": "📌 Reference Data Tables",
+    "subtitle": "Rows of these tables are version controlled in {{env}}: changes become INSERT … ON CONFLICT / DELETE in commits, pushes and snapshots.",
+    "track": "📌 Track as Reference Data",
+    "filter": "Filter tables…",
+    "filterLabel": "Filter tables",
+    "table": "Table",
+    "rows": "Rows",
+    "status": "Status",
+    "rowsTracked": "{{rows}} rows",
+    "rowsEstimated": "~{{rows}} rows",
+    "noPk": "no PRIMARY KEY",
+    "tooBig": "more than {{max}} rows",
+    "overLimit": "over the limit: not compared",
+    "trackedBy": "tracked by {{who}} · {{when}}",
+    "tracked": "{{table}} is tracked as reference data: commit the working tree to record its rows",
+    "untracked": "{{table}} is no longer tracked as reference data",
+    "hint": "Only small tables with a PRIMARY KEY (up to {{max}} rows) can be tracked. Right after marking, the working tree shows the rows as added: commit them so pushes carry the dictionary to other environments.",
+    "notInitialized": "Initialize version control in this environment first.",
+    "onlyTracked": "Only tracked",
+    "none": "No tables."
+  },
+  "gitExport": {
+    "title": "📁 Export Git Folder",
+    "subtitle": "The schema of {{env}} as one file per object for code review: schema/tables, views, functions, triggers, enums, reference_data and migrations/.",
+    "source": "Schema of",
+    "head": "HEAD of {{env}}",
+    "commit": "commit {{hash}}",
+    "live": "live database (no commits yet)",
+    "migrations": "Also write migrations/NNNN_hash_slug.up.sql / .down.sql",
+    "zip": "Download .zip",
+    "folder": "Write into a local folder",
+    "path": "Absolute path of the folder (e.g. a Git working copy)",
+    "pathPlaceholder": "/home/me/projects/db-schema",
+    "pathHint": "The folder must exist. Only schema/ and migrations/ are written; generated files of objects that no longer exist are deleted there. Nothing is committed — review with git diff.",
+    "export": "Export",
+    "exporting": "Exporting…",
+    "downloaded": "Downloaded {{file}}",
+    "written": "{{written}} written · {{unchanged}} unchanged · {{deleted}} deleted ({{files}} files) in {{path}}",
+    "writtenTitle": "Written",
+    "deletedTitle": "Deleted",
+    "nothingChanged": "Everything was up to date."
   }
 }

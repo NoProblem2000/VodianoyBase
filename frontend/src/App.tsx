@@ -13,6 +13,8 @@ import { CommitInspector } from './components/CommitInspector';
 import { DeleteCommitModal } from './components/DeleteCommitModal';
 import { EnvironmentsModal } from './components/EnvironmentsModal';
 import { ExportModal } from './components/ExportModal';
+import { GitExportModal } from './components/GitExportModal';
+import { ReferenceDataModal } from './components/ReferenceDataModal';
 import { IgnoreRulesModal } from './components/IgnoreRulesModal';
 import { MatrixModal } from './components/MatrixModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
@@ -35,7 +37,9 @@ type ModalState =
   | { kind: 'delete'; target: string }
   | { kind: 'snapshot-sync' }
   | { kind: 'matrix' }
-  | { kind: 'ignore-rules' };
+  | { kind: 'ignore-rules' }
+  | { kind: 'reference-data' }
+  | { kind: 'git-export' };
 
 export function App() {
   return (
@@ -153,6 +157,8 @@ function Workspace() {
         onCompareSnapshot={() => setModal({ kind: 'snapshot-sync' })}
         onMatrix={() => setModal({ kind: 'matrix' })}
         onIgnoreRules={() => setModal({ kind: 'ignore-rules' })}
+        onReferenceData={() => setModal({ kind: 'reference-data' })}
+        onGitExport={() => setModal({ kind: 'git-export' })}
       />
 
       {activeEnv && status && !status.reachable && (
@@ -288,6 +294,18 @@ function Workspace() {
         <MatrixModal environments={environments} activeEnvId={activeEnv?.id ?? null} onClose={closeModal} />
       )}
       {modal.kind === 'ignore-rules' && <IgnoreRulesModal onSaved={() => void data.refresh()} onClose={closeModal} />}
+      {modal.kind === 'reference-data' && activeEnv && (
+        <ReferenceDataModal
+          env={activeEnv}
+          author={author}
+          initialized={!!status?.initialized}
+          onChanged={() => void data.refresh()}
+          onClose={closeModal}
+        />
+      )}
+      {modal.kind === 'git-export' && activeEnv && (
+        <GitExportModal env={activeEnv} commitHash={null} hasCommits={!!status?.head} onClose={closeModal} />
+      )}
       {modal.kind === 'snapshot-sync' && activeEnv && (
         <SnapshotSyncModal
           env={activeEnv}

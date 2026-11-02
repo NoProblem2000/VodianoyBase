@@ -289,6 +289,43 @@ await step('16o-ignore-rules-modal', async () => {
   await toast(/Default ignore rules saved/);
 });
 
+// ---- reference data and the Git folder export
+await step('16p-reference-data', async () => {
+  await page.getByRole('button', { name: '📌 Reference Data Tables' }).click();
+  const table = page.getByRole('table', { name: '📌 Reference Data Tables' });
+  await table.waitFor({ timeout: 20000 });
+  const box = page.getByRole('checkbox', { name: '📌 Track as Reference Data: sales.customers' });
+  await box.click();
+  await toast(/sales\.customers is tracked as reference data/);
+  await page.waitForTimeout(800);
+  if (!(await page.getByRole('checkbox', { name: '📌 Track as Reference Data: sales.customers' }).isChecked())) {
+    throw new Error('sales.customers is not shown as tracked');
+  }
+  await shot('16p-reference-data');
+  await page.keyboard.press('Escape');
+});
+await step('16q-git-export-zip', async () => {
+  await page.getByRole('button', { name: '📁 Export Git Folder (.zip / Local Path)' }).click();
+  await page.getByText('Download .zip').waitFor({ timeout: 5000 });
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    page.getByRole('button', { name: 'Export', exact: true }).click(),
+  ]);
+  const name = download.suggestedFilename();
+  if (!/^pgvc-git-export_dev_[0-9a-f]{7}\.zip$/.test(name)) throw new Error(`unexpected file name ${name}`);
+  await download.saveAs(`${out}/${name}`);
+  await toast(/Downloaded pgvc-git-export_dev_/);
+});
+await step('16r-git-export-folder', async () => {
+  await page.getByText('Write into a local folder').click();
+  await page.getByPlaceholder('/home/me/projects/db-schema').fill('/tmp/ui-artifacts/git-export');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await toast(/written · .* unchanged · .* deleted/);
+  await page.getByText('schema/tables/sales.customers.sql').first().waitFor({ timeout: 10000 });
+  await shot('16r-git-export-folder');
+  await page.keyboard.press('Escape');
+});
+
 // ---- About & License, then the Russian UI
 await step('17-about', async () => {
   await page.getByRole('button', { name: 'About & License' }).click();

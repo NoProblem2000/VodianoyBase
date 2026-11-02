@@ -2,6 +2,7 @@ package com.vodianoy.pgvc.introspection;
 
 import com.vodianoy.pgvc.common.ApiException;
 import com.vodianoy.pgvc.environment.EnvironmentManagerService;
+import com.vodianoy.pgvc.util.SqlIdentifiers;
 import com.vodianoy.pgvc.model.schema.ColumnModel;
 import com.vodianoy.pgvc.model.schema.ConstraintModel;
 import com.vodianoy.pgvc.model.schema.ConstraintType;
@@ -10,6 +11,7 @@ import com.vodianoy.pgvc.model.schema.EnumTypeModel;
 import com.vodianoy.pgvc.model.schema.ExtensionModel;
 import com.vodianoy.pgvc.model.schema.FunctionModel;
 import com.vodianoy.pgvc.model.schema.IndexModel;
+import com.vodianoy.pgvc.model.schema.ReferenceDataModel;
 import com.vodianoy.pgvc.model.schema.SequenceModel;
 import com.vodianoy.pgvc.model.schema.TableModel;
 import com.vodianoy.pgvc.model.schema.TriggerModel;
@@ -86,11 +88,39 @@ public class PostgresSchemaIntrospector {
      * @param schemaFilter schemas to include; null or empty means all user schemas
      */
     public DatabaseSnapshot introspect(String envId, Collection<String> schemaFilter) {
+        return introspect(envId, schemaFilter, Set.of());
+    }
+
+    /**
+     * Snapshot of the given schemas, with the rows of the tables tracked as reference data in this environment
+     * ({@code _pgvc.tracked_data_tables}) and of {@code extraDataTables} (keys {@code schema.table}; used when the
+     * database is compared with a snapshot or a database that tracks them).
+     */
+    public DatabaseSnapshot introspect(String envId, Collection<String> schemaFilter, Collection<String> extraDataTables) {
         JdbcTemplate jdbc = environments.getJdbcTemplate(envId);
         TransactionTemplate tx = new TransactionTemplate(environments.getTransactionTemplate(envId).getTransactionManager());
         tx.setReadOnly(true);
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        return tx.execute(status -> read(jdbc, schemaFilter));
+        return tx.execute(status -> read(jdbc, schemaFilter,
+                extraDataTables == null ? Set.of() : new LinkedHashSet<>(extraDataTables)));
+    }
+
+    /** Snapshot of all user schemas plus the rows of {@code extraDataTables}. */
+    public DatabaseSnapshot introspectWithData(String envId, Collection<String> extraDataTables) {
+        return introspect(envId, null, extraDataTables);
+    }
+
+    /** Keys of the tables whose rows a snapshot contains. */
+    public static Set<String> dataTables(DatabaseSnapshot snapshot) {
+        Set<String> keys = new LinkedHashSet<>();
+        if (snapshot != null) {
+            snapshot.getTables().forEach((k, t) -> {
+                if (t.getReferenceData() != null) {
+                    keys.add(k);
+                }
+            });
+        }
+        return keys;
     }
 
     /** User schemas that can be version controlled (no system, temporary, extension or _pgvc schemas). */
@@ -100,7 +130,7 @@ public class PostgresSchemaIntrospector {
 
     // ------------------------------------------------------------------ assembly
 
-    private DatabaseSnapshot read(JdbcTemplate jdbc, Collection<String> schemaFilter) {
+    private DatabaseSnapshot read(JdbcTemplate jdbc, Collection<String> schemaFilter, Set<String> extraDataTables) {
         List<String> schemas = resolveSchemas(jdbc, schemaFilter);
         Map<String, Object> identity = jdbc.queryForMap(IDENTITY);
         int serverVersion = ((Number) identity.get("server_version")).intValue();
@@ -306,7 +336,64 @@ public class PostgresSchemaIntrospector {
         });
 
         aggregatePartitionStatistics(snapshot.getTables());
+
+        Set<String> dataTables = new LinkedHashSet<>(trackedTables(jdbc));
+        dataTables.addAll(extraDataTables);
+        for (String key : dataTables) {
+            TableModel t = snapshot.getTables().get(key);
+            if (t != null) {
+                t.setReferenceData(readRows(jdbc, t));
+            }
+        }
         return snapshot;
+    }
+
+    /** {@code schema.table} of _pgvc.tracked_data_tables (empty when the table does not exist). */
+    private static List<String> trackedTables(JdbcTemplate jdbc) {
+        Boolean exists = jdbc.queryForObject("SELECT to_regclass('_pgvc.tracked_data_tables') IS NOT NULL", Boolean.class);
+        if (!Boolean.TRUE.equals(exists)) {
+            return List.of();
+        }
+        return jdbc.queryForList("SELECT schema_name || '.' || table_name FROM _pgvc.tracked_data_tables"
+                + " ORDER BY schema_name, table_name", String.class);
+    }
+
+    /**
+     * Rows of a reference-data table ordered by its PRIMARY KEY, every value as text. Null when the table has no
+     * primary key (its rows cannot be matched); {@code truncated} when it has more than {@link ReferenceDataModel#MAX_ROWS}.
+     */
+    static ReferenceDataModel readRows(JdbcTemplate jdbc, TableModel t) {
+        ConstraintModel pk = t.getConstraints().values().stream()
+                .filter(c -> c.getType() == ConstraintType.PRIMARY_KEY).findFirst().orElse(null);
+        if (pk == null || pk.getColumns().isEmpty()) {
+            return null;
+        }
+        List<ColumnModel> columns = new ArrayList<>(t.getColumns().values());
+        columns.removeIf(c -> c.getGeneratedExpression() != null);
+        columns.sort(java.util.Comparator.comparingInt(ColumnModel::getAttnum));
+        StringBuilder select = new StringBuilder("SELECT ARRAY[");
+        for (int i = 0; i < columns.size(); i++) {
+            select.append(i == 0 ? "" : ", ").append("t.").append(SqlIdentifiers.ident(columns.get(i).getName())).append("::text");
+        }
+        select.append("]::text[] AS r FROM ").append(SqlIdentifiers.qualified(t.getSchemaName(), t.getName()))
+                .append(" t ORDER BY ");
+        for (int i = 0; i < pk.getColumns().size(); i++) {
+            select.append(i == 0 ? "" : ", ").append("t.").append(SqlIdentifiers.ident(pk.getColumns().get(i)));
+        }
+        select.append(" LIMIT ").append(ReferenceDataModel.MAX_ROWS + 1);
+        List<List<String>> rows = new ArrayList<>();
+        jdbc.query(select.toString(), (RowCallbackHandler) rs -> rows.add(new ArrayList<>(stringList(rs.getArray("r")))));
+        boolean truncated = rows.size() > ReferenceDataModel.MAX_ROWS;
+        List<List<String>> kept = truncated ? new ArrayList<>() : rows;
+        return ReferenceDataModel.builder()
+                .columns(new ArrayList<>(columns.stream().map(ColumnModel::getName).toList()))
+                .columnTypes(new ArrayList<>(columns.stream().map(ColumnModel::getDataType).toList()))
+                .primaryKey(new ArrayList<>(pk.getColumns()))
+                .rows(kept)
+                .rowCount(rows.size())
+                .truncated(truncated)
+                .rowsHash(ReferenceDataModel.hash(kept))
+                .build();
     }
 
     /**

@@ -1,5 +1,12 @@
 package com.vodianoy.pgvc;
 
+import com.vodianoy.pgvc.cli.CliCommandRunner;
+import org.springframework.boot.Banner;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.context.ConfigurableApplicationContext;
+
+import java.util.Map;
+
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
@@ -12,6 +19,8 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  * <p>There is no single application DataSource: every environment (Dev, Test, Prod ...) gets its own
  * connection pool from {@link com.vodianoy.pgvc.environment.EnvironmentManagerService}, so the
  * DataSource auto-configuration is switched off.
+ *
+ * <p>With {@code --cli} the jar runs one command for CI/CD instead ({@link CliCommandRunner}).
  */
 @SpringBootApplication(exclude = {
         DataSourceAutoConfiguration.class,
@@ -21,6 +30,23 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class PgGitVcApplication {
 
     public static void main(String[] args) {
+        if (CliCommandRunner.isCli(args)) {
+            // CI/CD mode: no web server, quiet logs, the command's result is the exit code
+            SpringApplication app = new SpringApplication(PgGitVcApplication.class);
+            app.setWebApplicationType(WebApplicationType.NONE);
+            app.setBannerMode(Banner.Mode.OFF);
+            app.setLogStartupInfo(false);
+            // system properties win over application.yml (command-line arguments still win over them)
+            Map.of("logging.level.root", "WARN", "logging.level.com.vodianoy", "WARN",
+                    "logging.level.com.zaxxer.hikari", "ERROR").forEach((k, v) -> {
+                if (System.getProperty(k) == null) {
+                    System.setProperty(k, v);
+                }
+            });
+            ConfigurableApplicationContext context = app.run(args);
+            System.exit(SpringApplication.exit(context));
+            return;
+        }
         SpringApplication.run(PgGitVcApplication.class, args);
     }
 }

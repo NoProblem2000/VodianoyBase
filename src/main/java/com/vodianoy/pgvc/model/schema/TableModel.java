@@ -78,6 +78,9 @@ public class TableModel {
     @Builder.Default
     private Map<String, IndexModel> indexes = new LinkedHashMap<>();
 
+    /** Rows of the table when it is tracked as reference data (a dictionary), otherwise null. */
+    private ReferenceDataModel referenceData;
+
     /** User triggers by name. */
     @Builder.Default
     private Map<String, TriggerModel> triggers = new LinkedHashMap<>();

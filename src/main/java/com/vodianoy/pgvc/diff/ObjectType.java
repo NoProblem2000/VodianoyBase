@@ -17,5 +17,7 @@ public enum ObjectType {
     TYPE,
     EXTENSION,
     /** COMMENT ON a table, column, view, function or type (the commented object is the item's root). */
-    COMMENT
+    COMMENT,
+    /** Rows of a reference-data table (the table is the item's root). */
+    DATA
 }

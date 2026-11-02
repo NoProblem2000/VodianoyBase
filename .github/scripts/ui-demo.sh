@@ -24,6 +24,7 @@ $PSQL -d demo_customer -f .github/scripts/demo-extended.sql
 # the customer site has a newer version of the trigger function (shows up as "differs" in the matrix)
 $PSQL -d demo_customer -c "CREATE OR REPLACE FUNCTION sales.touch_customer() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN NEW.name := trim(NEW.name); RETURN NEW; END \$\$"
 
+mkdir -p /tmp/ui-artifacts/git-export
 workdir=$(mktemp -d)
 cp target/pg-git-vc-*.jar "$workdir/pg-git-vc.jar"
 (cd "$workdir" && nohup java -jar pg-git-vc.jar --server.port=18766 > app.log 2>&1 &)

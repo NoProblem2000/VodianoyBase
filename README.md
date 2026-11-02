@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.6.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.7.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -48,6 +48,15 @@ Open source under the [Apache License 2.0](LICENSE).
 - **🌐 N-Database Matrix.** Compare any number of environments and `.pgsnap.json` files with one baseline: one row per
   object, one column per database — identical / differs / missing / only here. Click a cell to see what differs and
   the SQL that brings that database to the baseline.
+- **📌 Reference data.** Mark small dictionaries (up to 10 000 rows, with a PRIMARY KEY) as tracked: their rows become
+  part of every snapshot, and row changes turn into `INSERT … ON CONFLICT … DO UPDATE` / `DELETE` in commits, pushes,
+  snapshot compares and the matrix.
+- **📁 Git folder export.** The schema as one file per object (`schema/tables`, `views`, `functions`, `triggers`,
+  `enums`, `reference_data`, `migrations/0001_<hash>_<slug>.up.sql`) — as a `.zip` or written into a local Git working
+  copy — for classic code review in GitLab / GitHub.
+- **CLI for CI/CD.** `java -jar pg-git-vc.jar --cli --action=check-drift --env=prod` exits with 2 when the database
+  drifted from its HEAD; `--action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md`
+  writes a Markdown report with the risk of every change for a Merge Request comment.
 - **Russian and English UI**, switched instantly; server messages follow the selected language.
 
 ### Download and run
@@ -56,7 +65,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.6.0.jar
+java -jar pg-git-vc-1.7.0.jar
 ```
 
 Open http://localhost:8765.
@@ -67,9 +76,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.6.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.7.0.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.6.0.jar
+java -jar target/pg-git-vc-1.7.0.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -122,6 +131,20 @@ src/main/java/com/vodianoy/pgvc/
 Everything that changes a database runs in one transaction of that database and is verified against the schema
 snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bundles, linking, tests):
 [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md) (in Russian).
+
+### CLI (CI/CD)
+
+```bash
+# nightly drift check: exit code 2 = someone changed the schema outside of version control
+java -jar pg-git-vc-1.7.0.jar --cli --action=check-drift --env=prod --output=drift.md
+
+# Merge Request comment: what the release snapshot changes on stage, failing on dangerous changes
+java -jar pg-git-vc-1.7.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
+     --output=pr-comment.md --fail-on=dangerous
+```
+
+Exit codes: `0` ok, `1` error (arguments, connection), `2` drift / `--fail-on` threshold reached. Environments come
+from `./pgvc-environments.json` (`--pgvc.environments-file=<path>`); no web server is started.
 
 ### Configuration
 
@@ -195,6 +218,15 @@ either express or implied. See the License for the specific language governing p
 - **🌐 Матрица N баз.** Сравнение любого числа окружений и файлов `.pgsnap.json` с одной эталонной базой: строка на
   объект, столбец на базу — совпадает / отличается / нет / только здесь. По клику на ячейку видно, что именно
   отличается, и SQL, который приводит эту базу к эталону.
+- **📌 Справочники.** Небольшие таблицы (до 10 000 строк, с PRIMARY KEY) можно взять под контроль версий: их строки
+  попадают в каждый снимок, а изменения строк превращаются в `INSERT … ON CONFLICT … DO UPDATE` / `DELETE` в коммитах,
+  push, сравнении со слепками и матрице.
+- **📁 Экспорт в Git-папку.** Схема по файлу на объект (`schema/tables`, `views`, `functions`, `triggers`, `enums`,
+  `reference_data`, `migrations/0001_<хеш>_<slug>.up.sql`) — архивом `.zip` или прямо в локальную рабочую копию Git —
+  для привычного код-ревью в GitLab / GitHub.
+- **CLI для CI/CD.** `java -jar pg-git-vc.jar --cli --action=check-drift --env=prod` завершается с кодом 2, если база
+  разошлась со своим HEAD; `--action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md`
+  пишет Markdown-отчёт с оценкой риска каждого изменения для комментария к Merge Request.
 - **Интерфейс на русском и английском** с мгновенным переключением; сообщения сервера приходят на выбранном языке.
 
 ### Скачать и запустить
@@ -203,7 +235,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.6.0.jar
+java -jar pg-git-vc-1.7.0.jar
 ```
 
 Откройте http://localhost:8765.
@@ -214,9 +246,9 @@ java -jar pg-git-vc-1.6.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.6.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.7.0.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.6.0.jar
+java -jar target/pg-git-vc-1.7.0.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -269,6 +301,20 @@ src/main/java/com/vodianoy/pgvc/
 Всё, что меняет базу, выполняется в одной транзакции этой базы и затем сверяется со снимком схемы. Подробности
 (REST API, `_pgvc`, интроспекция, правила Diff Engine, бандлы, привязка, тесты) —
 в [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md).
+
+### CLI (CI/CD)
+
+```bash
+# ночная проверка дрейфа: код 2 — кто-то поменял схему мимо контроля версий
+java -jar pg-git-vc-1.7.0.jar --cli --action=check-drift --env=prod --output=drift.md
+
+# комментарий к Merge Request: что релизный слепок меняет на stage; ошибка, если есть опасные изменения
+java -jar pg-git-vc-1.7.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
+     --output=pr-comment.md --fail-on=dangerous
+```
+
+Коды возврата: `0` — всё в порядке, `1` — ошибка (аргументы, подключение), `2` — дрейф / достигнут порог `--fail-on`.
+Окружения берутся из `./pgvc-environments.json` (`--pgvc.environments-file=<путь>`); веб-сервер не запускается.
 
 ### Настройки
 

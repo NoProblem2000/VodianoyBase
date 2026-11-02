@@ -16,8 +16,10 @@ import type {
   DeletionPlan,
   DeletionResult,
   DiffIgnoreRules,
+  GitExportResult,
   GlobalGraph,
   MatrixComparison,
+  ReferenceDataTable,
   MatrixSnapshotUpload,
   SnapshotBundle,
   SnapshotComparison,
@@ -134,6 +136,30 @@ export const api = {
   ) => post<RollbackResult>(`/environments/${e(id)}/vc/rollback`, body),
 
   about: () => get<AboutInfo>('/about'),
+
+  // reference data (dictionaries)
+  referenceData: (envId: string) => get<ReferenceDataTable[]>(`/environments/${e(envId)}/reference-data`),
+  trackTable: (envId: string, table: string, author: string) =>
+    post<ReferenceDataTable>(`/environments/${e(envId)}/reference-data`, { table, author }),
+  untrackTable: (envId: string, table: string) =>
+    http.delete<void>(`/environments/${e(envId)}/reference-data`, { params: { table } }).then(() => undefined),
+
+  // schema as a Git folder ("1 object = 1 file")
+  gitExportToFolder: (body: { envId: string; commitHash: string | null; targetPath: string; includeMigrations: boolean }) =>
+    post<GitExportResult>('/vc/git-export', body),
+  gitExportZip: async (body: { envId: string; commitHash: string | null; includeMigrations: boolean }): Promise<string> => {
+    const response = await http.post<Blob>('/vc/git-export', { ...body, targetPath: null }, { responseType: 'blob' });
+    const fileName = fileNameOf(response.headers['content-disposition']) ?? 'pgvc-git-export.zip';
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return fileName;
+  },
 
   // default ignore rules of every comparison
   ignoreRules: () => get<DiffIgnoreRules>('/settings/ignore-rules'),

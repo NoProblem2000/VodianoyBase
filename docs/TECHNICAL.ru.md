@@ -18,6 +18,7 @@
 | 9 | Эталонные слепки `.pgsnap.json`: экспорт, сравнение с базой заказчика, накат |
 | 10 | Анализатор безопасности миграций, Dry-Run, таймауты, Pre/Post-скрипты, многошаговые миграции |
 | 11 | Функции, процедуры, триггеры, ENUM, расширения, комментарии, владельцы/права/tablespace; правила игнорирования; матрица N баз |
+| 12 | Справочные данные под контролем версий, экспорт схемы в Git-папку («1 объект = 1 файл»), CLI для CI/CD |
 
 ## Окружения
 
@@ -82,6 +83,10 @@
 | GET | `/api/about` | название, версия сборки, лицензия и её полный текст (окно «О проекте») |
 | GET | `/api/settings/ignore-rules` | правила игнорирования по умолчанию (`pgvc-settings.json`) |
 | PUT | `/api/settings/ignore-rules` | сохранить правила: `ignoreComments`, `ignoreTablespaces`, `ignoreOwnersAndGrants`, `ignorePartitions`, `excludedObjectPatterns` |
+| GET | `/api/environments/{id}/reference-data` | таблицы окружения: отслеживается ли, PK, строки, можно ли отслеживать |
+| POST | `/api/environments/{id}/reference-data` | `{table: "schema.table", author}`: отслеживать как справочник |
+| DELETE | `/api/environments/{id}/reference-data?table=schema.table` | перестать отслеживать строки |
+| POST | `/api/vc/git-export` | `envId`, `commitHash` (пусто — HEAD), `targetPath` (пусто — `.zip`), `includeMigrations` |
 | POST | `/api/vc/matrix/compare` | матрица N баз: `envIds`, `snapshots` (`[{name, bundle}]`), `baseline` (`env:<id>` / `snapshot:<n>`), `ignoreRules` |
 
 Контроллеры: `EnvironmentController` (окружения), `VcController` (`_pgvc`, схема, коммиты, откат, граф, сравнение,
@@ -294,6 +299,89 @@ view, последовательности (и последовательнос�
 `upSql` ячейки приводит объект в этой базе к состоянию эталона. Окно «🌐 Матрица N баз»: выбор окружений,
 загрузка слепков, выбор эталона, разовые правила (с кнопкой «Сохранить по умолчанию»), фильтр «Только различия»,
 поиск; клик по отличающейся ячейке открывает различия, предупреждения и SQL (UP / обратный).
+
+## Справочники, экспорт в Git-папку, CLI (Шаг 12)
+
+### Справочные данные (`Reference Data`)
+
+Список отслеживаемых таблиц — `_pgvc.tracked_data_tables (schema_name, table_name, tracked_by, tracked_at)` в каждом
+окружении (на установках до v1.7.0 таблица создаётся при первой пометке). Отслеживать можно таблицу с PRIMARY KEY и не
+больше 10 000 строк (`ReferenceDataModel.MAX_ROWS`).
+
+`PostgresSchemaIntrospector` для таких таблиц (и для `extraDataTables` — таблиц, которые отслеживает другая сторона
+сравнения) читает в той же транзакции `SELECT ARRAY[col::text, …] FROM t ORDER BY pk LIMIT 10001` и кладёт в
+`TableModel.referenceData`: колонки (без generated), их типы (`format_type`), PK, строки в порядке PK, число строк,
+`truncated` (больше лимита — строки не хранятся и не сравниваются) и `rowsHash` — SHA-256 канонического JSON строк.
+
+`SchemaDiffEngine` сопоставляет строки по значениям PK (`ObjectType.DATA`, корень — таблица):
+
+- новые и изменённые — `INSERT INTO t (…) [OVERRIDING SYSTEM VALUE] VALUES ('v'::type, …) ON CONFLICT (pk) DO UPDATE
+  SET c = EXCLUDED.c, …` (`DO NOTHING`, если все колонки входят в PK); значения — текст с явным приведением к типу;
+- удалённые — `DELETE FROM t WHERE pk = 'v'::type;`; сначала все `DELETE`, потом `INSERT`, после всех DDL.
+
+Правила: строки сравниваются, если они есть в состоянии «куда». Если в состоянии «откуда» их нет (новая таблица или
+таблицу только что отметили), все строки — `INSERT … ON CONFLICT`, `DELETE` не бывает; поэтому сразу после пометки
+Working Tree показывает «now tracked as reference data: N rows added», а коммит переносит справочник push-ем.
+Если строк нет в состоянии «куда» (таблица там не отслеживается), ничего не генерируется. Поменялся PK — данные не
+сравниваются (`MANUAL ACTION REQUIRED`). Проверки «база совпала с коммитом» (после отката, push, при привязке)
+не учитывают строки таблиц, которые в том коммите ещё не отслеживались (`SnapshotFilter.withoutDataUntrackedIn`).
+Сравнение со слепком читает строки таблиц, отслеживаемых в слепке; матрица — строки всех справочников всех баз.
+
+### Экспорт в Git-папку (`GitDirectoryExporterService`)
+
+`POST /api/vc/git-export`: снимок коммита (по умолчанию HEAD, без коммитов — живая схема) раскладывается по файлам;
+SQL каждого объекта — это вывод Diff Engine «пустая база → объект» с сохранёнными правилами игнорирования:
+
+```
+schema/schemas.sql
+schema/extensions/<extension>.sql
+schema/enums/<schema>.<type>.sql
+schema/sequences/<schema>.<sequence>.sql
+schema/tables/<schema>.<table>.sql            колонки (по attnum), ограничения, индексы, комментарии, права
+schema/views/<schema>.<view>.sql
+schema/functions/<schema>.<function>.sql      все перегрузки одного имени
+schema/triggers/<schema>.<table>.<trigger>.sql
+schema/reference_data/<schema>.<table>.sql    INSERT … ON CONFLICT каждой строки
+migrations/<NNNN>_<short hash>_<slug>.up.sql / .down.sql   цепочка коммитов до экспортируемого
+```
+
+Содержимое детерминировано (никаких дат в файлах схемы, сортировка по имени), поэтому повторный экспорт меняет только
+файлы изменившихся объектов. Без `targetPath` возвращается `.zip` (записи отсортированы, время 1980-01-01 — одинаковая
+схема даёт одинаковые байты). С `targetPath` — запись в существующую папку по абсолютному пути: файлы с тем же
+содержимым не трогаются, сгенерированные `.sql` объектов, которых больше нет, удаляются только в папках
+`schema/<вид>/` и `migrations/`; остальное (README, `.git`) не трогается, ничего не коммитится.
+
+### CLI-режим (`CliCommandRunner`, `CliCommands`)
+
+`java -jar pg-git-vc.jar --cli --action=…` — `PgGitVcApplication.main` видит `--cli`, запускает контекст без
+веб-сервера и с тихими логами, `ApplicationRunner` выполняет команду, её результат — код возврата процесса.
+
+| Команда | Что делает | Код |
+|---|---|---|
+| `check-drift --env=<id> [--output=drift.md]` | живая база против её HEAD (как Working Tree): список изменений, перехваченный DDL, UP SQL | `0` — совпадает, `2` — дрейф, `1` — ошибка (нет окружения, не подключиться, `_pgvc` не установлен) |
+| `diff-report --env=<id> [--snapshot=<file>] [--output=<md>] [--fail-on=dangerous\|warning]` | Markdown-отчёт: что нужно изменить в базе, чтобы прийти к слепку (без `--snapshot` — незакоммиченные изменения), таблица изменений с риском, блокировкой и размером таблицы (`MigrationSafetyAnalyzer`), предупреждения, безопасные шаблоны, UP/DOWN SQL в `<details>` | `0`, `2` — изменение достигло уровня `--fail-on`, `1` — ошибка |
+
+Пример для GitLab CI:
+
+```yaml
+schema-drift:
+  image: eclipse-temurin:17-jre
+  script:
+    - echo "$PGVC_ENVIRONMENTS_JSON" > pgvc-environments.json
+    - java -jar pg-git-vc.jar --cli --action=check-drift --env=prod --output=drift.md
+  artifacts: { when: always, paths: [drift.md] }
+  rules: [{ if: '$CI_PIPELINE_SOURCE == "schedule"' }]
+
+mr-schema-report:
+  image: eclipse-temurin:17-jre
+  script:
+    - echo "$PGVC_ENVIRONMENTS_JSON" > pgvc-environments.json
+    - java -jar pg-git-vc.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json
+        --output=pr-comment.md --fail-on=dangerous
+    - 'curl -sf -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" --data-urlencode "body@pr-comment.md"
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"'
+  rules: [{ if: '$CI_PIPELINE_SOURCE == "merge_request_event"' }]
+```
 
 ## Безопасность миграций и безопасное выполнение (Шаг 10)
 

@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS _pgvc.refs (
     commit_hash VARCHAR(64)  NULL REFERENCES _pgvc.commits (hash)
 );
 
+-- Small tables whose rows are version controlled ("reference data", dictionaries): their rows are part of every
+-- schema snapshot and changes become INSERT ... ON CONFLICT / DELETE statements.
+CREATE TABLE IF NOT EXISTS _pgvc.tracked_data_tables (
+    schema_name VARCHAR(200) NOT NULL,
+    table_name  VARCHAR(200) NOT NULL,
+    tracked_by  VARCHAR(100) NULL,
+    tracked_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    PRIMARY KEY (schema_name, table_name)
+);
+
 -- DDL captured by the event triggers since the last commit.
 CREATE TABLE IF NOT EXISTS _pgvc.ddl_audit_log (
     id              BIGSERIAL    PRIMARY KEY,
