@@ -248,9 +248,9 @@ await step('16l-matrix', async () => {
   await table.waitFor({ timeout: 30000 });
   await table.getByText('public.customer_only').waitFor({ timeout: 5000 });
   await table.getByRole('button', { name: 'only here', exact: true }).first().waitFor({ timeout: 5000 });
-  // stage never got the February partition
-  const partition = table.getByRole('row').filter({ hasText: 'billing.events_2026_02' });
-  await partition.getByRole('button', { name: 'missing', exact: true }).first().waitFor({ timeout: 5000 });
+  // prod never got the customer notes (its history diverged with a hotfix)
+  const notes = table.getByRole('row').filter({ hasText: 'sales.notes' });
+  await notes.getByRole('button', { name: 'missing', exact: true }).first().waitFor({ timeout: 5000 });
   await shot('16l-matrix');
 });
 await step('16m-matrix-cell', async () => {
