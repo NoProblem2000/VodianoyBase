@@ -191,6 +191,49 @@ public class PgVcStorageService {
                 + " ON CONFLICT (ref_name) DO UPDATE SET commit_hash = EXCLUDED.commit_hash", HEAD_REF, hash);
     }
 
+    // ------------------------------------------------------------------ reference data tables
+
+    private static final String TRACKED_TABLE_DDL = """
+            CREATE TABLE IF NOT EXISTS _pgvc.tracked_data_tables (
+                schema_name VARCHAR(200) NOT NULL,
+                table_name  VARCHAR(200) NOT NULL,
+                tracked_by  VARCHAR(100) NULL,
+                tracked_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                PRIMARY KEY (schema_name, table_name)
+            )""";
+
+    /**
+     * Tables tracked as reference data. Empty when _pgvc or the table _pgvc.tracked_data_tables (added in v1.7.0)
+     * does not exist; never fails because of that.
+     */
+    public List<TrackedDataTable> listTrackedTables(String envId) {
+        JdbcTemplate jdbc = environments.getJdbcTemplate(envId);
+        Boolean exists = jdbc.queryForObject("SELECT to_regclass('_pgvc.tracked_data_tables') IS NOT NULL", Boolean.class);
+        if (!Boolean.TRUE.equals(exists)) {
+            return List.of();
+        }
+        return jdbc.query("SELECT schema_name, table_name, tracked_by, tracked_at FROM _pgvc.tracked_data_tables"
+                        + " ORDER BY schema_name, table_name",
+                (rs, n) -> new TrackedDataTable(rs.getString("schema_name"), rs.getString("table_name"),
+                        rs.getString("tracked_by"), rs.getObject("tracked_at", OffsetDateTime.class)));
+    }
+
+    /** Marks a table as reference data (creates _pgvc.tracked_data_tables on installations older than v1.7.0). */
+    public void trackTable(String envId, String schema, String table, String trackedBy) {
+        JdbcTemplate jdbc = requireInitialized(envId);
+        jdbc.execute(TRACKED_TABLE_DDL);
+        jdbc.update("INSERT INTO _pgvc.tracked_data_tables (schema_name, table_name, tracked_by) VALUES (?, ?, ?)"
+                + " ON CONFLICT (schema_name, table_name) DO NOTHING", schema, table, trackedBy);
+    }
+
+    /** Returns false when the table was not tracked. */
+    public boolean untrackTable(String envId, String schema, String table) {
+        JdbcTemplate jdbc = requireInitialized(envId);
+        Boolean exists = jdbc.queryForObject("SELECT to_regclass('_pgvc.tracked_data_tables') IS NOT NULL", Boolean.class);
+        return Boolean.TRUE.equals(exists) && jdbc.update(
+                "DELETE FROM _pgvc.tracked_data_tables WHERE schema_name = ? AND table_name = ?", schema, table) == 1;
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private JdbcTemplate requireInitialized(String envId) {

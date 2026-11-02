@@ -7,6 +7,7 @@ import com.vodianoy.pgvc.common.ApiException;
 import com.vodianoy.pgvc.diff.ChangeItem;
 import com.vodianoy.pgvc.diff.SchemaDiffEngine;
 import com.vodianoy.pgvc.diff.SchemaDiffResult;
+import com.vodianoy.pgvc.diff.SnapshotFilter;
 import com.vodianoy.pgvc.environment.Environment;
 import com.vodianoy.pgvc.environment.EnvironmentManagerService;
 import com.vodianoy.pgvc.execution.MigrationRunner;
@@ -361,8 +362,9 @@ public class VersionControlService {
 
             boolean verify = !request.skipVerification();
             if (verify) {
-                SchemaDiffResult rest = diffEngine.diff(parseSnapshot(target.getSchemaSnapshotJson()),
-                        introspector.introspect(envId));
+                DatabaseSnapshot targetSnapshot = parseSnapshot(target.getSchemaSnapshotJson());
+                SchemaDiffResult rest = diffEngine.diff(targetSnapshot,
+                        SnapshotFilter.withoutDataUntrackedIn(targetSnapshot, introspector.introspect(envId)));
                 if (rest.isHasChanges()) {
                     throw ApiException.conflict("rollback.verifyFailed", shortHash(target.getHash()), summary(rest.getChanges()));
                 }
@@ -445,7 +447,8 @@ public class VersionControlService {
         List<CommitRecord> chain = history.range(envId, null, head);
         for (int i = chain.size() - 1, n = 0; i >= 0 && n < MATCH_SEARCH_LIMIT; i--, n++) {
             CommitRecord c = chain.get(i);
-            if (!diffEngine.diff(parseSnapshot(c.getSchemaSnapshotJson()), schema).isHasChanges()) {
+            DatabaseSnapshot snapshot = parseSnapshot(c.getSchemaSnapshotJson());
+            if (!diffEngine.diff(snapshot, SnapshotFilter.withoutDataUntrackedIn(snapshot, schema)).isHasChanges()) {
                 return Optional.of(c);
             }
         }
@@ -487,7 +490,8 @@ public class VersionControlService {
                 throw ApiException.badRequest("sync.alreadyAt", targetEnvId, shortHash(previousHead));
             }
 
-            SchemaDiffResult diff = diffEngine.diff(parseSnapshot(commit.getSchemaSnapshotJson()), live);
+            DatabaseSnapshot commitSnapshot = parseSnapshot(commit.getSchemaSnapshotJson());
+            SchemaDiffResult diff = diffEngine.diff(commitSnapshot, SnapshotFilter.withoutDataUntrackedIn(commitSnapshot, live));
             if (diff.isHasChanges() && !request.allowSchemaDifferences()) {
                 throw ApiException.conflict("link.schemaDiffers", targetEnvId, shortHash(commit.getHash()), commit.getMessage(), summary(diff.getChanges()));
             }
@@ -670,8 +674,9 @@ public class VersionControlService {
     }
 
     private void verifyPushed(String targetEnvId, CommitRecord last) {
-        SchemaDiffResult rest = diffEngine.diff(parseSnapshot(last.getSchemaSnapshotJson()),
-                introspector.introspect(targetEnvId));
+        DatabaseSnapshot lastSnapshot = parseSnapshot(last.getSchemaSnapshotJson());
+        SchemaDiffResult rest = diffEngine.diff(lastSnapshot,
+                SnapshotFilter.withoutDataUntrackedIn(lastSnapshot, introspector.introspect(targetEnvId)));
         if (rest.isHasChanges()) {
             throw ApiException.conflict("push.verifyFailed", targetEnvId, shortHash(last.getHash()), summary(rest.getChanges()));
         }

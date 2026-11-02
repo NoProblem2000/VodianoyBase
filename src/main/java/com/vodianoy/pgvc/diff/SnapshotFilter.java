@@ -136,6 +136,30 @@ public final class SnapshotFilter {
         return out;
     }
 
+    /**
+     * {@code live} without the rows of tables that {@code reference} has but does not track as reference data. Used
+     * by the checks "the database now equals that commit" (after a rollback / push, when linking): a dictionary that
+     * started being tracked after the commit must not make the check fail.
+     */
+    public static DatabaseSnapshot withoutDataUntrackedIn(DatabaseSnapshot reference, DatabaseSnapshot live) {
+        if (reference == null || live == null) {
+            return live;
+        }
+        boolean any = live.getTables().entrySet().stream().anyMatch(e -> e.getValue().getReferenceData() != null
+                && reference.getTables().containsKey(e.getKey())
+                && reference.getTables().get(e.getKey()).getReferenceData() == null);
+        if (!any) {
+            return live;
+        }
+        DatabaseSnapshot out = live.toBuilder().tables(new LinkedHashMap<>()).build();
+        live.getTables().forEach((k, t) -> {
+            TableModel ref = reference.getTables().get(k);
+            boolean drop = t.getReferenceData() != null && ref != null && ref.getReferenceData() == null;
+            out.getTables().put(k, drop ? t.toBuilder().referenceData(null).build() : t);
+        });
+        return out;
+    }
+
     private static TableModel copy(TableModel t, DiffIgnoreRules r, boolean noComments, boolean noAccess,
                                    boolean noTablespace, boolean legacy) {
         Map<String, ColumnModel> columns = new LinkedHashMap<>();

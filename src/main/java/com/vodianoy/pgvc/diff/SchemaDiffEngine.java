@@ -8,6 +8,7 @@ import com.vodianoy.pgvc.model.schema.EnumTypeModel;
 import com.vodianoy.pgvc.model.schema.ExtensionModel;
 import com.vodianoy.pgvc.model.schema.FunctionModel;
 import com.vodianoy.pgvc.model.schema.IndexModel;
+import com.vodianoy.pgvc.model.schema.ReferenceDataModel;
 import com.vodianoy.pgvc.model.schema.SequenceModel;
 import com.vodianoy.pgvc.model.schema.TableModel;
 import com.vodianoy.pgvc.model.schema.TriggerModel;
@@ -224,10 +225,13 @@ public class SchemaDiffEngine {
         private static final int COMMENT = 32;
         /** Owners, grants, tablespaces. */
         private static final int ACCESS = 33;
-        private static final int DROP_FUNCTION = 34;
-        private static final int DROP_TYPE = 35;
-        private static final int DROP_EXTENSION = 36;
-        private static final int DROP_SCHEMA = 37;
+        /** Reference data: DELETE of removed rows, then INSERT ... ON CONFLICT of new and changed rows. */
+        private static final int DATA_DELETE = 34;
+        private static final int DATA_UPSERT = 35;
+        private static final int DROP_FUNCTION = 36;
+        private static final int DROP_TYPE = 37;
+        private static final int DROP_EXTENSION = 38;
+        private static final int DROP_SCHEMA = 39;
 
         /** Default privileges of a new object for other roles than its owner. */
         private static final List<String> NO_GRANTS = List.of();
@@ -454,6 +458,7 @@ public class SchemaDiffEngine {
                     }
                 }
                 emitNewAccess(item, "ALTER TABLE " + tq, "TABLE " + tq, t.getOwner(), t.getAcl(), NO_GRANTS);
+                diffReferenceData(null, t);
             }
 
             for (Matching.Pair<TableModel> p : tables.matched) {
@@ -590,6 +595,7 @@ public class SchemaDiffEngine {
             diffAccess(tableType(t), t.getQualifiedName(), "ALTER TABLE " + tq, "TABLE " + tq, f.getOwner(),
                     t.getOwner(), f.getAcl(), t.getAcl(), f.getTablespace(), t.getTablespace(), "table:" + fromId,
                     "table:" + tableId);
+            diffReferenceData(f, t);
         }
 
         private static String describePartitioning(TableModel t) {
@@ -1598,6 +1604,176 @@ public class SchemaDiffEngine {
                         + (a.grantable() ? " WITH GRANT OPTION" : "") + ";");
             }
             return sql;
+        }
+
+        // ------------------------------------------------------------------ reference data
+
+        /**
+         * Rows of a reference-data table, matched by PRIMARY KEY. Compared when the "to" state has the rows. When the
+         * "from" state has no rows of the table (a new table, or a table that was not tracked yet) every row is an
+         * INSERT ... ON CONFLICT and nothing is deleted; when the "to" state has no rows (not tracked there) nothing
+         * is generated — a table that is simply not tracked on one side never turns into DELETEs.
+         *
+         * @param f the table in the "from" state, null when it is created by this migration
+         */
+        private void diffReferenceData(TableModel f, TableModel t) {
+            ReferenceDataModel to = t.getReferenceData();
+            if (to == null) {
+                return;
+            }
+            boolean newlyTracked = f == null || f.getReferenceData() == null;
+            ReferenceDataModel fromData = newlyTracked ? emptyLike(to) : f.getReferenceData();
+            String name = t.getQualifiedName();
+            String pairFrom = f == null ? null : "data:" + id(f.getOid());
+            String pairTo = "data:" + id(t.getOid());
+            if (to.isTruncated() || fromData.isTruncated()) {
+                // over the row limit: not compared (the reference-data list shows it), never a permanent change
+                return;
+            }
+            if (!newlyTracked && !fromData.getPrimaryKey().equals(to.getPrimaryKey())) {
+                if (!fromData.getRows().isEmpty() || !to.getRows().isEmpty()) {
+                    ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.DATA, name,
+                            "reference data not compared: the primary key changed", pairKey("data-skipped", pairFrom, pairTo)),
+                            tableType(t), name);
+                    warn(item, "Reference data of " + name + " is not compared: its primary key changed ("
+                            + String.join(", ", fromData.getPrimaryKey()) + " -> " + String.join(", ", to.getPrimaryKey()) + ").");
+                    emit(DATA_UPSERT, item, "-- MANUAL ACTION REQUIRED: reference data of " + name
+                            + " is not compared because its primary key changed");
+                }
+                return;
+            }
+            if (!newlyTracked && Objects.equals(fromData.getRowsHash(), to.getRowsHash())
+                    && fromData.getColumns().equals(to.getColumns())) {
+                return;
+            }
+
+            Map<List<String>, List<String>> fromRows = byKey(fromData);
+            Map<List<String>, List<String>> toRows = byKey(to);
+            List<String> shared = to.getColumns().stream().filter(c -> fromData.indexOf(c) >= 0).toList();
+            String tq = qualified(t.getSchemaName(), t.getName());
+
+            List<String> deletes = new ArrayList<>();
+            for (Map.Entry<List<String>, List<String>> e : fromRows.entrySet()) {
+                if (!toRows.containsKey(e.getKey())) {
+                    deletes.add(deleteRow(tq, fromData, e.getValue()));
+                }
+            }
+            List<String> upserts = new ArrayList<>();
+            int added = 0;
+            int changed = 0;
+            for (Map.Entry<List<String>, List<String>> e : toRows.entrySet()) {
+                List<String> old = fromRows.get(e.getKey());
+                if (old == null) {
+                    added++;
+                    upserts.add(upsertRow(tq, to, e.getValue(), t));
+                } else if (differs(fromData, old, to, e.getValue(), shared)) {
+                    changed++;
+                    upserts.add(upsertRow(tq, to, e.getValue(), t));
+                }
+            }
+            if (deletes.isEmpty() && upserts.isEmpty()) {
+                return;
+            }
+            List<String> parts = new ArrayList<>();
+            if (added > 0) {
+                parts.add(added + " row(s) added");
+            }
+            if (changed > 0) {
+                parts.add(changed + " row(s) changed");
+            }
+            if (!deletes.isEmpty()) {
+                parts.add(deletes.size() + " row(s) deleted");
+            }
+            ChangeItem item = under(item(f == null ? ChangeType.ADDED : ChangeType.MODIFIED, ObjectType.DATA, name,
+                    (f != null && newlyTracked ? "now tracked as reference data: " : "reference data: ")
+                            + String.join(", ", parts), pairKey("data", pairFrom, pairTo)), tableType(t), name);
+            deletes.forEach(q -> emit(DATA_DELETE, item, q));
+            upserts.forEach(q -> emit(DATA_UPSERT, item, q));
+        }
+
+        private static ReferenceDataModel emptyLike(ReferenceDataModel m) {
+            return ReferenceDataModel.builder().columns(m.getColumns()).columnTypes(m.getColumnTypes())
+                    .primaryKey(m.getPrimaryKey()).rows(new ArrayList<>()).rowCount(0)
+                    .rowsHash(ReferenceDataModel.hash(List.of())).build();
+        }
+
+        /** Rows by their primary-key values (in key order), keeping the PRIMARY KEY order of the rows. */
+        private static Map<List<String>, List<String>> byKey(ReferenceDataModel m) {
+            Map<List<String>, List<String>> rows = new java.util.LinkedHashMap<>();
+            List<Integer> keyIdx = m.getPrimaryKey().stream().map(m::indexOf).toList();
+            for (List<String> row : m.getRows()) {
+                List<String> key = new ArrayList<>();
+                for (int i : keyIdx) {
+                    key.add(i < 0 || i >= row.size() ? null : row.get(i));
+                }
+                rows.put(key, row);
+            }
+            return rows;
+        }
+
+        private static boolean differs(ReferenceDataModel fm, List<String> fr, ReferenceDataModel tm, List<String> tr,
+                                       List<String> shared) {
+            for (String c : shared) {
+                if (!Objects.equals(value(fm, fr, c), value(tm, tr, c))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static String value(ReferenceDataModel m, List<String> row, String column) {
+            int i = m.indexOf(column);
+            return i < 0 || i >= row.size() ? null : row.get(i);
+        }
+
+        /** {@code 'text'::type}, or NULL. */
+        private static String typed(ReferenceDataModel m, String column, String value) {
+            if (value == null) {
+                return "NULL";
+            }
+            int i = m.indexOf(column);
+            String type = i >= 0 && i < m.getColumnTypes().size() ? m.getColumnTypes().get(i) : null;
+            return literal(value) + (type == null ? "" : "::" + type);
+        }
+
+        private static String keyCondition(ReferenceDataModel m, List<String> row) {
+            List<String> parts = new ArrayList<>();
+            for (String k : m.getPrimaryKey()) {
+                parts.add(ident(k) + " = " + typed(m, k, value(m, row, k)));
+            }
+            return String.join(" AND ", parts);
+        }
+
+        private static String deleteRow(String tq, ReferenceDataModel m, List<String> row) {
+            return "DELETE FROM " + tq + " WHERE " + keyCondition(m, row) + ";";
+        }
+
+        private static String upsertRow(String tq, ReferenceDataModel m, List<String> row, TableModel t) {
+            List<String> cols = m.getColumns();
+            boolean identityAlways = cols.stream().anyMatch(c -> {
+                ColumnModel col = t.getColumns().get(c);
+                return col != null && "ALWAYS".equals(col.getIdentityGeneration());
+            });
+            StringBuilder sb = new StringBuilder("INSERT INTO ").append(tq).append(" (")
+                    .append(cols.stream().map(c -> ident(c)).collect(Collectors.joining(", "))).append(")");
+            if (identityAlways) {
+                sb.append(" OVERRIDING SYSTEM VALUE");
+            }
+            sb.append(" VALUES (");
+            for (int i = 0; i < cols.size(); i++) {
+                sb.append(i == 0 ? "" : ", ").append(typed(m, cols.get(i), i < row.size() ? row.get(i) : null));
+            }
+            sb.append(") ON CONFLICT (").append(m.getPrimaryKey().stream().map(c -> ident(c)).collect(Collectors.joining(", ")))
+                    .append(")");
+            List<String> rest = cols.stream().filter(c -> !m.getPrimaryKey().contains(c)).toList();
+            if (rest.isEmpty()) {
+                sb.append(" DO NOTHING;");
+            } else {
+                sb.append(" DO UPDATE SET ")
+                        .append(rest.stream().map(c -> ident(c) + " = EXCLUDED." + ident(c)).collect(Collectors.joining(", ")))
+                        .append(';');
+            }
+            return sb.toString();
         }
 
         private record AclEntry(String grantee, String privilege, boolean grantable) {

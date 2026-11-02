@@ -72,13 +72,15 @@ public class MatrixCompareService {
         }
         DiffIgnoreRules rules = request.ignoreRules() == null ? diffEngine.defaultRules() : request.ignoreRules().validated();
 
-        List<Source> sources = new ArrayList<>(loadEnvironments(envIds));
+        List<Source> loaded = new ArrayList<>(loadEnvironments(envIds));
         for (int i = 0; i < uploads.size(); i++) {
             MatrixSnapshotUpload upload = uploads.get(i);
             SnapshotBundleDto bundle = SnapshotSyncService.validate(upload == null ? null : upload.bundle());
             String name = upload.name() == null || upload.name().isBlank() ? defaultName(bundle, i) : upload.name().strip();
-            sources.add(new Source(SNAPSHOT_PREFIX + i, name, "SNAPSHOT", describe(bundle), bundle.getSchemaSnapshot(), null));
+            loaded.add(new Source(SNAPSHOT_PREFIX + i, name, "SNAPSHOT", describe(bundle), bundle.getSchemaSnapshot(), null));
         }
+
+        List<Source> sources = withSharedReferenceData(loaded);
 
         String baselineId = request.baseline() == null || request.baseline().isBlank()
                 ? sources.get(0).id() : request.baseline().strip();
@@ -188,6 +190,36 @@ public class MatrixCompareService {
         } finally {
             pool.shutdown();
         }
+    }
+
+    /**
+     * Every environment is read with the rows of all reference-data tables of the other databases (a dictionary
+     * tracked in one of them is compared in all of them).
+     */
+    private List<Source> withSharedReferenceData(List<Source> sources) {
+        java.util.Set<String> dataTables = new java.util.TreeSet<>();
+        for (Source s : sources) {
+            dataTables.addAll(PostgresSchemaIntrospector.dataTables(s.snapshot()));
+        }
+        if (dataTables.isEmpty()) {
+            return sources;
+        }
+        List<Source> result = new ArrayList<>();
+        for (Source s : sources) {
+            boolean lacking = s.snapshot() != null && s.id().startsWith(ENV_PREFIX) && dataTables.stream().anyMatch(k ->
+                    s.snapshot().getTables().containsKey(k) && s.snapshot().getTables().get(k).getReferenceData() == null);
+            if (!lacking) {
+                result.add(s);
+                continue;
+            }
+            try {
+                result.add(new Source(s.id(), s.name(), s.kind(), s.description(),
+                        introspector.introspectWithData(s.id().substring(ENV_PREFIX.length()), dataTables), null));
+            } catch (RuntimeException e) {
+                result.add(new Source(s.id(), s.name(), s.kind(), s.description(), null, rootMessage(e)));
+            }
+        }
+        return result;
     }
 
     private static String rootMessage(Throwable e) {

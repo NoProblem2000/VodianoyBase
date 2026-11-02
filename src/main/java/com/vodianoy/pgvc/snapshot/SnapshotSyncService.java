@@ -76,7 +76,9 @@ public class SnapshotSyncService {
         SnapshotBundleDto bundle = validate(request.bundle());
         PgVcStatus status = requireReachable(envId);
 
-        DatabaseSnapshot current = introspector.introspect(envId);
+        // the rows of the reference-data tables of the snapshot are read here too, so they can be compared
+        DatabaseSnapshot current = introspector.introspectWithData(envId,
+                PostgresSchemaIntrospector.dataTables(bundle.getSchemaSnapshot()));
         com.vodianoy.pgvc.diff.DiffIgnoreRules rules = request.ignoreRules() == null ? null
                 : request.ignoreRules().validated();
         SchemaDiffResult diff = diffEngine.compare(current, bundle.getSchemaSnapshot(), true, rules);
