@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
  * User trigger of a table from pg_trigger ({@code NOT tgisinternal}; triggers that PostgreSQL 13+ clones from a
  * partitioned table to its partitions are not listed separately).
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

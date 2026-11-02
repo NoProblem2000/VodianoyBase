@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { GitCommitHorizontal, TriangleAlert } from 'lucide-react';
+import { GitCommitHorizontal, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api/client';
 import type { ChangeItem, CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
 import { applyAlternatives } from './SafetyBadges';
 import { shortHash } from '../lib/format';
 import { ChangeList } from './ChangeList';
+import { DiscardModal } from './DiscardModal';
 import { SqlEditor } from './SqlEditor';
 import { Tabs } from './Tabs';
 import { useI18n } from '../i18n';
@@ -16,11 +17,13 @@ interface Props {
   author: string;
   onAuthorChange: (author: string) => void;
   onCommitted: (result: CommitResult) => void;
+  /** uncommitted changes were discarded (or the DDL log cleared) */
+  onDiscarded: () => void;
 }
 
 type Tab = 'up' | 'down';
 
-export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange, onCommitted }: Props) {
+export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange, onCommitted, onDiscarded }: Props) {
   const toast = useToast();
   const { t } = useI18n();
   const diff = workingTree.diff;
@@ -29,6 +32,8 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   const [down, setDown] = useState(diff.downSql);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  // null: closed; []: discard everything; [i]: one change
+  const [discarding, setDiscarding] = useState<number[] | null>(null);
 
   // new DDL arrived: show the regenerated scripts
   useEffect(() => {
@@ -113,7 +118,12 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
         </div>
       </div>
       <div className="max-h-[32%] min-h-[80px] overflow-auto px-3">
-        <ChangeList changes={diff.changes} onUsePattern={usePattern} patternUsed={patternUsed} />
+        <ChangeList
+          changes={diff.changes}
+          onUsePattern={usePattern}
+          patternUsed={patternUsed}
+          onDiscard={(i) => setDiscarding([i])}
+        />
       </div>
 
       <div className="mt-2 flex min-h-[180px] flex-1 flex-col border-t border-kraken-line">
@@ -149,7 +159,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
             />
           </label>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {edited && (
             <>
               <span className="text-xs text-amber-300">{t('common.sqlEdited')}</span>
@@ -166,11 +176,25 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
             </>
           )}
           <span className="flex-1" />
+          <button className="btn btn-danger" onClick={() => setDiscarding([])} disabled={busy}>
+            <Trash2 size={14} /> {t('workingTree.discardAll')}
+          </button>
           <button className="btn btn-primary" onClick={() => void commit()} disabled={busy}>
             <GitCommitHorizontal size={15} /> {busy ? t('workingTree.committing') : t('workingTree.commit')}
           </button>
         </div>
       </footer>
+      {discarding !== null && (
+        <DiscardModal
+          env={env}
+          changeIndexes={discarding.length === 0 ? null : discarding}
+          onDone={() => {
+            setDiscarding(null);
+            onDiscarded();
+          }}
+          onClose={() => setDiscarding(null)}
+        />
+      )}
     </div>
   );
 }

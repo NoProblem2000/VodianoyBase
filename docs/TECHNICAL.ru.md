@@ -77,7 +77,7 @@
 | GET | `/api/vc/commits/{hash}/deletion-plan?mode=COMMIT\|BRANCH` | что удалит удаление коммита / ветки и что мешает |
 | DELETE | `/api/vc/commits/{hash}?mode=COMMIT\|BRANCH` | удалить неиспользуемый коммит (с потомками) или брошенную ветку |
 | GET | `/api/vc/snapshot/export?envId=dev[&commitHash=..]` | скачать эталонный слепок `snapshot_<ветка>_<хеш>.pgsnap.json` |
-| POST | `/api/vc/snapshot/compare` | `{envId, bundle, ignoreRules}`: живая схема окружения против слепка (`ignoreRules` — разовые правила, `null` — сохранённые) |
+| POST | `/api/vc/snapshot/compare` | `{envId, bundle, ignoreRules}` (JSON) или `multipart/form-data` (`envId`, `file`, `ignoreRules`): живая схема окружения против слепка (`ignoreRules` — разовые правила, `null` — сохранённые) |
 | POST | `/api/vc/snapshot/apply` | `envId`, `upSql`, `downSql`, `author`, `message`, `sourceCommitHash`: накат и коммит |
 | POST | `/api/environments/{id}/vc/analyze` | `{sql, preScript, postScript}`: анализ безопасности произвольного SQL |
 | GET | `/api/about` | название, версия сборки, лицензия и её полный текст (окно «О проекте») |
@@ -86,6 +86,9 @@
 | GET | `/api/environments/{id}/reference-data` | таблицы окружения: отслеживается ли, PK, строки, можно ли отслеживать |
 | POST | `/api/environments/{id}/reference-data` | `{table: "schema.table", author}`: отслеживать как справочник |
 | DELETE | `/api/environments/{id}/reference-data?table=schema.table` | перестать отслеживать строки |
+| POST | `/api/vc/working-tree/discard-plan` | `{envId, changeIndexes}`: SQL отмены незакоммиченных изменений (все или выбранные), его риск |
+| POST | `/api/vc/working-tree/discard` | `envId`, `changeIndexes`, `customDownSql`, `expectedTotalChanges`, `skipVerification`, `lockTimeout`, `statementTimeout`: отменить (сброс к HEAD) |
+| POST | `/api/vc/working-tree/clear-log?envId=` | только очистить `_pgvc.ddl_audit_log` |
 | POST | `/api/vc/git-export` | `envId`, `commitHash` (пусто — HEAD), `targetPath` (пусто — `.zip`), `includeMigrations` |
 | POST | `/api/vc/matrix/compare` | матрица N баз: `envIds`, `snapshots` (`[{name, bundle}]`), `baseline` (`env:<id>` / `snapshot:<n>`), `ignoreRules` |
 
@@ -299,6 +302,33 @@ view, последовательности (и последовательнос�
 `upSql` ячейки приводит объект в этой базе к состоянию эталона. Окно «🌐 Матрица N баз»: выбор окружений,
 загрузка слепков, выбор эталона, разовые правила (с кнопкой «Сохранить по умолчанию»), фильтр «Только различия»,
 поиск; клик по отличающейся ячейке открывает различия, предупреждения и SQL (UP / обратный).
+
+## Исправления v1.7.1
+
+**Сброс незакоммиченных изменений (`git reset --hard HEAD`).** `VersionControlService.discardPlan` строит SQL отмены
+сравнением «HEAD → живая база» (`SchemaDiffEngine.compare` нумерует изменения в том же порядке, что и Working Tree, и
+хранит DOWN по операторам): для всех изменений или для выбранных (`changeIndexes`); без коммитов — относительно пустой
+схемы. `discardWorkingTree` в одной транзакции выполняет этот (или отредактированный) SQL, при полном сбросе проверяет,
+что схема снова равна HEAD, и очищает `_pgvc.ddl_audit_log`; при частичном удаляет из журнала только записи, которые
+породил сам сброс. Если с момента просмотра Working Tree изменился (`expectedTotalChanges`), сброс отклоняется. HEAD
+не двигается. В интерфейсе: «🗑️ Discard All Changes (Reset to HEAD)» и иконка «Discard / Revert Item» у каждого
+изменения; в диалоге — список изменений, анализ безопасности и редактируемый SQL.
+
+**Сопоставление объектов разных баз.** Идентичность снимка теперь `system_identifier:oid_базы@окружение`. Физические
+копии кластера (pg_basebackup, один Docker-образ с готовой базой, восстановление из одного бэкапа) имеют одинаковые
+`system_identifier` и OID базы: раньше их таблицы и колонки сопоставлялись по OID / attnum, и новая колонка (например,
+`jsonb`) одной базы выглядела как переименование чужой колонки другой — проверка после push не проходила. Сравнения
+разных окружений (`compareEnvironments`, проверка после push, привязка, поиск совпадающего коммита) явно идут только по
+именам (`SchemaDiffEngine.diffAcrossEnvironments`). Снимки до v1.7.1 (без `@окружение`) сравниваются с новыми по части
+базы, так что переименования внутри окружения по-прежнему распознаются.
+
+**Загрузка `.pgsnap.json`.** Браузер читает 9223372036854775807 (MAXVALUE любой `bigint`-последовательности, например
+у `bigserial`) как число с плавающей точкой и записывает обратно `9223372036854776000` — сервер отвечал «JSON parse
+error: Numeric value out of range of long». Теперь интерфейс проверяет файл (`JSON.parse`), но отправляет его исходный
+текст без изменений (сравнение со слепком и матрица); поля последовательностей читаются `SaturatingLongDeserializer`
+(значения за границами `long` — `Long.MAX_VALUE` / `Long.MIN_VALUE`, принимаются и дробные, и строковые числа);
+модели схемы и `SnapshotBundleDto` помечены `@JsonIgnoreProperties(ignoreUnknown = true)`; появился приём файла через
+`multipart/form-data`: `curl -F envId=customer -F file=@snapshot.pgsnap.json localhost:8765/api/vc/snapshot/compare`.
 
 ## Справочники, экспорт в Git-папку, CLI (Шаг 12)
 

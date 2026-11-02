@@ -101,8 +101,15 @@ public class PostgresSchemaIntrospector {
         TransactionTemplate tx = new TransactionTemplate(environments.getTransactionTemplate(envId).getTransactionManager());
         tx.setReadOnly(true);
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        return tx.execute(status -> read(jdbc, schemaFilter,
+        DatabaseSnapshot snapshot = tx.execute(status -> read(jdbc, schemaFilter,
                 extraDataTables == null ? Set.of() : new LinkedHashSet<>(extraDataTables)));
+        if (snapshot != null && snapshot.getSourceDatabaseId() != null) {
+            // "system_identifier:database_oid@environment": physical copies of a cluster (pg_basebackup, one Docker
+            // image with a prepared database, a restored backup) share system_identifier and database oid; the
+            // environment id keeps their OIDs / attnums from being matched with each other
+            snapshot.setSourceDatabaseId(snapshot.getSourceDatabaseId() + "@" + envId);
+        }
+        return snapshot;
     }
 
     /** Snapshot of all user schemas plus the rows of {@code extraDataTables}. */

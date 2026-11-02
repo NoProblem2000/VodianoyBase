@@ -9,11 +9,11 @@ import type {
   MatrixComparison,
   MatrixRow,
   MatrixSnapshotUpload,
-  SnapshotBundle,
 } from '../api/types';
 import { useI18n } from '../i18n';
 import { DEFAULT_IGNORE_RULES, IgnoreRulesPanel } from './IgnoreRulesEditor';
 import { Modal } from './Modal';
+import { readSnapshotText } from '../lib/snapshot';
 import { SqlEditor } from './SqlEditor';
 import { Tabs } from './Tabs';
 import { useToast } from './Toasts';
@@ -35,9 +35,6 @@ const STATUS_CLASSES: Record<MatrixCellStatus, string> = {
 
 const CLICKABLE: MatrixCellStatus[] = ['MODIFIED', 'MISSING', 'EXTRA_ONLY_HERE'];
 
-function isBundle(value: unknown): value is SnapshotBundle {
-  return !!value && typeof value === 'object' && 'schemaSnapshot' in value && 'formatVersion' in value;
-}
 
 interface Selection {
   row: MatrixRow;
@@ -86,9 +83,8 @@ export function MatrixModal({ environments, activeEnvId, onClose }: Props) {
     const added: MatrixSnapshotUpload[] = [];
     for (const file of Array.from(files)) {
       try {
-        const parsed: unknown = JSON.parse(await file.text());
-        if (!isBundle(parsed)) throw new Error('not a bundle');
-        added.push({ name: file.name.replace(/\.pgsnap\.json$/i, ''), bundle: parsed });
+        // validated here, sent as the original text (no JavaScript number rounding)
+        added.push({ name: file.name.replace(/\.pgsnap\.json$/i, ''), text: readSnapshotText(await file.text()) });
       } catch {
         toast.error(t('matrix.badFile', { file: file.name }));
       }

@@ -182,7 +182,9 @@
     "commit": "Commit Changes",
     "committing": "Committing…",
     "committed": "Committed {{hash}}: {{message}}",
-    "noChanges": "No schema changes"
+    "noChanges": "No schema changes",
+    "discardAll": "🗑️ Discard All Changes (Reset to HEAD)",
+    "discardItem": "Discard / Revert Item"
   },
   "commit": {
     "commit": "Commit",
@@ -544,5 +546,27 @@
     "writtenTitle": "Written",
     "deletedTitle": "Deleted",
     "nothingChanged": "Everything was up to date."
+  },
+  "discard": {
+    "titleAll": "🗑️ Discard All Changes (Reset to HEAD)",
+    "titleItem": "Discard / Revert Item",
+    "subtitle": "{{env}}: the SQL below returns the database to {{target}} in one transaction.",
+    "toHead": "HEAD {{head}}",
+    "toEmpty": "an empty schema (there are no commits yet)",
+    "emptySchema": "an empty schema",
+    "warnAll": "All uncommitted changes of {{env}} are reverted to HEAD {{head}}. Objects created since then are dropped together with their data; dropped columns and tables come back empty.",
+    "warnEmpty": "{{env}} has no commits yet: everything listed below is dropped, together with its data.",
+    "warnItem": "Only this change is reverted; the other uncommitted changes stay. Check that nothing else depends on it.",
+    "warnLog": "The DDL log ({{count}} entries) is cleared afterwards.",
+    "sqlTitle": "SQL to execute (you can edit it)",
+    "runAll": "Discard All Changes",
+    "runItem": "Revert This Change",
+    "running": "Reverting…",
+    "clearLog": "Only clear the DDL log",
+    "clearing": "Clearing…",
+    "clearLogHint": "Removes the captured DDL events (_pgvc.ddl_audit_log) and leaves the schema as it is",
+    "doneAll": "{{env}} is back at {{head}}",
+    "doneSome": "Reverted {{count}} change(s), {{left}} left",
+    "logCleared": "DDL log cleared ({{count}} entries)"
   }
 }

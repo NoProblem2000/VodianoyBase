@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** PRIMARY KEY / FOREIGN KEY / UNIQUE / CHECK / EXCLUDE constraint from pg_constraint. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

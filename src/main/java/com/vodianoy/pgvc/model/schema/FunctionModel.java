@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,6 +13,7 @@ import java.util.List;
  * Function or procedure from pg_proc (prokind 'f', 'p' or 'w'; aggregates are not version controlled).
  * Overloads are separate objects: the key includes the identity arguments, e.g. {@code sales.total(integer, text)}.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

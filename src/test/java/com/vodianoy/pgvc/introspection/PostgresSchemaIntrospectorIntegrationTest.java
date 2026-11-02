@@ -99,7 +99,7 @@ class PostgresSchemaIntrospectorIntegrationTest {
 
         assertThat(s.getSchemas()).containsExactly("billing", "public", "sales");
         assertThat(s.getServerVersion()).isGreaterThanOrEqualTo(110000);
-        assertThat(s.getSourceDatabaseId()).matches(".+:\\d+");
+        assertThat(s.getSourceDatabaseId()).matches(".+:\\d+@dev");
         assertThat(s.getTimestamp()).isNotNull();
         assertThat(s.getTables()).containsOnlyKeys("billing.events", "billing.events_2026_01", "billing.events_2026_q2",
                 "billing.events_2026_04", "billing.events_default", "billing.reservations", "public.Mixed Case",

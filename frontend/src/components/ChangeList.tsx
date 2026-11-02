@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Undo2 } from 'lucide-react';
 import type { ChangeItem } from '../api/types';
 import { useI18n } from '../i18n';
 import { ChangeBadge } from './Badges';
@@ -14,9 +14,11 @@ interface Props {
   onUsePattern?: (change: ChangeItem) => void;
   /** changes whose pattern is already in use (by index) */
   patternUsed?: Set<number>;
+  /** offers "Discard / Revert Item" for every change (working tree) */
+  onDiscard?: (index: number) => void;
 }
 
-export function ChangeList({ changes, emptyText, expandable = true, onUsePattern, patternUsed }: Props) {
+export function ChangeList({ changes, emptyText, expandable = true, onUsePattern, patternUsed, onDiscard }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState<number | null>(null);
   if (changes.length === 0) {
@@ -28,8 +30,9 @@ export function ChangeList({ changes, emptyText, expandable = true, onUsePattern
         const pattern = !!c.safety?.alternatives?.length && !!onUsePattern;
         return (
           <li key={`${c.objectType}-${c.objectName}-${c.changeType}-${i}`}>
+            <div className="group flex items-start">
             <button
-              className="flex w-full items-start gap-2 px-1 py-1.5 text-left hover:bg-kraken-hover disabled:hover:bg-transparent"
+              className="flex min-w-0 flex-1 items-start gap-2 px-1 py-1.5 text-left hover:bg-kraken-hover disabled:hover:bg-transparent"
               onClick={() => setOpen(open === i ? null : i)}
               disabled={!expandable}
             >
@@ -53,6 +56,18 @@ export function ChangeList({ changes, emptyText, expandable = true, onUsePattern
                 <ChevronRight size={14} className={`mt-1 shrink-0 text-gray-500 transition-transform ${open === i ? 'rotate-90' : ''}`} />
               )}
             </button>
+            {onDiscard && (
+              <button
+                type="button"
+                className="mt-1 shrink-0 rounded p-1 text-gray-500 opacity-60 hover:bg-red-950/50 hover:text-red-300 hover:opacity-100 group-hover:opacity-100"
+                onClick={() => onDiscard(i)}
+                title={t('workingTree.discardItem')}
+                aria-label={`${t('workingTree.discardItem')}: ${c.objectName}`}
+              >
+                <Undo2 size={13} />
+              </button>
+            )}
+            </div>
             {expandable && open === i && (
               <div className="mb-2 ml-7 space-y-1.5 text-xs">
                 {c.safety && <SafetyNotes report={c.safety} />}

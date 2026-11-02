@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,6 +17,7 @@ import java.util.Map;
  * Full model of the database schema at one moment ("Working Tree" when read from pg_catalog, or the state stored
  * with a commit). Covers all version-controlled user schemas; map keys are qualified names {@code schema.name}.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor
@@ -38,8 +40,9 @@ public class DatabaseSnapshot {
     private OffsetDateTime timestamp;
 
     /**
-     * {@code system_identifier:database_oid} of the source database. OIDs and attnums are only comparable between
-     * snapshots with the same source (used later for rename detection).
+     * {@code system_identifier:database_oid@environment} of the source database (before v1.7.1 without
+     * {@code @environment}). OIDs and attnums are only comparable between snapshots with the same source: that is how
+     * renames are recognised. See {@link #sameDatabase(String, String)}.
      */
     private String sourceDatabaseId;
 
@@ -73,6 +76,25 @@ public class DatabaseSnapshot {
     /** Extensions by name (database-wide, not limited to the snapshot's schemas). */
     @Builder.Default
     private Map<String, ExtensionModel> extensions = new LinkedHashMap<>();
+
+    /**
+     * True when OIDs / attnums of two snapshots can be compared: both were taken from the same database of the same
+     * environment. A snapshot of an older version (no {@code @environment}) matches by the database part only.
+     * {@code unknown:...} (pg_control_system() not readable) is trusted only together with the environment.
+     */
+    public static boolean sameDatabase(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        boolean envA = a.contains("@");
+        boolean envB = b.contains("@");
+        if (envA && envB) {
+            return a.equals(b);
+        }
+        String dbA = envA ? a.substring(0, a.lastIndexOf('@')) : a;
+        String dbB = envB ? b.substring(0, b.lastIndexOf('@')) : b;
+        return !dbA.startsWith("unknown") && dbA.equals(dbB);
+    }
 
     /** Map key / reference format used everywhere in the model. */
     public static String key(String schemaName, String objectName) {

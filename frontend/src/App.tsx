@@ -228,6 +228,10 @@ function Workspace() {
               author={author}
               onAuthorChange={setAuthor}
               onCommitted={(r) => void afterChange(r.commit.hash)}
+              onDiscarded={() => {
+                setSelected(null);
+                void data.refresh();
+              }}
             />
           ) : selectedCommit && inspectorSource ? (
             <CommitInspector

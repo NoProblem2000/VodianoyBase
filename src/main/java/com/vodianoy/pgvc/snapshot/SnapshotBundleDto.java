@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.snapshot;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,6 +13,7 @@ import java.time.Instant;
  * Reference schema snapshot file ({@code .pgsnap.json}): the full schema of one commit (or of a live database) that
  * is carried to an isolated site and compared with the database there.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder
 @NoArgsConstructor

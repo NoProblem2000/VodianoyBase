@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.7.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.7.1.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -23,6 +23,7 @@ Open source under the [Apache License 2.0](LICENSE).
   environment in one transaction; **Link** attaches an environment that already has the schema to the shared history
   without running SQL.
 - **Rollback** of a database to any earlier commit, with an editable script and a schema check afterwards.
+- **Discard uncommitted changes** (`git reset --hard HEAD`): all of them or a single one, with the editable revert SQL.
 - **Delete** commits that are no longer used (left behind by a rollback) — a single commit with the commits on top of
   it, or a whole abandoned branch. Commits in the current history of any environment are protected.
 - **Reference snapshots for isolated sites.** Export the schema of any commit as `snapshot_<branch>_<hash>.pgsnap.json`,
@@ -65,7 +66,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.7.0.jar
+java -jar pg-git-vc-1.7.1.jar
 ```
 
 Open http://localhost:8765.
@@ -76,9 +77,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.7.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.7.1.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.7.0.jar
+java -jar target/pg-git-vc-1.7.1.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -136,10 +137,10 @@ snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bund
 
 ```bash
 # nightly drift check: exit code 2 = someone changed the schema outside of version control
-java -jar pg-git-vc-1.7.0.jar --cli --action=check-drift --env=prod --output=drift.md
+java -jar pg-git-vc-1.7.1.jar --cli --action=check-drift --env=prod --output=drift.md
 
 # Merge Request comment: what the release snapshot changes on stage, failing on dangerous changes
-java -jar pg-git-vc-1.7.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
+java -jar pg-git-vc-1.7.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
      --output=pr-comment.md --fail-on=dangerous
 ```
 
@@ -191,6 +192,7 @@ either express or implied. See the License for the specific language governing p
   окружение одной транзакцией; **привязка (Link)** подключает к общей истории окружение, где схема уже есть, без
   выполнения SQL.
 - **Откат** базы к любому более раннему коммиту — с редактируемым скриптом и проверкой схемы после него.
+- **Отмена незакоммиченных изменений** (`git reset --hard HEAD`): всех сразу или одного, с редактируемым SQL отмены.
 - **Удаление** ненужных коммитов (оставшихся после отката): один коммит вместе с коммитами поверх него или целиком
   брошенная ветка. Коммиты из текущей истории любого окружения защищены от удаления.
 - **Эталонные слепки для изолированных площадок.** Схема любого коммита выгружается в
@@ -235,7 +237,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.7.0.jar
+java -jar pg-git-vc-1.7.1.jar
 ```
 
 Откройте http://localhost:8765.
@@ -246,9 +248,9 @@ java -jar pg-git-vc-1.7.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.7.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.7.1.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.7.0.jar
+java -jar target/pg-git-vc-1.7.1.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -306,10 +308,10 @@ src/main/java/com/vodianoy/pgvc/
 
 ```bash
 # ночная проверка дрейфа: код 2 — кто-то поменял схему мимо контроля версий
-java -jar pg-git-vc-1.7.0.jar --cli --action=check-drift --env=prod --output=drift.md
+java -jar pg-git-vc-1.7.1.jar --cli --action=check-drift --env=prod --output=drift.md
 
 # комментарий к Merge Request: что релизный слепок меняет на stage; ошибка, если есть опасные изменения
-java -jar pg-git-vc-1.7.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
+java -jar pg-git-vc-1.7.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
      --output=pr-comment.md --fail-on=dangerous
 ```
 

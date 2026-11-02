@@ -15,13 +15,15 @@ import type {
   SqlSafetyReport,
   DeletionPlan,
   DeletionResult,
+  ClearLogResult,
   DiffIgnoreRules,
+  DiscardPlan,
+  DiscardResult,
   GitExportResult,
   GlobalGraph,
   MatrixComparison,
   ReferenceDataTable,
   MatrixSnapshotUpload,
-  SnapshotBundle,
   SnapshotComparison,
   LinkResult,
   OfflineBundle,
@@ -90,6 +92,18 @@ export interface SnapshotApplyBody {
 
 async function get<T>(url: string, params?: Record<string, string | undefined>): Promise<T> {
   return (await http.get<T>(url, { params })).data;
+}
+
+/**
+ * POST of a JSON body that is already text. Snapshot files are embedded as they are: parsing and serializing them
+ * in JavaScript would round 64-bit numbers (9223372036854775807 -> 9223372036854776000, out of range for the server).
+ */
+async function rawJson<T>(url: string, json: string): Promise<T> {
+  const r = await http.post<T>(url, json, {
+    headers: { 'Content-Type': 'application/json' },
+    transformRequest: [(data: string) => data],
+  });
+  return r.data;
 }
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
@@ -167,12 +181,35 @@ export const api = {
     http.put<DiffIgnoreRules>('/settings/ignore-rules', rules).then((r) => r.data),
 
   // N-database matrix
+  /** Snapshot files are embedded as their original text (see rawJson). */
   matrix: (body: {
     envIds: string[];
     snapshots: MatrixSnapshotUpload[];
     baseline: string | null;
     ignoreRules: DiffIgnoreRules | null;
-  }) => post<MatrixComparison>('/vc/matrix/compare', body),
+  }) =>
+    rawJson<MatrixComparison>(
+      '/vc/matrix/compare',
+      `{"envIds":${JSON.stringify(body.envIds)},"baseline":${JSON.stringify(body.baseline)},` +
+        `"ignoreRules":${JSON.stringify(body.ignoreRules)},"snapshots":[` +
+        body.snapshots.map((s) => `{"name":${JSON.stringify(s.name)},"bundle":${s.text}}`).join(',') +
+        ']}',
+    ),
+
+  // discard uncommitted changes (reset to HEAD)
+  discardPlan: (envId: string, changeIndexes: number[] | null) =>
+    post<DiscardPlan>('/vc/working-tree/discard-plan', { envId, changeIndexes }),
+  discard: (body: {
+    envId: string;
+    changeIndexes: number[] | null;
+    customDownSql: string | null;
+    expectedTotalChanges: number;
+    skipVerification: boolean;
+    lockTimeout: string;
+    statementTimeout: string;
+  }) => post<DiscardResult>('/vc/working-tree/discard', body),
+  clearDdlLog: (envId: string) =>
+    http.post<ClearLogResult>('/vc/working-tree/clear-log', null, { params: { envId } }).then((r) => r.data),
 
   // reference snapshots (.pgsnap.json)
   /** Downloads snapshot_<branch>_<hash>.pgsnap.json of a commit (default: HEAD, or the live schema). */
@@ -191,8 +228,12 @@ export const api = {
     window.setTimeout(() => URL.revokeObjectURL(url), 10000);
     return fileName;
   },
-  compareSnapshot: (envId: string, bundle: SnapshotBundle, ignoreRules?: DiffIgnoreRules | null) =>
-    post<SnapshotComparison>('/vc/snapshot/compare', { envId, bundle, ignoreRules: ignoreRules ?? null }),
+  /** {@code bundleText}: the .pgsnap.json exactly as read from the file (embedded unchanged, see rawJson). */
+  compareSnapshot: (envId: string, bundleText: string, ignoreRules?: DiffIgnoreRules | null) =>
+    rawJson<SnapshotComparison>(
+      '/vc/snapshot/compare',
+      `{"envId":${JSON.stringify(envId)},"ignoreRules":${JSON.stringify(ignoreRules ?? null)},"bundle":${bundleText}}`,
+    ),
   applySnapshot: (body: SnapshotApplyBody) => post<CommitResult>('/vc/snapshot/apply', { ...body, dryRun: false }),
   dryRunSnapshot: (body: SnapshotApplyBody) => post<DryRunResult>('/vc/snapshot/apply', { ...body, dryRun: true }),
   deletionPlan: (hash: string, mode: DeletionMode) =>

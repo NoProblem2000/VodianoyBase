@@ -9,7 +9,6 @@ import type {
   EnvironmentView,
   ExecutionOptions,
   ScriptStatement,
-  SnapshotBundle,
   SnapshotComparison,
 } from '../api/types';
 import { DEFAULT_EXECUTION, DryRunPanel, TimeoutFields } from './ExecutionPanels';
@@ -17,6 +16,7 @@ import { DEFAULT_IGNORE_RULES, IgnoreRulesPanel, sameRules } from './IgnoreRules
 import { SafetyBadges, ZeroDowntimeButton } from './SafetyBadges';
 import { useI18n } from '../i18n';
 import { formatDate, shortHash } from '../lib/format';
+import { readSnapshotText } from '../lib/snapshot';
 import { ChangeBadge } from './Badges';
 import { Modal } from './Modal';
 import { SqlEditor } from './SqlEditor';
@@ -46,11 +46,6 @@ export function assemble(statements: ScriptStatement[], selected: Set<number>, o
     .join('');
 }
 
-function isBundle(value: unknown): value is SnapshotBundle {
-  const v = value as Partial<SnapshotBundle> | null;
-  return !!v && typeof v === 'object' && typeof v.formatVersion === 'string' && !!v.schemaSnapshot;
-}
-
 const majorVersion = (num: number) => (num >= 100000 ? Math.floor(num / 10000) : Math.floor(num / 100));
 
 /**
@@ -61,7 +56,9 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
   const { t, rich, locale } = useI18n();
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [bundle, setBundle] = useState<SnapshotBundle | null>(null);
+  // the text of the .pgsnap.json exactly as in the file: it is sent unchanged, because JSON.parse + JSON.stringify
+  // would round big numbers (MAXVALUE 9223372036854775807 of a bigint sequence becomes 9223372036854776000)
+  const [bundle, setBundle] = useState<string | null>(null);
   const [comparison, setComparison] = useState<SnapshotComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,11 +85,11 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
   }, []);
 
   const compare = useCallback(
-    async (b: SnapshotBundle) => {
+    async (bundleText: string) => {
       setLoading(true);
       setError(null);
       try {
-        const c = await api.compareSnapshot(env.id, b, rules);
+        const c = await api.compareSnapshot(env.id, bundleText, rules);
         setComparedRules(rules);
         const defaults = new Set(c.missingOrModifiedItems.map((i) => i.id ?? -1).filter((id) => id >= 0));
         setComparison(c);
@@ -116,14 +113,15 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
 
   async function readFile(file: File) {
     setError(null);
+    let text: string;
     try {
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!isBundle(parsed)) throw new Error('not a bundle');
-      setBundle(parsed);
-      await compare(parsed);
+      text = readSnapshotText(await file.text());
     } catch {
       setError(t('snapshot.badFile', { file: file.name }));
+      return;
     }
+    setBundle(text);
+    await compare(text);
   }
 
   function onDrop(e: DragEvent<HTMLDivElement>) {
