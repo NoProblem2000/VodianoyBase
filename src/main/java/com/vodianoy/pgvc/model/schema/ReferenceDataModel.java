@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,6 +18,7 @@ import java.util.List;
  * Rows of a table tracked as reference data (a dictionary), ordered by its PRIMARY KEY. Every value is the text output
  * of the column ({@code value::text}); null is SQL NULL. Generated columns are not stored.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

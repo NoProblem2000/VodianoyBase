@@ -1,11 +1,13 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /** Installed extension from pg_extension (plpgsql, which every database has, is not listed). */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

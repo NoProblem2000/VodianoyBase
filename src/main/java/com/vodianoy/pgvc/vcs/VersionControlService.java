@@ -14,6 +14,7 @@ import com.vodianoy.pgvc.execution.MigrationRunner;
 import com.vodianoy.pgvc.execution.MigrationStep;
 import com.vodianoy.pgvc.execution.StepReport;
 import com.vodianoy.pgvc.execution.Timeouts;
+import com.vodianoy.pgvc.execution.SqlScripts;
 import com.vodianoy.pgvc.execution.TransactionalScript;
 import com.vodianoy.pgvc.safety.MigrationSafetyAnalyzer;
 import com.vodianoy.pgvc.safety.SqlSafetyReport;
@@ -89,6 +90,105 @@ public class VersionControlService {
         // how the UP SQL would behave on a database still at HEAD (structure of HEAD, current table sizes)
         safety.annotate(diff, MigrationSafetyAnalyzer.withSizes(base, live));
         return new WorkingTreeStatus(envId, head.orElse(null), diff, storage.readAuditLog(envId));
+    }
+
+    // ------------------------------------------------------------------ discard (reset to HEAD)
+
+    /**
+     * SQL that reverts uncommitted changes: all of them (the database returns to HEAD, or to an empty schema when
+     * there are no commits) or the selected ones (positions in the working-tree change list). Statements come from
+     * the reverse diff "live -> HEAD" in its dependency-safe order.
+     */
+    public DiscardPlan discardPlan(DiscardPlanRequest request) {
+        String envId = requireEnvId(request == null ? null : request.envId());
+        Optional<String> head = storage.getHead(envId);
+        return plan(envId, head.orElse(null), introspector.introspect(envId),
+                request.changeIndexes());
+    }
+
+    private DiscardPlan plan(String envId, String head, DatabaseSnapshot live, List<Integer> changeIndexes) {
+        DatabaseSnapshot base = headSnapshot(envId, head);
+        // compare() numbers the changes and keeps the DOWN script statement by statement; same order as the
+        // working tree (diff) shows
+        SchemaDiffResult diff = diffEngine.compare(base, live, false);
+        List<ChangeItem> all = diff.getChanges();
+        List<Integer> ids = new ArrayList<>();
+        if (changeIndexes == null || changeIndexes.isEmpty()) {
+            for (int i = 0; i < all.size(); i++) {
+                ids.add(i);
+            }
+        } else {
+            for (Integer i : new java.util.LinkedHashSet<>(changeIndexes)) {
+                if (i == null || i < 0 || i >= all.size()) {
+                    throw ApiException.badRequest("discard.badIndex", String.valueOf(i), all.size());
+                }
+                ids.add(i);
+            }
+        }
+        boolean full = ids.size() == all.size();
+        String sql = SchemaDiffEngine.assemble(diff.getDownStatements(), ids);
+        List<ChangeItem> selected = ids.stream().map(all::get).toList();
+        return new DiscardPlan(envId, head, full, all.size(), selected, sql, safety.analyzeSql(sql, live),
+                storage.readAuditLog(envId).size());
+    }
+
+    /**
+     * Discards uncommitted changes in one transaction: runs the generated (or the user's) DOWN SQL; on a full reset
+     * checks that the schema equals HEAD again and clears _pgvc.ddl_audit_log; on a partial one removes only the
+     * audit entries the discard itself produced. Any error or mismatch rolls everything back. HEAD does not move.
+     */
+    public DiscardResult discardWorkingTree(DiscardRequest request) {
+        String envId = requireEnvId(request == null ? null : request.envId());
+        if (!isBlank(request.customDownSql()) && TRANSACTION_CONTROL.matcher(request.customDownSql()).find()) {
+            throw ApiException.badRequest("rollback.transactionControl");
+        }
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
+        return environments.getTransactionTemplate(envId).execute(tx -> {
+            runner.applyLocal(envId, timeouts);
+            storage.lockHistory(envId);
+            String head = storage.getHead(envId).orElse(null);
+            DiscardPlan plan = plan(envId, head, introspector.introspect(envId), request.changeIndexes());
+            if (plan.totalChanges() == 0) {
+                throw ApiException.badRequest("discard.nothing", envId);
+            }
+            if (request.expectedTotalChanges() != null && request.expectedTotalChanges() != plan.totalChanges()) {
+                throw ApiException.conflict("discard.changed", envId, request.expectedTotalChanges(), plan.totalChanges());
+            }
+            String sql = isBlank(request.customDownSql()) ? plan.downSql() : request.customDownSql();
+            if (isBlank(sql) || SqlScripts.statements(sql).isEmpty()) {
+                throw ApiException.badRequest("discard.noSql");
+            }
+            long auditBefore = storage.maxAuditLogId(envId);
+            // one transaction: CONCURRENTLY statements run as plain ones
+            runner.execute(envId, TransactionalScript.of(sql).sql(), timeouts);
+
+            SchemaDiffResult rest = diffEngine.diff(headSnapshot(envId, head), introspector.introspect(envId));
+            boolean verify = plan.full() && !request.skipVerification();
+            if (verify && rest.isHasChanges()) {
+                throw ApiException.conflict("discard.verifyFailed", envId, summary(rest.getChanges()));
+            }
+            int removed = plan.full() ? storage.clearAuditLog(envId) : storage.clearAuditLogAfter(envId, auditBefore);
+            log.info("Discarded {} of {} uncommitted change(s) in {} ({} left, {} audit entries removed)",
+                    plan.changes().size(), plan.totalChanges(), envId, rest.getChanges().size(), removed);
+            return new DiscardResult(envId, head, plan.full(), plan.changes().size(), rest.getChanges().size(), sql,
+                    removed, verify);
+        });
+    }
+
+    /** Only empties _pgvc.ddl_audit_log (e.g. stale trigger events); the schema is not touched. */
+    public ClearLogResult clearDdlLog(String envId) {
+        String id = requireEnvId(envId);
+        int removed = storage.clearAuditLog(id);
+        log.info("Cleared {} DDL audit entries of {}", removed, id);
+        return new ClearLogResult(id, removed);
+    }
+
+    private String requireEnvId(String envId) {
+        if (isBlank(envId)) {
+            throw ApiException.badRequest("env.idRequired");
+        }
+        environments.getEnvironment(envId);
+        return envId.strip();
     }
 
     /**
@@ -427,7 +527,8 @@ public class VersionControlService {
         boolean dirty = target.initialized()
                 ? diffEngine.diff(headSnapshot(targetEnvId, targetHead), targetLive).isHasChanges()
                 : !targetLive.isEmpty();
-        SchemaDiffResult schemaDiff = diffEngine.diff(targetLive, headSnapshot(sourceEnvId, sourceHead));
+        // two different databases: objects are matched by name only (their OIDs / attnums are unrelated)
+        SchemaDiffResult schemaDiff = diffEngine.diffAcrossEnvironments(targetLive, headSnapshot(sourceEnvId, sourceHead));
         safety.annotate(schemaDiff, targetLive);
         boolean unconnected = relation == HistoryRelation.DIVERGED
                 || ((relation == HistoryRelation.TARGET_EMPTY || relation == HistoryRelation.TARGET_NOT_INITIALIZED)
@@ -448,7 +549,7 @@ public class VersionControlService {
         for (int i = chain.size() - 1, n = 0; i >= 0 && n < MATCH_SEARCH_LIMIT; i--, n++) {
             CommitRecord c = chain.get(i);
             DatabaseSnapshot snapshot = parseSnapshot(c.getSchemaSnapshotJson());
-            if (!diffEngine.diff(snapshot, SnapshotFilter.withoutDataUntrackedIn(snapshot, schema)).isHasChanges()) {
+            if (!diffEngine.diffAcrossEnvironments(snapshot, SnapshotFilter.withoutDataUntrackedIn(snapshot, schema)).isHasChanges()) {
                 return Optional.of(c);
             }
         }
@@ -491,7 +592,8 @@ public class VersionControlService {
             }
 
             DatabaseSnapshot commitSnapshot = parseSnapshot(commit.getSchemaSnapshotJson());
-            SchemaDiffResult diff = diffEngine.diff(commitSnapshot, SnapshotFilter.withoutDataUntrackedIn(commitSnapshot, live));
+            SchemaDiffResult diff = diffEngine.diffAcrossEnvironments(commitSnapshot,
+                    SnapshotFilter.withoutDataUntrackedIn(commitSnapshot, live));
             if (diff.isHasChanges() && !request.allowSchemaDifferences()) {
                 throw ApiException.conflict("link.schemaDiffers", targetEnvId, shortHash(commit.getHash()), commit.getMessage(), summary(diff.getChanges()));
             }
@@ -675,7 +777,8 @@ public class VersionControlService {
 
     private void verifyPushed(String targetEnvId, CommitRecord last) {
         DatabaseSnapshot lastSnapshot = parseSnapshot(last.getSchemaSnapshotJson());
-        SchemaDiffResult rest = diffEngine.diff(lastSnapshot,
+        // the commit snapshot was taken in the source environment: match by name only
+        SchemaDiffResult rest = diffEngine.diffAcrossEnvironments(lastSnapshot,
                 SnapshotFilter.withoutDataUntrackedIn(lastSnapshot, introspector.introspect(targetEnvId)));
         if (rest.isHasChanges()) {
             throw ApiException.conflict("push.verifyFailed", targetEnvId, shortHash(last.getHash()), summary(rest.getChanges()));

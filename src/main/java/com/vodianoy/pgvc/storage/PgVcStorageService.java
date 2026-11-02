@@ -122,6 +122,17 @@ public class PgVcStorageService {
         return requireInitialized(envId).update("DELETE FROM _pgvc.ddl_audit_log");
     }
 
+    /** Highest id in the audit log, 0 when it is empty. */
+    public long maxAuditLogId(String envId) {
+        Long id = requireInitialized(envId).queryForObject("SELECT COALESCE(max(id), 0) FROM _pgvc.ddl_audit_log", Long.class);
+        return id == null ? 0 : id;
+    }
+
+    /** Deletes audit entries logged after {@code afterId} (e.g. the DDL a discard executed itself). */
+    public int clearAuditLogAfter(String envId, long afterId) {
+        return requireInitialized(envId).update("DELETE FROM _pgvc.ddl_audit_log WHERE id > ?", afterId);
+    }
+
     /** Deletes audit entries up to and including {@code upToId} (entries logged later are kept). */
     public int clearAuditLog(String envId, long upToId) {
         return requireInitialized(envId).update("DELETE FROM _pgvc.ddl_audit_log WHERE id <= ?", upToId);

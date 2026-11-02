@@ -3,6 +3,17 @@ spring:
     name: pg-git-vc
   main:
     banner-mode: off
+  jackson:
+    # ISO-8601 dates, tolerant reading of files written by older / newer versions
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  servlet:
+    multipart:
+      # .pgsnap.json uploads (multipart/form-data)
+      max-file-size: 200MB
+      max-request-size: 200MB
 
 server:
   # Local developer tool: listen on localhost only (override with --server.address=0.0.0.0).

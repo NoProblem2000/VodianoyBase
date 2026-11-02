@@ -1,5 +1,6 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /** View (relkind 'v') or materialized view (relkind 'm'). */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor

@@ -1,5 +1,8 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.vodianoy.pgvc.common.SaturatingLongDeserializer;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,6 +12,7 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /** Sequence from pg_sequence (relkind 'S'). Sequences of identity columns belong to the column and are not listed. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor
@@ -24,14 +28,19 @@ public class SequenceModel {
     /** smallint, integer or bigint. */
     private String dataType;
 
+    @JsonDeserialize(using = SaturatingLongDeserializer.class)
     private long startValue;
 
+    @JsonDeserialize(using = SaturatingLongDeserializer.class)
     private long incrementBy;
 
+    @JsonDeserialize(using = SaturatingLongDeserializer.class)
     private long minValue;
 
+    @JsonDeserialize(using = SaturatingLongDeserializer.class)
     private long maxValue;
 
+    @JsonDeserialize(using = SaturatingLongDeserializer.class)
     private long cacheSize;
 
     private boolean cycle;

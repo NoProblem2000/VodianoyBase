@@ -93,6 +93,14 @@ public class SchemaDiffEngine {
     }
 
     /**
+     * Comparison of two different environments (sync / push, verification after a push, linking): objects are
+     * matched strictly by name, never by OID or attnum, which mean nothing in another database.
+     */
+    public SchemaDiffResult diffAcrossEnvironments(DatabaseSnapshot from, DatabaseSnapshot to) {
+        return run(from, to, true, false, null);
+    }
+
+    /**
      * Cross-database compare: what must change in {@code currentDbState} (e.g. the database of a customer) to reach
      * {@code targetExternalSnapshot} (e.g. a snapshot exported from Dev).
      *
@@ -272,9 +280,8 @@ public class SchemaDiffEngine {
             this.from = from;
             this.to = to;
             this.liveIsTo = liveIsTo;
-            String a = from.getSourceDatabaseId();
-            // identities (oid / attnum) mean something only inside one database
-            this.sameDb = !byNameOnly && a != null && !a.startsWith("unknown") && a.equals(to.getSourceDatabaseId());
+            // identities (oid / attnum) mean something only inside one database of one environment
+            this.sameDb = !byNameOnly && DatabaseSnapshot.sameDatabase(from.getSourceDatabaseId(), to.getSourceDatabaseId());
         }
 
         void execute() {

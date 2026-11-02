@@ -388,7 +388,38 @@ export interface MatrixComparison {
 
 export interface MatrixSnapshotUpload {
   name: string;
-  bundle: SnapshotBundle;
+  /** the .pgsnap.json exactly as read from the file (sent unchanged) */
+  text: string;
+}
+
+// ---- discard uncommitted changes
+
+export interface DiscardPlan {
+  envId: string;
+  /** null: no commits yet, the database returns to an empty schema */
+  head: string | null;
+  full: boolean;
+  totalChanges: number;
+  changes: ChangeItem[];
+  downSql: string;
+  safety: SqlSafetyReport;
+  auditEntries: number;
+}
+
+export interface DiscardResult {
+  envId: string;
+  head: string | null;
+  full: boolean;
+  discardedChanges: number;
+  remainingChanges: number;
+  executedSql: string;
+  auditEntriesRemoved: number;
+  verified: boolean;
+}
+
+export interface ClearLogResult {
+  envId: string;
+  removed: number;
 }
 
 export interface AboutInfo {

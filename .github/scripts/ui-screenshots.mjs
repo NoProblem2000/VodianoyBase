@@ -93,6 +93,23 @@ await step('10-explorer-filter', async () => {
 
 // ---- real actions through the UI
 const toast = (re) => page.getByRole('status').filter({ hasText: re }).first().waitFor({ timeout: 30000 });
+await step('10b-discard-item', async () => {
+  await page.getByLabel('Filter schema objects').fill('');
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByRole('button', { name: 'Discard / Revert Item: sales.customers_phone_idx' }).click();
+  await page.getByText('DROP INDEX sales.customers_phone_idx;').first().waitFor({ timeout: 15000 });
+  await shot('10b-discard-item');
+  await page.getByRole('button', { name: 'Revert This Change' }).click();
+  await toast(/Reverted 1 change\(s\), 2 left/);
+});
+await step('10c-discard-all-dialog', async () => {
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByRole('button', { name: /Discard All Changes \(Reset to HEAD\)/ }).click();
+  await page.getByText('SQL to execute (you can edit it)').waitFor({ timeout: 15000 });
+  await page.getByText(/RENAME COLUMN remark TO note/).first().waitFor({ timeout: 10000 });
+  await shot('10c-discard-all-dialog');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
 await step('11-commit-working-tree', async () => {
   await page.getByLabel('Filter schema objects').fill('');
   await page.getByText('Working Tree (Uncommitted Changes)').first().click();

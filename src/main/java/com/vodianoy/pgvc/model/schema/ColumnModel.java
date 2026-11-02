@@ -1,11 +1,13 @@
 package com.vodianoy.pgvc.model.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /** Column from pg_attribute (attnum > 0 and not dropped). */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor
