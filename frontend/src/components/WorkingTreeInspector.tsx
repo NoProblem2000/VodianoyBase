@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GitCommitHorizontal, Trash2, TriangleAlert } from 'lucide-react';
+import { GitCommitHorizontal, TriangleAlert } from 'lucide-react';
 import { api } from '../api/client';
 import type { ChangeItem, CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
 import { applyAlternatives } from './SafetyBadges';
@@ -177,7 +177,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
           )}
           <span className="flex-1" />
           <button className="btn btn-danger" onClick={() => setDiscarding([])} disabled={busy}>
-            <Trash2 size={14} /> {t('workingTree.discardAll')}
+            {t('workingTree.discardAll')}
           </button>
           <button className="btn btn-primary" onClick={() => void commit()} disabled={busy}>
             <GitCommitHorizontal size={15} /> {busy ? t('workingTree.committing') : t('workingTree.commit')}
