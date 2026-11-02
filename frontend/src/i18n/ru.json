@@ -90,7 +90,13 @@
     "CONSTRAINT": "ограничение",
     "INDEX": "индекс",
     "VIEW": "представление",
-    "SEQUENCE": "последовательность"
+    "SEQUENCE": "последовательность",
+    "FUNCTION": "функция",
+    "PROCEDURE": "процедура",
+    "TRIGGER": "триггер",
+    "TYPE": "enum-тип",
+    "EXTENSION": "расширение",
+    "COMMENT": "комментарий"
   },
   "time": {
     "justNow": "только что"
@@ -111,7 +117,9 @@
     "sync": "Синхронизация / Push",
     "about": "О проекте и лицензии",
     "exportSnapshot": "Экспорт слепка (.pgsnap.json)",
-    "compareSnapshot": "Сравнить со слепком"
+    "compareSnapshot": "Сравнить со слепком",
+    "matrix": "Матрица N баз",
+    "ignoreRules": "Правила игнорирования"
   },
   "app": {
     "cannotConnect": "Не удалось подключиться к {{name}}: {{error}}",
@@ -144,7 +152,11 @@
     "sequences": "Последовательности",
     "partitioned": "партиционирована",
     "materialized": "материализованное",
-    "notNull": "not null"
+    "notNull": "not null",
+    "functions": "Функции",
+    "types": "Enum-типы",
+    "extensions": "Расширения",
+    "procedure": "процедура"
   },
   "audit": {
     "title": "Журнал DDL (онлайн)",
@@ -412,5 +424,77 @@
     "dryTimeouts": "lock_timeout {{lock}} · statement_timeout {{statement}}",
     "notRun": "Ещё не запускался: нажмите Dry-Run, чтобы проверить скрипт на реальной базе, ничего не сохраняя.",
     "stepsDone": "шагов: {{steps}}, {{ms}} мс"
+  },
+  "ignore": {
+    "title": "Правила игнорирования",
+    "subtitle": "Что пропускает каждое сравнение: Working Tree, коммиты, проверки до и после push / отката, сравнение окружений и слепков, матрица.",
+    "comments": "Игнорировать комментарии",
+    "commentsHint": "COMMENT ON для таблиц, колонок, представлений, функций и типов",
+    "tablespaces": "Игнорировать tablespace",
+    "tablespacesHint": "на разных серверах обычно разные диски",
+    "owners": "Игнорировать владельцев и права",
+    "ownersHint": "ALTER … OWNER TO, GRANT / REVOKE: роли на разных серверах обычно разные",
+    "partitions": "Игнорировать партиции",
+    "partitionsHint": "у каждой площадки своя нарезка партиций; сами партиционированные таблицы сравниваются",
+    "patterns": "Исключённые объекты",
+    "patternsHint": "По одному шаблону в строке, сравнивается с именем или schema.name (без учёта регистра). Glob: % или * — что угодно, ? — один символ, _ — буквально (tmp_%, bak_*, audit.*_old). Regex: re:^tmp_\\d+$ или /_old$/.",
+    "patternsPlaceholder": "tmp_%\nbak_*",
+    "save": "Сохранить по умолчанию",
+    "saving": "Сохраняю…",
+    "saved": "Правила игнорирования по умолчанию сохранены",
+    "reset": "Вернуть сохранённые",
+    "nothing": "ничего не игнорируется",
+    "summary": "Игнорируются: {{list}}",
+    "sComments": "комментарии",
+    "sTablespaces": "tablespace",
+    "sOwners": "владельцы и права",
+    "sPartitions": "партиции",
+    "sPatterns": "шаблонов: {{count}}",
+    "thisComparison": "Правила игнорирования этого сравнения",
+    "recompare": "Сравнить заново",
+    "oneOff": "Изменения здесь действуют только на это сравнение."
+  },
+  "matrix": {
+    "title": "🌐 Матрица N баз",
+    "subtitle": "Каждая база сравнивается с эталонной по именам объектов: что совпадает, что отличается, чего не хватает, что есть только там.",
+    "databases": "Базы",
+    "environments": "Окружения",
+    "snapshots": "Файлы слепков (.pgsnap.json)",
+    "addSnapshot": "Добавить файлы слепков",
+    "snapshotLabel": "Файлы слепков",
+    "removeSnapshot": "Убрать {{name}}",
+    "badFile": "{{file}} — не слепок .pgsnap.json",
+    "baseline": "Эталон",
+    "baselineBadge": "эталон",
+    "compare": "Сравнить",
+    "comparing": "Сравниваю…",
+    "pickTwo": "Выберите не меньше двух баз",
+    "onlyDiffs": "Только различия",
+    "filter": "Фильтр объектов…",
+    "filterLabel": "Фильтр объектов",
+    "object": "Объект",
+    "rows": "{{shown}} из {{total}} объектов",
+    "counts": "отличается {{modified}} · нет {{missing}} · лишних {{extra}}",
+    "allIdentical": "Все базы совпадают с эталонной.",
+    "noRows": "Под фильтр не попал ни один объект.",
+    "unavailable": "Недоступна: {{error}}",
+    "empty": "Выберите базы слева и нажмите «Сравнить».",
+    "clickHint": "Нажмите на отличающуюся ячейку: появится, что именно отличается, и SQL, приводящий эту базу к эталону.",
+    "cellTitle": "{{object}} в {{db}}",
+    "upTitle": "SQL, приводящий {{db}} к эталону {{base}}",
+    "downTitle": "Обратный SQL",
+    "differences": "Различия",
+    "warnings": "Предупреждения",
+    "copy": "Копировать SQL",
+    "copied": "SQL скопирован",
+    "status": {
+      "IDENTICAL": "совпадает",
+      "MODIFIED": "отличается",
+      "MISSING": "нет",
+      "EXTRA_ONLY_HERE": "только здесь",
+      "ABSENT": "—",
+      "UNAVAILABLE": "недоступна"
+    },
+    "legend": "Обозначения"
   }
 }

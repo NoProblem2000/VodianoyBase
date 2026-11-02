@@ -13,6 +13,8 @@ import { CommitInspector } from './components/CommitInspector';
 import { DeleteCommitModal } from './components/DeleteCommitModal';
 import { EnvironmentsModal } from './components/EnvironmentsModal';
 import { ExportModal } from './components/ExportModal';
+import { IgnoreRulesModal } from './components/IgnoreRulesModal';
+import { MatrixModal } from './components/MatrixModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
 import { RollbackModal } from './components/RollbackModal';
 import { SchemaExplorer } from './components/SchemaExplorer';
@@ -31,7 +33,9 @@ type ModalState =
   | { kind: 'rollback'; target: string }
   | { kind: 'about' }
   | { kind: 'delete'; target: string }
-  | { kind: 'snapshot-sync' };
+  | { kind: 'snapshot-sync' }
+  | { kind: 'matrix' }
+  | { kind: 'ignore-rules' };
 
 export function App() {
   return (
@@ -147,6 +151,8 @@ function Workspace() {
         onAbout={() => setModal({ kind: 'about' })}
         onExportSnapshot={() => activeEnv && void exportSnapshot(activeEnv.id)}
         onCompareSnapshot={() => setModal({ kind: 'snapshot-sync' })}
+        onMatrix={() => setModal({ kind: 'matrix' })}
+        onIgnoreRules={() => setModal({ kind: 'ignore-rules' })}
       />
 
       {activeEnv && status && !status.reachable && (
@@ -278,6 +284,10 @@ function Workspace() {
         />
       )}
       {modal.kind === 'about' && <AboutModal onClose={closeModal} />}
+      {modal.kind === 'matrix' && (
+        <MatrixModal environments={environments} activeEnvId={activeEnv?.id ?? null} onClose={closeModal} />
+      )}
+      {modal.kind === 'ignore-rules' && <IgnoreRulesModal onSaved={() => void data.refresh()} onClose={closeModal} />}
       {modal.kind === 'snapshot-sync' && activeEnv && (
         <SnapshotSyncModal
           env={activeEnv}

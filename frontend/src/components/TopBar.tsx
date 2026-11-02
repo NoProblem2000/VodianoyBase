@@ -1,4 +1,17 @@
-import { Camera, Database, Download, GitBranchPlus, GitCompare, Globe, Info, RefreshCw, Send, Settings2 } from 'lucide-react';
+import {
+  Camera,
+  Database,
+  Download,
+  GitBranchPlus,
+  GitCompare,
+  Globe,
+  Info,
+  LayoutGrid,
+  RefreshCw,
+  Send,
+  Settings2,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type { EnvironmentView, PgVcStatus } from '../api/types';
 import { LANGS, useI18n } from '../i18n';
 
@@ -16,6 +29,8 @@ interface Props {
   onAbout: () => void;
   onExportSnapshot: () => void;
   onCompareSnapshot: () => void;
+  onMatrix: () => void;
+  onIgnoreRules: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -91,6 +106,24 @@ export function TopBar(p: Props) {
       >
         <GitCompare size={15} />
         <span className="hidden min-[1760px]:inline">{t('topBar.compareSnapshot')}</span>
+      </button>
+      <button
+        className="btn px-2 min-[1600px]:px-3"
+        onClick={p.onMatrix}
+        disabled={p.environments.length === 0}
+        title={t('topBar.matrix')}
+        aria-label={t('topBar.matrix')}
+      >
+        <LayoutGrid size={15} />
+        <span className="hidden min-[1600px]:inline">{t('topBar.matrix')}</span>
+      </button>
+      <button
+        className="btn btn-ghost px-2"
+        onClick={p.onIgnoreRules}
+        title={t('topBar.ignoreRules')}
+        aria-label={t('topBar.ignoreRules')}
+      >
+        <SlidersHorizontal size={15} />
       </button>
 
       <span className="mx-0.5 h-6 w-px bg-kraken-line" aria-hidden="true" />

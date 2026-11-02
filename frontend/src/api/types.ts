@@ -55,12 +55,29 @@ export interface AuditLogEntry {
 }
 
 export type ChangeType = 'ADDED' | 'MODIFIED' | 'RENAMED' | 'DELETED';
-export type ObjectType = 'SCHEMA' | 'TABLE' | 'PARTITION' | 'COLUMN' | 'CONSTRAINT' | 'INDEX' | 'VIEW' | 'SEQUENCE';
+export type ObjectType =
+  | 'SCHEMA'
+  | 'TABLE'
+  | 'PARTITION'
+  | 'COLUMN'
+  | 'CONSTRAINT'
+  | 'INDEX'
+  | 'VIEW'
+  | 'SEQUENCE'
+  | 'FUNCTION'
+  | 'PROCEDURE'
+  | 'TRIGGER'
+  | 'TYPE'
+  | 'EXTENSION'
+  | 'COMMENT';
 
 export interface ChangeItem {
   changeType: ChangeType;
   objectType: ObjectType;
   objectName: string;
+  /** top-level object the change belongs to (a column belongs to its table) */
+  rootType?: ObjectType;
+  rootName?: string;
   details: string;
   upSql: string;
   downSql: string;
@@ -229,6 +246,37 @@ export interface TableModel {
   columns: Record<string, ColumnModel>;
   constraints: Record<string, unknown>;
   indexes: Record<string, unknown>;
+  triggers?: Record<string, TriggerModel>;
+  comment?: string | null;
+}
+
+export interface TriggerModel {
+  name: string;
+  definition: string;
+  enabled: string;
+  functionKey: string;
+}
+
+export interface FunctionModel {
+  schemaName: string;
+  name: string;
+  identityArguments: string;
+  /** f function, p procedure, w window function */
+  kind: string;
+  resultType: string | null;
+  language: string;
+}
+
+export interface EnumTypeModel {
+  schemaName: string;
+  name: string;
+  values: string[];
+}
+
+export interface ExtensionModel {
+  name: string;
+  schemaName: string;
+  version: string;
 }
 
 export interface ViewModel {
@@ -249,6 +297,67 @@ export interface DatabaseSnapshot {
   tables: Record<string, TableModel>;
   views: Record<string, ViewModel>;
   sequences: Record<string, SequenceModel>;
+  /** format 2 (v1.6.0+) */
+  functions?: Record<string, FunctionModel>;
+  enumTypes?: Record<string, EnumTypeModel>;
+  extensions?: Record<string, ExtensionModel>;
+}
+
+// ---- ignore rules, N-database matrix
+
+export interface DiffIgnoreRules {
+  ignoreComments: boolean;
+  ignoreTablespaces: boolean;
+  ignoreOwnersAndGrants: boolean;
+  ignorePartitions: boolean;
+  /** glob (tmp_%, bak_*) or regex (re:^tmp_\d+$, /_old$/) */
+  excludedObjectPatterns: string[];
+}
+
+export type MatrixCellStatus = 'IDENTICAL' | 'MODIFIED' | 'MISSING' | 'EXTRA_ONLY_HERE' | 'ABSENT' | 'UNAVAILABLE';
+
+export interface MatrixCell {
+  status: MatrixCellStatus;
+  differences: string[];
+  /** brings this object in this database to the state of the baseline */
+  upSql: string;
+  downSql: string;
+  warnings: string[];
+}
+
+export interface MatrixRow {
+  type: ObjectType;
+  name: string;
+  differs: boolean;
+  /** by database id */
+  cells: Record<string, MatrixCell>;
+}
+
+export interface MatrixDatabase {
+  /** env:<id> or snapshot:<index> */
+  id: string;
+  name: string;
+  kind: 'ENVIRONMENT' | 'SNAPSHOT';
+  baseline: boolean;
+  description: string | null;
+  error: string | null;
+  serverVersion: number;
+  identical: number;
+  modified: number;
+  missing: number;
+  extra: number;
+}
+
+export interface MatrixComparison {
+  baselineId: string;
+  databases: MatrixDatabase[];
+  rows: MatrixRow[];
+  ignoreRules: DiffIgnoreRules;
+}
+
+export interface MatrixSnapshotUpload {
+  name: string;
+  bundle: SnapshotBundle;
 }
 
 export interface AboutInfo {
