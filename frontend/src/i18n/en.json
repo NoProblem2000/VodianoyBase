@@ -90,7 +90,13 @@
     "CONSTRAINT": "constraint",
     "INDEX": "index",
     "VIEW": "view",
-    "SEQUENCE": "sequence"
+    "SEQUENCE": "sequence",
+    "FUNCTION": "function",
+    "PROCEDURE": "procedure",
+    "TRIGGER": "trigger",
+    "TYPE": "enum type",
+    "EXTENSION": "extension",
+    "COMMENT": "comment"
   },
   "time": {
     "justNow": "just now"
@@ -111,7 +117,9 @@
     "sync": "Sync / Push to Env",
     "about": "About & License",
     "exportSnapshot": "Export Snapshot (.pgsnap.json)",
-    "compareSnapshot": "Compare with Snapshot"
+    "compareSnapshot": "Compare with Snapshot",
+    "matrix": "N-Database Matrix",
+    "ignoreRules": "Ignore rules"
   },
   "app": {
     "cannotConnect": "Cannot connect to {{name}}: {{error}}",
@@ -144,7 +152,11 @@
     "sequences": "Sequences",
     "partitioned": "partitioned",
     "materialized": "materialized",
-    "notNull": "not null"
+    "notNull": "not null",
+    "functions": "Functions",
+    "types": "Enum types",
+    "extensions": "Extensions",
+    "procedure": "procedure"
   },
   "audit": {
     "title": "Live DDL Audit Log",
@@ -412,5 +424,77 @@
     "dryTimeouts": "lock_timeout {{lock}} · statement_timeout {{statement}}",
     "notRun": "Not run yet: press Dry-Run to test the script on the real database without keeping anything.",
     "stepsDone": "{{steps}} step(s) in {{ms}} ms"
+  },
+  "ignore": {
+    "title": "Ignore rules",
+    "subtitle": "What every comparison skips: working tree, commits, checks before and after push / rollback, environment and snapshot compare, the matrix.",
+    "comments": "Ignore comments",
+    "commentsHint": "COMMENT ON tables, columns, views, functions and types",
+    "tablespaces": "Ignore tablespaces",
+    "tablespacesHint": "servers usually have different disks",
+    "owners": "Ignore owners & grants",
+    "ownersHint": "ALTER … OWNER TO, GRANT / REVOKE: roles usually differ between servers",
+    "partitions": "Ignore partitions",
+    "partitionsHint": "each site may slice its partitioned tables differently; the partitioned tables are still compared",
+    "patterns": "Excluded objects",
+    "patternsHint": "One pattern per line, matched against name or schema.name (case-insensitive). Glob: % or * = anything, ? = one character, _ is literal (tmp_%, bak_*, audit.*_old). Regex: re:^tmp_\\d+$ or /_old$/.",
+    "patternsPlaceholder": "tmp_%\nbak_*",
+    "save": "Save as default",
+    "saving": "Saving…",
+    "saved": "Default ignore rules saved",
+    "reset": "Reset to saved",
+    "nothing": "nothing ignored",
+    "summary": "Ignored: {{list}}",
+    "sComments": "comments",
+    "sTablespaces": "tablespaces",
+    "sOwners": "owners & grants",
+    "sPartitions": "partitions",
+    "sPatterns": "{{count}} pattern(s)",
+    "thisComparison": "Ignore rules of this comparison",
+    "recompare": "Compare again",
+    "oneOff": "Changes here apply to this comparison only."
+  },
+  "matrix": {
+    "title": "🌐 N-Database Matrix",
+    "subtitle": "Every database is compared with the baseline by object names: what is identical, what differs, what is missing, what exists only there.",
+    "databases": "Databases",
+    "environments": "Environments",
+    "snapshots": "Snapshot files (.pgsnap.json)",
+    "addSnapshot": "Add snapshot files",
+    "snapshotLabel": "Snapshot files",
+    "removeSnapshot": "Remove {{name}}",
+    "badFile": "{{file}} is not a .pgsnap.json snapshot",
+    "baseline": "Baseline",
+    "baselineBadge": "baseline",
+    "compare": "Compare",
+    "comparing": "Comparing…",
+    "pickTwo": "Select at least two databases",
+    "onlyDiffs": "Only differences",
+    "filter": "Filter objects…",
+    "filterLabel": "Filter objects",
+    "object": "Object",
+    "rows": "{{shown}} of {{total}} objects",
+    "counts": "{{modified}} differ · {{missing}} missing · {{extra}} extra",
+    "allIdentical": "All databases are identical to the baseline.",
+    "noRows": "No objects match the filter.",
+    "unavailable": "Cannot be read: {{error}}",
+    "empty": "Choose databases on the left and press Compare.",
+    "clickHint": "Click a cell that differs to see what differs and the SQL that brings that database to the baseline.",
+    "cellTitle": "{{object}} in {{db}}",
+    "upTitle": "SQL that brings {{db}} to the baseline {{base}}",
+    "downTitle": "Reverse SQL",
+    "differences": "Differences",
+    "warnings": "Warnings",
+    "copy": "Copy SQL",
+    "copied": "SQL copied",
+    "status": {
+      "IDENTICAL": "identical",
+      "MODIFIED": "differs",
+      "MISSING": "missing",
+      "EXTRA_ONLY_HERE": "only here",
+      "ABSENT": "—",
+      "UNAVAILABLE": "unavailable"
+    },
+    "legend": "Legend"
   }
 }

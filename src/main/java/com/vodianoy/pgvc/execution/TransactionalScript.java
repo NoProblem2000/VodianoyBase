@@ -6,7 +6,8 @@ import java.util.regex.Pattern;
 
 /**
  * A script made executable inside one transaction (dry-run, offline bundle, atomic push, rollback):
- * {@code CONCURRENTLY} is removed from index / detach statements, {@code VACUUM} is skipped; step markers stay as
+ * {@code CONCURRENTLY} is removed from index / detach statements, {@code VACUUM} is skipped, {@code ALTER TYPE ...
+ * ADD VALUE} stays (PostgreSQL 12+ accepts it in a transaction; PostgreSQL 11 refuses it); step markers stay as
  * comments.
  *
  * @param rewritten statements that were changed, as they were written
@@ -38,6 +39,9 @@ public record TransactionalScript(String sql, List<String> rewritten) {
             for (String statement : steps.get(i)) {
                 if (!MigrationStep.isNonTransactional(statement)) {
                     sb.append(statement).append('\n');
+                } else if (MigrationStep.isEnumAddValue(statement)) {
+                    sb.append("-- pgvc: ADD VALUE inside the transaction (PostgreSQL 12+; the new label is usable after "
+                            + "COMMIT)\n").append(statement).append('\n');
                 } else if (VACUUM.matcher(SqlScripts.normalize(statement)).matches()) {
                     rewritten.add(statement);
                     sb.append("-- pgvc: skipped (VACUUM cannot run inside a transaction): ")

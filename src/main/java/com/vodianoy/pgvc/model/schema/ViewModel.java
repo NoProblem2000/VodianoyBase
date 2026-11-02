@@ -39,6 +39,18 @@ public class ViewModel {
     @Builder.Default
     private List<ViewDependency> dependencies = new ArrayList<>();
 
+    /** COMMENT ON VIEW / MATERIALIZED VIEW, null when there is none. */
+    private String comment;
+
+    /** Owner role; null when owners are not tracked (ignore rules or an older snapshot). */
+    private String owner;
+
+    /**
+     * Privileges granted to other roles than the owner: {@code grantee=PRIVILEGE} or {@code grantee=PRIVILEGE*} (with
+     * grant option), grantee quoted when needed, {@code PUBLIC} for everyone. Null when grants are not tracked.
+     */
+    private List<String> acl;
+
     /** Indexes of a materialized view by name. */
     @Builder.Default
     private Map<String, IndexModel> indexes = new LinkedHashMap<>();

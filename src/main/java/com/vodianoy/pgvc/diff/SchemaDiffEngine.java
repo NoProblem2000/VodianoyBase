@@ -4,11 +4,17 @@ import com.vodianoy.pgvc.model.schema.ColumnModel;
 import com.vodianoy.pgvc.model.schema.ConstraintModel;
 import com.vodianoy.pgvc.model.schema.ConstraintType;
 import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
+import com.vodianoy.pgvc.model.schema.EnumTypeModel;
+import com.vodianoy.pgvc.model.schema.ExtensionModel;
+import com.vodianoy.pgvc.model.schema.FunctionModel;
 import com.vodianoy.pgvc.model.schema.IndexModel;
 import com.vodianoy.pgvc.model.schema.SequenceModel;
 import com.vodianoy.pgvc.model.schema.TableModel;
+import com.vodianoy.pgvc.model.schema.TriggerModel;
 import com.vodianoy.pgvc.model.schema.ViewDependency;
 import com.vodianoy.pgvc.model.schema.ViewModel;
+import com.vodianoy.pgvc.settings.DiffSettingsService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -23,9 +29,12 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.vodianoy.pgvc.util.SqlIdentifiers.ident;
+import static com.vodianoy.pgvc.util.SqlIdentifiers.literal;
 import static com.vodianoy.pgvc.util.SqlIdentifiers.qualified;
 import static com.vodianoy.pgvc.util.SqlIdentifiers.qualifiedKey;
 
@@ -39,13 +48,47 @@ import static com.vodianoy.pgvc.util.SqlIdentifiers.qualifiedKey;
  *
  * <p>Statements are emitted in a dependency-safe order: views that read changed columns are dropped first
  * ({@code DROP VIEW IF EXISTS}) and recreated last ({@code CREATE OR REPLACE VIEW}); partitioned parents are created
- * before their partitions; foreign keys are dropped before tables and added after all other constraints.
+ * before their partitions; foreign keys are dropped before tables and added after all other constraints. Extensions
+ * and ENUM types come before tables, functions before tables (or right after them when their signature uses a new
+ * table), triggers after tables, functions and views; functions, types and extensions are dropped at the end.
+ * {@code ALTER TYPE ... ADD VALUE} goes first, in its own step outside of a transaction ({@code -- pgvc:step}).
+ *
+ * <p>Both snapshots are filtered with the {@link DiffIgnoreRules} first: the rules passed to a call, otherwise the
+ * saved default rules.
  */
 @Component
 public class SchemaDiffEngine {
 
+    private final Supplier<DiffIgnoreRules> defaultRules;
+
+    /** Engine with the built-in default rules ({@link DiffIgnoreRules#DEFAULTS}). */
+    public SchemaDiffEngine() {
+        this(() -> DiffIgnoreRules.DEFAULTS);
+    }
+
+    /** Engine that uses the saved default rules of the installation. */
+    @Autowired
+    public SchemaDiffEngine(DiffSettingsService settings) {
+        this(settings::getIgnoreRules);
+    }
+
+    public SchemaDiffEngine(Supplier<DiffIgnoreRules> defaultRules) {
+        this.defaultRules = defaultRules;
+    }
+
+    /** Rules used when a call passes none. */
+    public DiffIgnoreRules defaultRules() {
+        DiffIgnoreRules rules = defaultRules.get();
+        return rules == null ? DiffIgnoreRules.DEFAULTS : rules;
+    }
+
     public SchemaDiffResult diff(DatabaseSnapshot headSnapshot, DatabaseSnapshot liveSnapshot) {
-        return run(headSnapshot, liveSnapshot, false, false);
+        return diff(headSnapshot, liveSnapshot, null);
+    }
+
+    /** @param rules null: the default rules */
+    public SchemaDiffResult diff(DatabaseSnapshot headSnapshot, DatabaseSnapshot liveSnapshot, DiffIgnoreRules rules) {
+        return run(headSnapshot, liveSnapshot, false, false, rules);
     }
 
     /**
@@ -63,7 +106,13 @@ public class SchemaDiffEngine {
      */
     public SchemaDiffResult compare(DatabaseSnapshot currentDbState, DatabaseSnapshot targetExternalSnapshot,
                                     boolean matchByNameOnly) {
-        return run(currentDbState, targetExternalSnapshot, matchByNameOnly, true);
+        return compare(currentDbState, targetExternalSnapshot, matchByNameOnly, null);
+    }
+
+    /** @param rules null: the default rules */
+    public SchemaDiffResult compare(DatabaseSnapshot currentDbState, DatabaseSnapshot targetExternalSnapshot,
+                                    boolean matchByNameOnly, DiffIgnoreRules rules) {
+        return run(currentDbState, targetExternalSnapshot, matchByNameOnly, true, rules);
     }
 
     /**
@@ -85,9 +134,13 @@ public class SchemaDiffEngine {
     }
 
     private SchemaDiffResult run(DatabaseSnapshot fromSnapshot, DatabaseSnapshot toSnapshot, boolean byNameOnly,
-                                 boolean crossDatabase) {
-        DatabaseSnapshot head = fromSnapshot == null ? DatabaseSnapshot.builder().build() : fromSnapshot;
-        DatabaseSnapshot live = toSnapshot == null ? DatabaseSnapshot.builder().build() : toSnapshot;
+                                 boolean crossDatabase, DiffIgnoreRules requestedRules) {
+        DiffIgnoreRules rules = requestedRules == null ? defaultRules() : requestedRules;
+        boolean legacy = SnapshotFilter.legacy(fromSnapshot, toSnapshot);
+        DatabaseSnapshot head = fromSnapshot == null ? DatabaseSnapshot.builder().build()
+                : SnapshotFilter.apply(fromSnapshot, rules, legacy);
+        DatabaseSnapshot live = toSnapshot == null ? DatabaseSnapshot.builder().build()
+                : SnapshotFilter.apply(toSnapshot, rules, legacy);
         Run forward = new Run(head, live, true, byNameOnly);
         forward.execute();
         Run reverse = new Run(live, head, false, byNameOnly);
@@ -134,30 +187,51 @@ public class SchemaDiffEngine {
     private static final class Run {
 
         // execution order of the generated statements
-        private static final int CREATE_SCHEMA = 0;
-        private static final int DROP_VIEW = 1;
-        private static final int RELEASE_OWNERSHIP = 2;
-        private static final int DROP_FOREIGN_KEY = 3;
-        private static final int DROP_CONSTRAINT = 4;
-        private static final int DROP_INDEX = 5;
-        private static final int DETACH_PARTITION = 6;
-        private static final int DROP_TABLE = 7;
-        private static final int RENAME_RELATION = 8;
-        private static final int RENAME_COLUMN = 9;
-        private static final int RENAME_OTHER = 10;
-        private static final int DROP_SEQUENCE = 11;
-        private static final int CREATE_SEQUENCE = 12;
-        private static final int ALTER_SEQUENCE = 13;
-        private static final int CREATE_TABLE = 14;
-        private static final int ALTER_TABLE = 15;
-        private static final int ATTACH_PARTITION = 16;
-        private static final int ADD_CONSTRAINT = 17;
-        private static final int ADD_FOREIGN_KEY = 18;
-        private static final int CREATE_INDEX = 19;
-        private static final int SEQUENCE_OWNERSHIP = 20;
-        private static final int CREATE_VIEW = 21;
-        private static final int CREATE_VIEW_INDEX = 22;
-        private static final int DROP_SCHEMA = 23;
+        /** ALTER TYPE ... ADD VALUE cannot run in a transaction block on PostgreSQL 11: a step of its own. */
+        private static final int ENUM_ADD_VALUE = 0;
+        private static final int STEP_BREAK = 1;
+        private static final int PRELUDE = 2;
+        private static final int CREATE_SCHEMA = 3;
+        private static final int CREATE_EXTENSION = 4;
+        private static final int DROP_TRIGGER = 5;
+        private static final int DROP_VIEW = 6;
+        private static final int RELEASE_OWNERSHIP = 7;
+        private static final int DROP_FOREIGN_KEY = 8;
+        private static final int DROP_CONSTRAINT = 9;
+        private static final int DROP_INDEX = 10;
+        private static final int DETACH_PARTITION = 11;
+        private static final int DROP_TABLE = 12;
+        private static final int RENAME_RELATION = 13;
+        private static final int RENAME_COLUMN = 14;
+        private static final int RENAME_OTHER = 15;
+        private static final int CREATE_TYPE = 16;
+        private static final int DROP_SEQUENCE = 17;
+        private static final int CREATE_SEQUENCE = 18;
+        private static final int ALTER_SEQUENCE = 19;
+        private static final int CREATE_FUNCTION = 20;
+        private static final int CREATE_TABLE = 21;
+        private static final int ALTER_TABLE = 22;
+        /** Functions whose arguments / result use a table created by the same migration. */
+        private static final int CREATE_FUNCTION_LATE = 23;
+        private static final int ATTACH_PARTITION = 24;
+        private static final int ADD_CONSTRAINT = 25;
+        private static final int ADD_FOREIGN_KEY = 26;
+        private static final int CREATE_INDEX = 27;
+        private static final int SEQUENCE_OWNERSHIP = 28;
+        private static final int CREATE_VIEW = 29;
+        private static final int CREATE_VIEW_INDEX = 30;
+        private static final int CREATE_TRIGGER = 31;
+        private static final int COMMENT = 32;
+        /** Owners, grants, tablespaces. */
+        private static final int ACCESS = 33;
+        private static final int DROP_FUNCTION = 34;
+        private static final int DROP_TYPE = 35;
+        private static final int DROP_EXTENSION = 36;
+        private static final int DROP_SCHEMA = 37;
+
+        /** Default privileges of a new object for other roles than its owner. */
+        private static final List<String> NO_GRANTS = List.of();
+        private static final List<String> FUNCTION_DEFAULT_GRANTS = List.of("PUBLIC=EXECUTE");
 
         private static final String DROPPED = "\u0000dropped:";
 
@@ -185,6 +259,10 @@ public class SchemaDiffEngine {
 
         private Matching<TableModel> tables;
         private Matching<ViewModel> views;
+        /** from-keys of functions that are dropped and created again (their triggers are recreated too). */
+        private final Set<String> recreatedFunctions = new HashSet<>();
+        private boolean functionPrelude;
+        private boolean enumStepBreak;
 
         Run(DatabaseSnapshot from, DatabaseSnapshot to, boolean liveIsTo, boolean byNameOnly) {
             this.from = from;
@@ -215,6 +293,9 @@ public class SchemaDiffEngine {
             }
 
             diffSchemas();
+            diffExtensions();
+            diffEnums();
+            diffFunctions();
             diffTables();
             diffViews();
             diffSequences();
@@ -244,8 +325,15 @@ public class SchemaDiffEngine {
 
         private ChangeItem item(ChangeType type, ObjectType objectType, String name, String details, String pairKey) {
             ChangeItem item = ChangeItem.builder().changeType(type).objectType(objectType).objectName(name)
-                    .details(details).pairKey(pairKey).build();
+                    .rootType(objectType).rootName(name).details(details).pairKey(pairKey).build();
             items.add(item);
+            return item;
+        }
+
+        /** Marks a change of a column / constraint / index / trigger / comment as belonging to its object. */
+        private static ChangeItem under(ChangeItem item, ObjectType rootType, String rootName) {
+            item.setRootType(rootType);
+            item.setRootName(rootName);
             return item;
         }
 
@@ -348,6 +436,24 @@ public class SchemaDiffEngine {
                 for (IndexModel i : sorted(t.getIndexes())) {
                     emit(CREATE_INDEX, item, createIndex(i));
                 }
+                String tq = qualified(t.getSchemaName(), t.getName());
+                for (TriggerModel tr : sorted(t.getTriggers())) {
+                    emit(CREATE_TRIGGER, item, createTrigger(tr));
+                    String state = triggerState(tq, tr);
+                    if (state != null && !"O".equals(tr.getEnabled())) {
+                        emit(CREATE_TRIGGER, item, state);
+                    }
+                }
+                if (t.getComment() != null) {
+                    emit(COMMENT, item, "COMMENT ON TABLE " + tq + " IS " + literal(t.getComment()) + ";");
+                }
+                for (ColumnModel c : byAttnumOrder(t)) {
+                    if (c.getComment() != null && !t.isPartition()) {
+                        emit(COMMENT, item, "COMMENT ON COLUMN " + tq + "." + ident(c.getName()) + " IS "
+                                + literal(c.getComment()) + ";");
+                    }
+                }
+                emitNewAccess(item, "ALTER TABLE " + tq, "TABLE " + tq, t.getOwner(), t.getAcl(), NO_GRANTS);
             }
 
             for (Matching.Pair<TableModel> p : tables.matched) {
@@ -382,6 +488,9 @@ public class SchemaDiffEngine {
             }
             if (t.isPartitioned()) {
                 sb.append("\n    PARTITION BY ").append(t.getPartitionKeyDef());
+            }
+            if (t.getTablespace() != null) {
+                sb.append("\n    TABLESPACE ").append(ident(t.getTablespace()));
             }
             return sb.append(';').toString();
         }
@@ -473,8 +582,14 @@ public class SchemaDiffEngine {
                 diffColumns(f, t, tq);
             }
             diffConstraints(f, t, fq, tq);
-            diffIndexes(f.getIndexes(), t.getIndexes(), f.getSchemaName(), t.getSchemaName(), t.getQualifiedName(),
-                    sameDb && f.getOid() == t.getOid(), CREATE_INDEX);
+            diffIndexes(f.getIndexes(), t.getIndexes(), f.getSchemaName(), t.getSchemaName(), tableType(t),
+                    t.getQualifiedName(), sameDb && f.getOid() == t.getOid(), CREATE_INDEX);
+            diffTriggers(f, t, fq, tq);
+            diffComment(tableType(t), t.getQualifiedName(), t.getQualifiedName(), "table", "TABLE " + tq,
+                    f.getComment(), t.getComment(), "table:" + fromId, "table:" + tableId);
+            diffAccess(tableType(t), t.getQualifiedName(), "ALTER TABLE " + tq, "TABLE " + tq, f.getOwner(),
+                    t.getOwner(), f.getAcl(), t.getAcl(), f.getTablespace(), t.getTablespace(), "table:" + fromId,
+                    "table:" + tableId);
         }
 
         private static String describePartitioning(TableModel t) {
@@ -490,8 +605,8 @@ public class SchemaDiffEngine {
 
             for (ColumnModel c : cm.removed) {
                 String name = t.getQualifiedName() + "." + c.getName();
-                ChangeItem item = item(ChangeType.DELETED, ObjectType.COLUMN, name, "dropped, its data will be lost",
-                        pairKey("column", fTableId + "/" + c.getAttnum(), null));
+                ChangeItem item = under(item(ChangeType.DELETED, ObjectType.COLUMN, name, "dropped, its data will be lost",
+                        pairKey("column", fTableId + "/" + c.getAttnum(), null)), tableType(t), t.getQualifiedName());
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " DROP COLUMN " + ident(c.getName()) + ";");
                 affectedColumns.add(f.getQualifiedName() + "." + c.getName());
                 affectedTables.add(f.getQualifiedName());
@@ -499,9 +614,13 @@ public class SchemaDiffEngine {
             }
             for (ColumnModel c : cm.added) {
                 String name = t.getQualifiedName() + "." + c.getName();
-                ChangeItem item = item(ChangeType.ADDED, ObjectType.COLUMN, name, "new column " + c.getDataType(),
-                        pairKey("column", null, tTableId + "/" + c.getAttnum()));
+                ChangeItem item = under(item(ChangeType.ADDED, ObjectType.COLUMN, name, "new column " + c.getDataType(),
+                        pairKey("column", null, tTableId + "/" + c.getAttnum())), tableType(t), t.getQualifiedName());
                 emit(ALTER_TABLE, item, "ALTER TABLE " + tq + " ADD COLUMN " + columnDefinition(c) + ";");
+                if (c.getComment() != null) {
+                    emit(COMMENT, item, "COMMENT ON COLUMN " + tq + "." + ident(c.getName()) + " IS "
+                            + literal(c.getComment()) + ";");
+                }
                 if (!c.isNullable() && c.getDefaultValue() == null && c.getIdentityGeneration() == null
                         && c.getGeneratedExpression() == null) {
                     warn(item, "Column " + name + " is added as NOT NULL without DEFAULT: fails if the table has rows.");
@@ -526,8 +645,8 @@ public class SchemaDiffEngine {
             String alter = "ALTER TABLE " + tq + " ALTER COLUMN " + col + " ";
 
             if (!fc.getName().equals(tc.getName())) {
-                ChangeItem item = item(ChangeType.RENAMED, ObjectType.COLUMN, name, "renamed from " + fc.getName(),
-                        pairKey("column-rename", fromId, toId));
+                ChangeItem item = under(item(ChangeType.RENAMED, ObjectType.COLUMN, name, "renamed from " + fc.getName(),
+                        pairKey("column-rename", fromId, toId)), tableType(t), t.getQualifiedName());
                 emit(RENAME_COLUMN, item, "ALTER TABLE " + tq + " RENAME COLUMN " + ident(fc.getName()) + " TO " + col + ";");
             }
 
@@ -583,11 +702,13 @@ public class SchemaDiffEngine {
                 sql.add("-- MANUAL ACTION REQUIRED: " + msg);
             }
             if (!sql.isEmpty()) {
-                ChangeItem item = item(ChangeType.MODIFIED, ObjectType.COLUMN, name, String.join(", ", details),
-                        pairKey("column", fromId, toId));
+                ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.COLUMN, name, String.join(", ", details),
+                        pairKey("column", fromId, toId)), tableType(t), t.getQualifiedName());
                 sql.forEach(s -> emit(ALTER_TABLE, item, s));
                 columnWarnings.forEach(w -> warn(item, w));
             }
+            diffComment(tableType(t), t.getQualifiedName(), name, "column", "COLUMN " + tq + "." + col,
+                    fc.getComment(), tc.getComment(), "column:" + fromId, "column:" + toId);
         }
 
         private void diffConstraints(TableModel f, TableModel t, String fq, String tq) {
@@ -595,14 +716,16 @@ public class SchemaDiffEngine {
             Matching<ConstraintModel> cm = Matching.of(sorted(f.getConstraints()), sorted(t.getConstraints()),
                     ConstraintModel::getOid, ConstraintModel::getName, byOid);
             for (ConstraintModel c : cm.removed) {
-                ChangeItem item = item(ChangeType.DELETED, ObjectType.CONSTRAINT, t.getQualifiedName() + "." + c.getName(),
-                        c.getType() + " dropped: " + c.getDefinition(), pairKey("constraint", id(c.getOid()), null));
+                ChangeItem item = under(item(ChangeType.DELETED, ObjectType.CONSTRAINT, t.getQualifiedName() + "." + c.getName(),
+                        c.getType() + " dropped: " + c.getDefinition(), pairKey("constraint", id(c.getOid()), null)),
+                        tableType(t), t.getQualifiedName());
                 emit(c.getType() == ConstraintType.FOREIGN_KEY ? DROP_FOREIGN_KEY : DROP_CONSTRAINT, item,
                         "ALTER TABLE " + fq + " DROP CONSTRAINT " + ident(c.getName()) + ";");
             }
             for (ConstraintModel c : cm.added) {
-                ChangeItem item = item(ChangeType.ADDED, ObjectType.CONSTRAINT, t.getQualifiedName() + "." + c.getName(),
-                        c.getType() + ": " + c.getDefinition(), pairKey("constraint", null, id(c.getOid())));
+                ChangeItem item = under(item(ChangeType.ADDED, ObjectType.CONSTRAINT, t.getQualifiedName() + "." + c.getName(),
+                        c.getType() + ": " + c.getDefinition(), pairKey("constraint", null, id(c.getOid()))),
+                        tableType(t), t.getQualifiedName());
                 emit(c.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(t, c));
             }
             for (Matching.Pair<ConstraintModel> p : cm.matched) {
@@ -616,15 +739,16 @@ public class SchemaDiffEngine {
                     changed = fc.getType() != tc.getType() || !Objects.equals(fc.getDefinition(), tc.getDefinition());
                 }
                 if (changed) {
-                    ChangeItem item = item(ChangeType.MODIFIED, ObjectType.CONSTRAINT, name,
+                    ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.CONSTRAINT, name,
                             fc.getDefinition() + " -> " + tc.getDefinition(),
-                            pairKey("constraint", id(fc.getOid()), id(tc.getOid())));
+                            pairKey("constraint", id(fc.getOid()), id(tc.getOid()))), tableType(t), t.getQualifiedName());
                     emit(fc.getType() == ConstraintType.FOREIGN_KEY ? DROP_FOREIGN_KEY : DROP_CONSTRAINT, item,
                             "ALTER TABLE " + fq + " DROP CONSTRAINT " + ident(fc.getName()) + ";");
                     emit(tc.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(t, tc));
                 } else if (!fc.getName().equals(tc.getName())) {
-                    ChangeItem item = item(ChangeType.RENAMED, ObjectType.CONSTRAINT, name, "renamed from " + fc.getName(),
-                            pairKey("constraint-rename", id(fc.getOid()), id(tc.getOid())));
+                    ChangeItem item = under(item(ChangeType.RENAMED, ObjectType.CONSTRAINT, name, "renamed from " + fc.getName(),
+                            pairKey("constraint-rename", id(fc.getOid()), id(tc.getOid()))), tableType(t),
+                            t.getQualifiedName());
                     emit(RENAME_OTHER, item, "ALTER TABLE " + tq + " RENAME CONSTRAINT " + ident(fc.getName()) + " TO "
                             + ident(tc.getName()) + ";");
                 }
@@ -633,17 +757,18 @@ public class SchemaDiffEngine {
 
         /** Indexes of one matched table or materialized view (index schema = schema of its table). */
         private void diffIndexes(Map<String, IndexModel> fromIndexes, Map<String, IndexModel> toIndexes,
-                                 String fromSchema, String toSchema, String ownerKey, boolean byOid, int createPhase) {
+                                 String fromSchema, String toSchema, ObjectType ownerType, String ownerKey,
+                                 boolean byOid, int createPhase) {
             Matching<IndexModel> im = Matching.of(sorted(fromIndexes), sorted(toIndexes), IndexModel::getOid,
                     IndexModel::getName, byOid);
             for (IndexModel i : im.removed) {
-                ChangeItem item = item(ChangeType.DELETED, ObjectType.INDEX, toSchema + "." + i.getName(),
-                        "index on " + ownerKey + " dropped", pairKey("index", id(i.getOid()), null));
+                ChangeItem item = under(item(ChangeType.DELETED, ObjectType.INDEX, toSchema + "." + i.getName(),
+                        "index on " + ownerKey + " dropped", pairKey("index", id(i.getOid()), null)), ownerType, ownerKey);
                 emit(DROP_INDEX, item, "DROP INDEX " + qualified(fromSchema, i.getName()) + ";");
             }
             for (IndexModel i : im.added) {
-                ChangeItem item = item(ChangeType.ADDED, ObjectType.INDEX, toSchema + "." + i.getName(),
-                        "new index on " + ownerKey, pairKey("index", null, id(i.getOid())));
+                ChangeItem item = under(item(ChangeType.ADDED, ObjectType.INDEX, toSchema + "." + i.getName(),
+                        "new index on " + ownerKey, pairKey("index", null, id(i.getOid()))), ownerType, ownerKey);
                 emit(createPhase, item, createIndex(i));
             }
             for (Matching.Pair<IndexModel> p : im.matched) {
@@ -657,13 +782,13 @@ public class SchemaDiffEngine {
                 }
                 String name = toSchema + "." + ti.getName();
                 if (changed) {
-                    ChangeItem item = item(ChangeType.MODIFIED, ObjectType.INDEX, name, "index definition changed",
-                            pairKey("index", id(fi.getOid()), id(ti.getOid())));
+                    ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.INDEX, name, "index definition changed",
+                            pairKey("index", id(fi.getOid()), id(ti.getOid()))), ownerType, ownerKey);
                     emit(DROP_INDEX, item, "DROP INDEX " + qualified(fromSchema, fi.getName()) + ";");
                     emit(createPhase, item, createIndex(ti));
                 } else if (!fi.getName().equals(ti.getName())) {
-                    ChangeItem item = item(ChangeType.RENAMED, ObjectType.INDEX, name, "renamed from " + fi.getName(),
-                            pairKey("index-rename", id(fi.getOid()), id(ti.getOid())));
+                    ChangeItem item = under(item(ChangeType.RENAMED, ObjectType.INDEX, name, "renamed from " + fi.getName(),
+                            pairKey("index-rename", id(fi.getOid()), id(ti.getOid()))), ownerType, ownerKey);
                     emit(RENAME_OTHER, item, "ALTER INDEX " + qualified(toSchema, fi.getName()) + " RENAME TO "
                             + ident(ti.getName()) + ";");
                 }
@@ -751,8 +876,18 @@ public class SchemaDiffEngine {
                     renameView(f, t);
                     if (t.isMaterialized()) {
                         diffIndexes(f.getIndexes(), t.getIndexes(), f.getSchemaName(), t.getSchemaName(),
-                                t.getQualifiedName(), sameDb && f.getOid() == t.getOid(), CREATE_VIEW_INDEX);
+                                ObjectType.VIEW, t.getQualifiedName(), sameDb && f.getOid() == t.getOid(),
+                                CREATE_VIEW_INDEX);
                     }
+                    String vq = qualified(t.getSchemaName(), t.getName());
+                    String viewId = "view:" + id(f.getOid());
+                    diffComment(ObjectType.VIEW, t.getQualifiedName(), t.getQualifiedName(), kind(t),
+                            (t.isMaterialized() ? "MATERIALIZED VIEW " : "VIEW ") + vq, f.getComment(), t.getComment(),
+                            viewId, "view:" + id(t.getOid()));
+                    diffAccess(ObjectType.VIEW, t.getQualifiedName(),
+                            (t.isMaterialized() ? "ALTER MATERIALIZED VIEW " : "ALTER VIEW ") + vq, "TABLE " + vq,
+                            f.getOwner(), t.getOwner(), f.getAcl(), t.getAcl(), null, null, viewId,
+                            "view:" + id(t.getOid()));
                 }
             }
             for (ViewModel v : views.added) {
@@ -847,6 +982,12 @@ public class SchemaDiffEngine {
             } else {
                 emit(CREATE_VIEW, item, "CREATE OR REPLACE VIEW " + q + " AS\n" + body + ";");
             }
+            // a dropped and created view loses its comment, owner and grants: restore those of the target state
+            String kw = v.isMaterialized() ? "MATERIALIZED VIEW " : "VIEW ";
+            if (v.getComment() != null) {
+                emit(COMMENT, item, "COMMENT ON " + kw + q + " IS " + literal(v.getComment()) + ";");
+            }
+            emitNewAccess(item, "ALTER " + kw + q, "TABLE " + q, v.getOwner(), v.getAcl(), NO_GRANTS);
         }
 
         private void renameView(ViewModel f, ViewModel t) {
@@ -886,6 +1027,8 @@ public class SchemaDiffEngine {
                     emit(SEQUENCE_OWNERSHIP, item, "ALTER SEQUENCE " + qualified(s.getSchemaName(), s.getName())
                             + " OWNED BY " + ownedBy(s) + ";");
                 }
+                String sq = qualified(s.getSchemaName(), s.getName());
+                emitNewAccess(item, "ALTER SEQUENCE " + sq, "SEQUENCE " + sq, s.getOwner(), s.getAcl(), NO_GRANTS);
             }
             for (Matching.Pair<SequenceModel> p : sm.matched) {
                 SequenceModel f = p.from();
@@ -930,6 +1073,9 @@ public class SchemaDiffEngine {
                             String.join(", ", details), pairKey("sequence", fromId, toId));
                     sql.forEach(s -> emit(Integer.parseInt(s[0]), item, s[1]));
                 }
+                diffAccess(ObjectType.SEQUENCE, t.getQualifiedName(), "ALTER SEQUENCE " + tq, "SEQUENCE " + tq,
+                        f.getOwner(), t.getOwner(), f.getAcl(), t.getAcl(), null, null, "sequence:" + fromId,
+                        "sequence:" + toId);
             }
         }
 
@@ -952,6 +1098,517 @@ public class SchemaDiffEngine {
 
         private static String ownedBy(SequenceModel s) {
             return qualifiedKey(s.getOwnedByTable()) + "." + ident(s.getOwnedByColumn());
+        }
+
+        // ------------------------------------------------------------------ extensions
+
+        private static String extensionIdent(String name) {
+            return '"' + name.replace("\"", "\"\"") + '"';
+        }
+
+        private void diffExtensions() {
+            Map<String, ExtensionModel> fromExt = new TreeMap<>(from.getExtensions());
+            Map<String, ExtensionModel> toExt = new TreeMap<>(to.getExtensions());
+            for (ExtensionModel e : fromExt.values()) {
+                if (toExt.containsKey(e.getName())) {
+                    continue;
+                }
+                ChangeItem item = item(ChangeType.DELETED, ObjectType.EXTENSION, e.getName(),
+                        "extension dropped (version " + e.getVersion() + ")", pairKey("extension", e.getName(), null));
+                warn(item, "Extension " + e.getName() + " is dropped: this fails while other objects use its types or "
+                        + "functions.");
+                emit(DROP_EXTENSION, item, "DROP EXTENSION IF EXISTS " + extensionIdent(e.getName()) + ";");
+            }
+            for (ExtensionModel e : toExt.values()) {
+                ExtensionModel f = fromExt.get(e.getName());
+                if (f == null) {
+                    ChangeItem item = item(ChangeType.ADDED, ObjectType.EXTENSION, e.getName(),
+                            "new extension (version " + e.getVersion() + " in schema " + e.getSchemaName() + ")",
+                            pairKey("extension", null, e.getName()));
+                    String schema = e.getSchemaName();
+                    if (schema != null && !"public".equals(schema) && !from.getSchemas().contains(schema)
+                            && !to.getSchemas().contains(schema)) {
+                        emit(CREATE_EXTENSION, item, "CREATE SCHEMA IF NOT EXISTS " + ident(schema) + ";");
+                    }
+                    emit(CREATE_EXTENSION, item, "CREATE EXTENSION IF NOT EXISTS " + extensionIdent(e.getName())
+                            + (schema == null ? "" : " WITH SCHEMA " + ident(schema)) + ";");
+                    continue;
+                }
+                List<String> details = new ArrayList<>();
+                List<String> sql = new ArrayList<>();
+                if (!Objects.equals(f.getSchemaName(), e.getSchemaName()) && e.getSchemaName() != null) {
+                    details.add("schema " + f.getSchemaName() + " -> " + e.getSchemaName());
+                    sql.add("ALTER EXTENSION " + extensionIdent(e.getName()) + " SET SCHEMA " + ident(e.getSchemaName()) + ";");
+                }
+                if (!Objects.equals(f.getVersion(), e.getVersion()) && e.getVersion() != null) {
+                    details.add("version " + f.getVersion() + " -> " + e.getVersion());
+                    sql.add("ALTER EXTENSION " + extensionIdent(e.getName()) + " UPDATE TO " + literal(e.getVersion()) + ";");
+                }
+                if (!sql.isEmpty()) {
+                    ChangeItem item = item(ChangeType.MODIFIED, ObjectType.EXTENSION, e.getName(),
+                            String.join(", ", details), pairKey("extension", f.getName(), e.getName()));
+                    sql.forEach(q -> emit(CREATE_EXTENSION, item, q));
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ enum types
+
+        private void diffEnums() {
+            Matching<EnumTypeModel> em = Matching.of(sorted(from.getEnumTypes()), sorted(to.getEnumTypes()),
+                    EnumTypeModel::getOid, EnumTypeModel::getQualifiedName, sameDb);
+            for (EnumTypeModel e : em.removed) {
+                ChangeItem item = item(ChangeType.DELETED, ObjectType.TYPE, e.getQualifiedName(), "enum type dropped",
+                        pairKey("type", id(e.getOid()), null));
+                emit(DROP_TYPE, item, "DROP TYPE " + qualified(e.getSchemaName(), e.getName()) + ";");
+            }
+            for (EnumTypeModel e : em.added) {
+                ChangeItem item = item(ChangeType.ADDED, ObjectType.TYPE, e.getQualifiedName(),
+                        "new enum type (" + String.join(", ", e.getValues()) + ")", pairKey("type", null, id(e.getOid())));
+                String q = qualified(e.getSchemaName(), e.getName());
+                emit(CREATE_TYPE, item, "CREATE TYPE " + q + " AS ENUM ("
+                        + e.getValues().stream().map(v -> literal(v)).collect(Collectors.joining(", ")) + ");");
+                if (e.getComment() != null) {
+                    emit(COMMENT, item, "COMMENT ON TYPE " + q + " IS " + literal(e.getComment()) + ";");
+                }
+                if (e.getOwner() != null) {
+                    emit(ACCESS, item, "ALTER TYPE " + q + " OWNER TO " + ident(e.getOwner()) + ";");
+                }
+            }
+            for (Matching.Pair<EnumTypeModel> p : em.matched) {
+                EnumTypeModel f = p.from();
+                EnumTypeModel t = p.to();
+                String fromId = id(f.getOid());
+                String toId = id(t.getOid());
+                String fq = qualified(f.getSchemaName(), f.getName());
+                String tq = qualified(t.getSchemaName(), t.getName());
+                if (!f.getSchemaName().equals(t.getSchemaName()) || !f.getName().equals(t.getName())) {
+                    ChangeItem item = item(ChangeType.RENAMED, ObjectType.TYPE, t.getQualifiedName(),
+                            "renamed from " + f.getQualifiedName(), pairKey("type-rename", fromId, toId));
+                    if (!f.getSchemaName().equals(t.getSchemaName())) {
+                        emit(RENAME_OTHER, item, "ALTER TYPE " + fq + " SET SCHEMA " + ident(t.getSchemaName()) + ";");
+                    }
+                    if (!f.getName().equals(t.getName())) {
+                        emit(RENAME_OTHER, item, "ALTER TYPE " + qualified(t.getSchemaName(), f.getName())
+                                + " RENAME TO " + ident(t.getName()) + ";");
+                    }
+                }
+                List<String> fv = f.getValues();
+                List<String> tv = t.getValues();
+                if (!fv.equals(tv)) {
+                    if (isSubsequence(fv, tv)) {
+                        List<String> added = tv.stream().filter(v -> !fv.contains(v)).toList();
+                        ChangeItem item = item(ChangeType.MODIFIED, ObjectType.TYPE, t.getQualifiedName(),
+                                "enum values added: " + String.join(", ", added), pairKey("type", fromId, toId));
+                        // before the rename (phase RENAME_OTHER) the type still has its old name
+                        for (int i = 0; i < tv.size(); i++) {
+                            String v = tv.get(i);
+                            if (fv.contains(v)) {
+                                continue;
+                            }
+                            // new labels are added in order, so the previous one always exists already
+                            String position = i > 0 ? " AFTER " + literal(tv.get(i - 1))
+                                    : fv.isEmpty() ? "" : " BEFORE " + literal(fv.get(0));
+                            emit(ENUM_ADD_VALUE, item, "ALTER TYPE " + fq + " ADD VALUE IF NOT EXISTS " + literal(v)
+                                    + position + ";");
+                        }
+                        if (!enumStepBreak) {
+                            enumStepBreak = true;
+                            emit(STEP_BREAK, null, com.vodianoy.pgvc.execution.SqlScripts.STEP_MARKER);
+                        }
+                    } else {
+                        String msg = "Values of enum " + t.getQualifiedName() + " were removed or reordered ("
+                                + String.join(", ", fv) + " -> " + String.join(", ", tv)
+                                + "). PostgreSQL cannot drop or reorder enum values: recreate the type manually.";
+                        ChangeItem item = item(ChangeType.MODIFIED, ObjectType.TYPE, t.getQualifiedName(), msg,
+                                pairKey("type", fromId, toId));
+                        warn(item, msg);
+                        emit(CREATE_TYPE, item, "-- MANUAL ACTION REQUIRED: " + msg);
+                    }
+                }
+                diffComment(ObjectType.TYPE, t.getQualifiedName(), t.getQualifiedName(), "type", "TYPE " + tq,
+                        f.getComment(), t.getComment(), "type:" + fromId, "type:" + toId);
+                diffAccess(ObjectType.TYPE, t.getQualifiedName(), "ALTER TYPE " + tq, null, f.getOwner(),
+                        t.getOwner(), null, null, null, null, "type:" + fromId, "type:" + toId);
+            }
+        }
+
+        /** {@code a} appears in {@code b} in the same order (only additions). */
+        private static boolean isSubsequence(List<String> a, List<String> b) {
+            int i = 0;
+            for (String v : b) {
+                if (i < a.size() && a.get(i).equals(v)) {
+                    i++;
+                }
+            }
+            return i == a.size() && b.containsAll(a);
+        }
+
+        // ------------------------------------------------------------------ functions
+
+        private static ObjectType functionType(FunctionModel f) {
+            return f.isProcedure() ? ObjectType.PROCEDURE : ObjectType.FUNCTION;
+        }
+
+        private static String signature(FunctionModel f) {
+            return qualified(f.getSchemaName(), f.getName()) + "(" + nullToEmpty(f.getIdentityArguments()) + ")";
+        }
+
+        private static String routineKeyword(FunctionModel f) {
+            return f.isProcedure() ? "PROCEDURE" : "FUNCTION";
+        }
+
+        private static String nullToEmpty(String s) {
+            return s == null ? "" : s;
+        }
+
+        private void diffFunctions() {
+            Matching<FunctionModel> fm = Matching.of(sorted(from.getFunctions()), sorted(to.getFunctions()),
+                    FunctionModel::getOid, FunctionModel::getKey, sameDb);
+            for (FunctionModel f : fm.removed) {
+                ChangeItem item = item(ChangeType.DELETED, functionType(f), f.getKey(),
+                        routineKeyword(f).toLowerCase() + " dropped", pairKey("function", id(f.getOid()), null));
+                emit(DROP_FUNCTION, item, "DROP " + routineKeyword(f) + " " + signature(f) + ";");
+            }
+            for (FunctionModel t : fm.added) {
+                ChangeItem item = item(ChangeType.ADDED, functionType(t), t.getKey(),
+                        "new " + routineKeyword(t).toLowerCase() + describeResult(t), pairKey("function", null, id(t.getOid())));
+                emitCreateFunction(item, t);
+            }
+            for (Matching.Pair<FunctionModel> p : fm.matched) {
+                FunctionModel f = p.from();
+                FunctionModel t = p.to();
+                String fromId = id(f.getOid());
+                String toId = id(t.getOid());
+                if (!f.getSchemaName().equals(t.getSchemaName()) || !f.getName().equals(t.getName())) {
+                    ChangeItem item = item(ChangeType.RENAMED, functionType(t), t.getKey(), "renamed from " + f.getKey(),
+                            pairKey("function-rename", fromId, toId));
+                    if (!f.getSchemaName().equals(t.getSchemaName())) {
+                        emit(RENAME_OTHER, item, "ALTER " + routineKeyword(f) + " " + signature(f) + " SET SCHEMA "
+                                + ident(t.getSchemaName()) + ";");
+                    }
+                    if (!f.getName().equals(t.getName())) {
+                        FunctionModel moved = f.toBuilder().schemaName(t.getSchemaName()).build();
+                        emit(RENAME_OTHER, item, "ALTER " + routineKeyword(f) + " " + signature(moved) + " RENAME TO "
+                                + ident(t.getName()) + ";");
+                    }
+                }
+                boolean recreated = false;
+                if (!normalizeFunction(f).equals(normalizeFunction(t))) {
+                    boolean signatureChanged = !Objects.equals(f.getKind(), t.getKind())
+                            || !Objects.equals(f.getResultType(), t.getResultType());
+                    if (signatureChanged) {
+                        recreated = true;
+                        recreatedFunctions.add(f.getKey());
+                        String details = f.isProcedure() != t.isProcedure()
+                                ? "changed from " + routineKeyword(f).toLowerCase() + " to " + routineKeyword(t).toLowerCase()
+                                : "return type " + f.getResultType() + " -> " + t.getResultType();
+                        ChangeItem item = item(ChangeType.MODIFIED, functionType(t), t.getKey(),
+                                details + " (DROP + CREATE)", pairKey("function", fromId, toId));
+                        warn(item, routineKeyword(t).charAt(0) + routineKeyword(t).substring(1).toLowerCase() + " "
+                                + t.getKey() + " is dropped and created again (" + details + "): its triggers are "
+                                + "recreated; views and column defaults that use it must be dropped first.");
+                        FunctionModel renamed = f.toBuilder().schemaName(t.getSchemaName()).name(t.getName()).build();
+                        emit(CREATE_FUNCTION, item, "DROP " + routineKeyword(f) + " " + signature(renamed) + ";");
+                        emitCreateFunction(item, t);
+                    } else {
+                        ChangeItem item = item(ChangeType.MODIFIED, functionType(t), t.getKey(),
+                                "definition changed (CREATE OR REPLACE)", pairKey("function", fromId, toId));
+                        emitPrelude();
+                        emit(functionPhase(t), item, createFunction(t));
+                    }
+                }
+                if (!recreated) {
+                    String target = routineKeyword(t) + " " + signature(t);
+                    diffComment(functionType(t), t.getKey(), t.getKey(), routineKeyword(t).toLowerCase(), target,
+                            f.getComment(), t.getComment(), "function:" + fromId, "function:" + toId);
+                    diffAccess(functionType(t), t.getKey(), "ALTER " + target, target, f.getOwner(), t.getOwner(),
+                            f.getAcl(), t.getAcl(), null, null, "function:" + fromId, "function:" + toId);
+                }
+            }
+        }
+
+        private static String describeResult(FunctionModel f) {
+            return f.getResultType() == null ? "" : " returning " + f.getResultType();
+        }
+
+        /** CREATE OR REPLACE with the comment, owner and grants of the target state. */
+        private void emitCreateFunction(ChangeItem item, FunctionModel t) {
+            emitPrelude();
+            emit(functionPhase(t), item, createFunction(t));
+            String target = routineKeyword(t) + " " + signature(t);
+            if (t.getComment() != null) {
+                emit(COMMENT, item, "COMMENT ON " + target + " IS " + literal(t.getComment()) + ";");
+            }
+            emitNewAccess(item, "ALTER " + target, target, t.getOwner(), t.getAcl(), FUNCTION_DEFAULT_GRANTS);
+        }
+
+        /** Function bodies are checked when they run, not when they are created (they may use later objects). */
+        private void emitPrelude() {
+            if (!functionPrelude) {
+                functionPrelude = true;
+                emit(PRELUDE, null, "SET LOCAL check_function_bodies = off;");
+            }
+        }
+
+        private static String createFunction(FunctionModel f) {
+            String def = f.getDefinition() == null ? "" : f.getDefinition().strip();
+            return def.endsWith(";") ? def : def + ";";
+        }
+
+        /** After the new tables when the signature uses the row type of a table created by this migration. */
+        private int functionPhase(FunctionModel f) {
+            String signature = nullToEmpty(f.getIdentityArguments()) + " " + nullToEmpty(f.getResultType());
+            for (TableModel t : tables.added) {
+                Pattern p = Pattern.compile("(^|[^\\w.\"])(" + Pattern.quote(t.getSchemaName()) + "\\.)?"
+                        + Pattern.quote(ident(t.getName())) + "($|[^\\w\"])");
+                if (p.matcher(signature).find()) {
+                    return CREATE_FUNCTION_LATE;
+                }
+            }
+            return CREATE_FUNCTION;
+        }
+
+        /** Definition without the routine's own name (renames are reported separately) and outer whitespace. */
+        private static String normalizeFunction(FunctionModel f) {
+            String def = f.getDefinition() == null ? "" : f.getDefinition().strip();
+            if (def.endsWith(";")) {
+                def = def.substring(0, def.length() - 1).strip();
+            }
+            String header = qualified(f.getSchemaName(), f.getName()) + "(";
+            int idx = def.indexOf(header);
+            if (idx >= 0) {
+                def = def.substring(0, idx) + "?(" + def.substring(idx + header.length());
+            }
+            return def.replace("\r\n", "\n");
+        }
+
+        // ------------------------------------------------------------------ triggers
+
+        private void diffTriggers(TableModel f, TableModel t, String fq, String tq) {
+            boolean byOid = sameDb && f.getOid() == t.getOid();
+            Matching<TriggerModel> tm = Matching.of(sorted(f.getTriggers()), sorted(t.getTriggers()),
+                    TriggerModel::getOid, TriggerModel::getName, byOid);
+            ObjectType rootType = tableType(t);
+            String root = t.getQualifiedName();
+            for (TriggerModel tr : tm.removed) {
+                ChangeItem item = under(item(ChangeType.DELETED, ObjectType.TRIGGER, root + "." + tr.getName(),
+                        "trigger dropped", pairKey("trigger", id(tr.getOid()), null)), rootType, root);
+                emit(DROP_TRIGGER, item, "DROP TRIGGER IF EXISTS " + ident(tr.getName()) + " ON " + fq + ";");
+            }
+            for (TriggerModel tr : tm.added) {
+                ChangeItem item = under(item(ChangeType.ADDED, ObjectType.TRIGGER, root + "." + tr.getName(),
+                        "new trigger executing " + tr.getFunctionKey(), pairKey("trigger", null, id(tr.getOid()))),
+                        rootType, root);
+                emit(CREATE_TRIGGER, item, createTrigger(tr));
+                if (!"O".equals(tr.getEnabled()) && tr.getEnabled() != null) {
+                    emit(CREATE_TRIGGER, item, triggerState(tq, tr));
+                }
+            }
+            for (Matching.Pair<TriggerModel> p : tm.matched) {
+                TriggerModel fr = p.from();
+                TriggerModel tr = p.to();
+                String name = root + "." + tr.getName();
+                boolean definitionChanged = !normalizeTrigger(fr, f).equals(normalizeTrigger(tr, t));
+                boolean functionRecreated = recreatedFunctions.contains(fr.getFunctionKey());
+                if (definitionChanged || functionRecreated) {
+                    ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.TRIGGER, name,
+                            definitionChanged ? "trigger definition changed (DROP + CREATE)"
+                                    : "recreated: function " + fr.getFunctionKey() + " is recreated",
+                            pairKey("trigger", id(fr.getOid()), id(tr.getOid()))), rootType, root);
+                    emit(DROP_TRIGGER, item, "DROP TRIGGER IF EXISTS " + ident(fr.getName()) + " ON " + fq + ";");
+                    emit(CREATE_TRIGGER, item, createTrigger(tr));
+                    if (!"O".equals(tr.getEnabled()) && tr.getEnabled() != null) {
+                        emit(CREATE_TRIGGER, item, triggerState(tq, tr));
+                    }
+                    continue;
+                }
+                if (!fr.getName().equals(tr.getName())) {
+                    ChangeItem item = under(item(ChangeType.RENAMED, ObjectType.TRIGGER, name,
+                            "renamed from " + fr.getName(), pairKey("trigger-rename", id(fr.getOid()), id(tr.getOid()))),
+                            rootType, root);
+                    emit(RENAME_OTHER, item, "ALTER TRIGGER " + ident(fr.getName()) + " ON " + tq + " RENAME TO "
+                            + ident(tr.getName()) + ";");
+                }
+                if (!Objects.equals(fr.getEnabled(), tr.getEnabled()) && tr.getEnabled() != null) {
+                    ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.TRIGGER, name,
+                            describeTriggerState(tr.getEnabled()), pairKey("trigger", id(fr.getOid()), id(tr.getOid()))),
+                            rootType, root);
+                    emit(CREATE_TRIGGER, item, triggerState(tq, tr));
+                }
+            }
+        }
+
+        /** pg_get_triggerdef as an executable statement (EXECUTE FUNCTION works on PostgreSQL 11+). */
+        private static String createTrigger(TriggerModel tr) {
+            String def = tr.getDefinition() == null ? "" : tr.getDefinition().strip();
+            if (def.endsWith(";")) {
+                def = def.substring(0, def.length() - 1).strip();
+            }
+            return def.replace(" EXECUTE PROCEDURE ", " EXECUTE FUNCTION ") + ";";
+        }
+
+        private static String triggerState(String tq, TriggerModel tr) {
+            String action = switch (tr.getEnabled() == null ? "O" : tr.getEnabled()) {
+                case "D" -> "DISABLE TRIGGER ";
+                case "R" -> "ENABLE REPLICA TRIGGER ";
+                case "A" -> "ENABLE ALWAYS TRIGGER ";
+                default -> "ENABLE TRIGGER ";
+            };
+            return "ALTER TABLE " + tq + " " + action + ident(tr.getName()) + ";";
+        }
+
+        private static String describeTriggerState(String enabled) {
+            return switch (enabled) {
+                case "D" -> "trigger disabled";
+                case "R" -> "trigger fires on replicas only";
+                case "A" -> "trigger always fires";
+                default -> "trigger enabled";
+            };
+        }
+
+        /**
+         * Definition without the trigger and table names (renames are separate changes) and with EXECUTE FUNCTION
+         * (PostgreSQL 11 prints EXECUTE PROCEDURE).
+         */
+        private static String normalizeTrigger(TriggerModel tr, TableModel table) {
+            String def = createTrigger(tr);
+            String qualifiedName = qualified(table.getSchemaName(), table.getName());
+            def = def.replace(" ON " + qualifiedName + " ", " ON ? ")
+                    .replace(" ON " + ident(table.getName()) + " ", " ON ? ");
+            String name = ident(tr.getName());
+            for (String prefix : List.of("CREATE TRIGGER ", "CREATE CONSTRAINT TRIGGER ")) {
+                if (def.startsWith(prefix + name + " ")) {
+                    def = prefix + "? " + def.substring(prefix.length() + name.length() + 1);
+                    break;
+                }
+            }
+            return def.replaceAll("\\s+", " ");
+        }
+
+        // ------------------------------------------------------------------ comments
+
+        /**
+         * COMMENT ON for a matched object whose comment differs.
+         *
+         * @param kind   "table", "column", "view" ... (for the description)
+         * @param target object part of the statement, e.g. {@code TABLE sales.orders}
+         */
+        private void diffComment(ObjectType rootType, String rootName, String objectName, String kind, String target,
+                                 String fromComment, String toComment, String fromId, String toId) {
+            if (Objects.equals(fromComment, toComment)) {
+                return;
+            }
+            String details = toComment == null ? "comment on " + kind + " removed"
+                    : "comment on " + kind + ": " + abbreviate(toComment);
+            // always MODIFIED: a comment is a property of its object (never a "destructive" change)
+            ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.COMMENT, objectName, details,
+                    pairKey("comment", fromComment == null ? null : fromId, toComment == null ? null : toId)),
+                    rootType, rootName);
+            emit(COMMENT, item, "COMMENT ON " + target + " IS " + literal(toComment) + ";");
+        }
+
+        private static String abbreviate(String s) {
+            String one = s.replaceAll("\\s+", " ").strip();
+            return one.length() <= 80 ? "'" + one + "'" : "'" + one.substring(0, 77) + "...'";
+        }
+
+        // ------------------------------------------------------------------ owners, grants, tablespaces
+
+        /**
+         * Owner, grants and tablespace of a matched object. A null value on either side means "not tracked" (ignore
+         * rules or an older snapshot) and is not compared.
+         *
+         * @param alterPrefix e.g. {@code ALTER TABLE sales.orders}
+         * @param grantTarget e.g. {@code TABLE sales.orders}; null: the object has no tracked grants
+         */
+        private void diffAccess(ObjectType type, String name, String alterPrefix, String grantTarget, String fromOwner,
+                                String toOwner, List<String> fromAcl, List<String> toAcl, String fromTablespace,
+                                String toTablespace, String fromId, String toId) {
+            List<String> details = new ArrayList<>();
+            List<String> sql = new ArrayList<>();
+            if (fromOwner != null && toOwner != null && !fromOwner.equals(toOwner)) {
+                details.add("owner " + fromOwner + " -> " + toOwner);
+                sql.add(alterPrefix + " OWNER TO " + ident(toOwner) + ";");
+            }
+            if (grantTarget != null && fromAcl != null && toAcl != null) {
+                List<String> grants = grantStatements(grantTarget, fromAcl, toAcl);
+                if (!grants.isEmpty()) {
+                    details.add("grants " + describeAcl(fromAcl) + " -> " + describeAcl(toAcl));
+                    sql.addAll(grants);
+                }
+            }
+            if (fromTablespace != null && toTablespace != null && !fromTablespace.equals(toTablespace)) {
+                details.add("tablespace " + fromTablespace + " -> " + toTablespace);
+                sql.add(alterPrefix + " SET TABLESPACE " + ident(toTablespace) + ";");
+            }
+            if (sql.isEmpty()) {
+                return;
+            }
+            ChangeItem item = item(ChangeType.MODIFIED, type, name, String.join(", ", details),
+                    pairKey("access", fromId, toId));
+            if (details.stream().anyMatch(d -> d.startsWith("tablespace"))) {
+                warn(item, "SET TABLESPACE rewrites " + name + " under an ACCESS EXCLUSIVE lock.");
+            }
+            sql.forEach(q -> emit(ACCESS, item, q));
+        }
+
+        /** Owner and grants of a newly created object (compared with the default privileges of a new object). */
+        private void emitNewAccess(ChangeItem item, String alterPrefix, String grantTarget, String owner,
+                                   List<String> acl, List<String> defaultAcl) {
+            if (owner != null) {
+                emit(ACCESS, item, alterPrefix + " OWNER TO " + ident(owner) + ";");
+            }
+            if (acl != null) {
+                grantStatements(grantTarget, defaultAcl, acl).forEach(q -> emit(ACCESS, item, q));
+            }
+        }
+
+        private static String describeAcl(List<String> acl) {
+            return acl.isEmpty() ? "(none)" : String.join(" ", acl);
+        }
+
+        /** GRANT / REVOKE turning {@code fromAcl} into {@code toAcl} (entries {@code grantee=PRIVILEGE[*]}). */
+        static List<String> grantStatements(String target, List<String> fromAcl, List<String> toAcl) {
+            Set<String> f = new LinkedHashSet<>(fromAcl);
+            Set<String> t = new LinkedHashSet<>(toAcl);
+            List<String> sql = new ArrayList<>();
+            for (String e : f) {
+                if (t.contains(e)) {
+                    continue;
+                }
+                AclEntry a = AclEntry.parse(e);
+                if (a.grantable() && t.contains(a.grantee() + "=" + a.privilege())) {
+                    sql.add("REVOKE GRANT OPTION FOR " + a.privilege() + " ON " + target + " FROM " + a.grantee() + ";");
+                } else if (!a.grantable() && t.contains(e + "*")) {
+                    continue; // upgraded to WITH GRANT OPTION below
+                } else {
+                    sql.add("REVOKE " + a.privilege() + " ON " + target + " FROM " + a.grantee() + ";");
+                }
+            }
+            for (String e : t) {
+                if (f.contains(e)) {
+                    continue;
+                }
+                AclEntry a = AclEntry.parse(e);
+                if (!a.grantable() && f.contains(e + "*")) {
+                    continue; // handled by REVOKE GRANT OPTION FOR above
+                }
+                sql.add("GRANT " + a.privilege() + " ON " + target + " TO " + a.grantee()
+                        + (a.grantable() ? " WITH GRANT OPTION" : "") + ";");
+            }
+            return sql;
+        }
+
+        private record AclEntry(String grantee, String privilege, boolean grantable) {
+            static AclEntry parse(String entry) {
+                int eq = entry.lastIndexOf('=');
+                String grantee = eq < 0 ? "PUBLIC" : entry.substring(0, eq);
+                String privilege = eq < 0 ? entry : entry.substring(eq + 1);
+                boolean grantable = privilege.endsWith("*");
+                return new AclEntry(grantee, grantable ? privilege.substring(0, privilege.length() - 1) : privilege,
+                        grantable);
+            }
         }
     }
 }

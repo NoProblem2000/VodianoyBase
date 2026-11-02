@@ -237,6 +237,58 @@ await step('16k-execute-steps', async () => {
   await shot('16k-executed');
 });
 
+// ---- N-database matrix and ignore rules
+await step('16l-matrix', async () => {
+  await page.getByRole('button', { name: 'N-Database Matrix' }).click();
+  await page.getByText('Choose databases on the left and press Compare.').waitFor({ timeout: 10000 });
+  await page.getByLabel('Snapshot files').setInputFiles(snapshotFile);
+  await page.getByText('reference', { exact: true }).first().waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  const table = page.getByRole('table', { name: '🌐 N-Database Matrix' });
+  await table.waitFor({ timeout: 30000 });
+  await table.getByText('public.customer_only').waitFor({ timeout: 5000 });
+  await table.getByRole('button', { name: 'only here', exact: true }).first().waitFor({ timeout: 5000 });
+  // prod never got the customer notes (its history diverged with a hotfix)
+  const notes = table.getByRole('row').filter({ hasText: 'sales.notes' });
+  await notes.getByRole('button', { name: 'missing', exact: true }).first().waitFor({ timeout: 5000 });
+  await shot('16l-matrix');
+});
+await step('16m-matrix-cell', async () => {
+  const table = page.getByRole('table', { name: '🌐 N-Database Matrix' });
+  // prod has its hotfix index on sales.orders: the cell explains it and offers the SQL that removes it
+  const row = table.getByRole('row').filter({ hasText: 'sales.orders' }).filter({ hasNotText: 'sales.orders_' });
+  const header = await table.locator('thead th').allInnerTexts();
+  const prodColumn = header.findIndex((h) => h.startsWith('Prod'));
+  if (prodColumn < 0) throw new Error(`no Prod column in ${header.join(' | ')}`);
+  await row.first().locator('td').nth(prodColumn).getByRole('button').click();
+  await page.getByText(/SQL that brings Prod to the baseline Dev/).first().waitFor({ timeout: 5000 });
+  await page.getByText(/orders_status_hotfix_idx/).first().waitFor({ timeout: 10000 });
+  await shot('16m-matrix-cell');
+});
+await step('16n-matrix-ignore-pattern', async () => {
+  await page.getByRole('button', { name: /Ignore rules of this comparison/ }).click();
+  await page.getByLabel('Excluded objects').fill('customer_only');
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await page.waitForTimeout(1500);
+  const table = page.getByRole('table', { name: '🌐 N-Database Matrix' });
+  await table.waitFor({ timeout: 30000 });
+  if (await table.getByText('public.customer_only').count()) throw new Error('customer_only is not ignored');
+  await page.getByRole('button', { name: 'Save as default' }).click();
+  await toast(/Default ignore rules saved/);
+  await shot('16n-matrix-ignore-pattern');
+  await page.keyboard.press('Escape');
+});
+await step('16o-ignore-rules-modal', async () => {
+  await page.getByRole('button', { name: 'Ignore rules', exact: true }).click();
+  const patterns = page.getByLabel('Excluded objects');
+  await patterns.waitFor({ timeout: 5000 });
+  if ((await patterns.inputValue()) !== 'customer_only') throw new Error(`saved patterns: ${await patterns.inputValue()}`);
+  await shot('16o-ignore-rules-modal');
+  await patterns.fill('');
+  await page.getByRole('button', { name: 'Save as default' }).click();
+  await toast(/Default ignore rules saved/);
+});
+
 // ---- About & License, then the Russian UI
 await step('17-about', async () => {
   await page.getByRole('button', { name: 'About & License' }).click();
@@ -273,6 +325,14 @@ await step('20-ru-server-error', async () => {
   await page.getByRole('alert').filter({ hasText: 'JDBC URL должен начинаться с jdbc:postgresql:' }).waitFor({ timeout: 10000 });
   expectHttpError = false;
   await shot('20-ru-server-error');
+  await page.keyboard.press('Escape');
+});
+await step('20b-ru-matrix', async () => {
+  await page.getByRole('button', { name: 'Матрица N баз' }).click();
+  await page.getByRole('button', { name: 'Сравнить', exact: true }).click();
+  await page.getByRole('table', { name: '🌐 Матрица N баз' }).waitFor({ timeout: 30000 });
+  await page.getByText('Только различия').waitFor({ timeout: 5000 });
+  await shot('20b-ru-matrix');
   await page.keyboard.press('Escape');
 });
 await step('21-ru-reload-keeps-language', async () => {

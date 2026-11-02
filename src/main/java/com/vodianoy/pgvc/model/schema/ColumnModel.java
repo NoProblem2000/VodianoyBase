@@ -37,4 +37,7 @@ public class ColumnModel {
 
     /** The column comes from the partitioned parent (attislocal = false). */
     private boolean inherited;
+
+    /** COMMENT ON COLUMN, null when there is none. */
+    private String comment;
 }

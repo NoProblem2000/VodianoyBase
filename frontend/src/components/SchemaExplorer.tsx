@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Eye, Hash, Layers, Search, Table2 } from 'lucide-react';
+import { Braces, ChevronDown, ChevronRight, Eye, Hash, Layers, ListOrdered, Puzzle, Search, Table2 } from 'lucide-react';
 import type { ChangeItem, ChangeType, DatabaseSnapshot, TableModel } from '../api/types';
 import { relationIndicators } from '../lib/changes';
 import { useI18n, type TKey } from '../i18n';
@@ -10,7 +10,7 @@ interface Props {
   changes: ChangeItem[];
 }
 
-type GroupId = 'tables' | 'partitions' | 'views' | 'sequences';
+type GroupId = 'tables' | 'partitions' | 'views' | 'sequences' | 'functions' | 'types' | 'extensions';
 
 interface Entry {
   key: string;
@@ -27,6 +27,9 @@ const GROUPS: { id: GroupId; label: TKey; icon: typeof Table2 }[] = [
   { id: 'partitions', label: 'explorer.partitions', icon: Layers },
   { id: 'views', label: 'explorer.views', icon: Eye },
   { id: 'sequences', label: 'explorer.sequences', icon: Hash },
+  { id: 'functions', label: 'explorer.functions', icon: Braces },
+  { id: 'types', label: 'explorer.types', icon: ListOrdered },
+  { id: 'extensions', label: 'explorer.extensions', icon: Puzzle },
 ];
 
 export function SchemaExplorer({ snapshot, changes }: Props) {
@@ -37,7 +40,15 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
 
   const groups = useMemo(() => {
     const indicators = relationIndicators(changes);
-    const result: Record<GroupId, Entry[]> = { tables: [], partitions: [], views: [], sequences: [] };
+    const result: Record<GroupId, Entry[]> = {
+      tables: [],
+      partitions: [],
+      views: [],
+      sequences: [],
+      functions: [],
+      types: [],
+      extensions: [],
+    };
     if (snapshot) {
       for (const [key, tbl] of Object.entries(snapshot.tables)) {
         const entry: Entry = { key, schema: tbl.schemaName, name: tbl.name, change: indicators.get(key), table: tbl };
@@ -53,6 +64,21 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
       for (const [key, s] of Object.entries(snapshot.sequences)) {
         result.sequences.push({ key, schema: s.schemaName, name: s.name, change: indicators.get(key), hint: s.dataType });
       }
+      for (const [key, f] of Object.entries(snapshot.functions ?? {})) {
+        result.functions.push({
+          key,
+          schema: f.schemaName,
+          name: `${f.name}(${f.identityArguments})`,
+          change: indicators.get(key),
+          hint: f.kind === 'p' ? t('explorer.procedure') : f.resultType ?? undefined,
+        });
+      }
+      for (const [key, e] of Object.entries(snapshot.enumTypes ?? {})) {
+        result.types.push({ key, schema: e.schemaName, name: e.name, change: indicators.get(key), hint: e.values.join(', ') });
+      }
+      for (const [key, x] of Object.entries(snapshot.extensions ?? {})) {
+        result.extensions.push({ key, schema: x.schemaName, name: x.name, change: indicators.get(key), hint: x.version });
+      }
     }
     // objects deleted since HEAD are no longer in the live snapshot
     for (const c of changes) {
@@ -63,6 +89,9 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
       if (c.objectType === 'PARTITION') result.partitions.push(entry);
       if (c.objectType === 'VIEW') result.views.push(entry);
       if (c.objectType === 'SEQUENCE') result.sequences.push(entry);
+      if (c.objectType === 'FUNCTION' || c.objectType === 'PROCEDURE') result.functions.push(entry);
+      if (c.objectType === 'TYPE') result.types.push(entry);
+      if (c.objectType === 'EXTENSION') result.extensions.push({ ...entry, schema: '', name: c.objectName });
     }
     const needle = filter.trim().toLowerCase();
     for (const id of Object.keys(result) as GroupId[]) {
@@ -116,7 +145,7 @@ export function SchemaExplorer({ snapshot, changes }: Props) {
                           title={e.key}
                         >
                           <span className={`min-w-0 flex-1 truncate ${e.deleted ? 'text-gray-500 line-through' : ''}`}>
-                            <span className="text-gray-500">{e.schema}.</span>
+                            {e.schema && <span className="text-gray-500">{e.schema}.</span>}
                             <span className="text-gray-200">{e.name}</span>
                             {e.hint && <span className="ml-1.5 text-[11px] text-gray-500">{e.hint}</span>}
                           </span>

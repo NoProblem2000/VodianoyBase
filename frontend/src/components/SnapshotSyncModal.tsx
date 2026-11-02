@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import type {
   ChangeItem,
   CommitResult,
+  DiffIgnoreRules,
   DryRunResult,
   EnvironmentView,
   ExecutionOptions,
@@ -12,6 +13,7 @@ import type {
   SnapshotComparison,
 } from '../api/types';
 import { DEFAULT_EXECUTION, DryRunPanel, TimeoutFields } from './ExecutionPanels';
+import { DEFAULT_IGNORE_RULES, IgnoreRulesPanel, sameRules } from './IgnoreRulesEditor';
 import { SafetyBadges, ZeroDowntimeButton } from './SafetyBadges';
 import { useI18n } from '../i18n';
 import { formatDate, shortHash } from '../lib/format';
@@ -75,13 +77,23 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
   const [options, setOptions] = useState<ExecutionOptions>(DEFAULT_EXECUTION);
   const [patterns, setPatterns] = useState<Set<number>>(new Set());
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
+  // one-off ignore rules of this comparison (start from the saved defaults)
+  const [rules, setRules] = useState<DiffIgnoreRules>(DEFAULT_IGNORE_RULES);
+  const [comparedRules, setComparedRules] = useState<DiffIgnoreRules | null>(null);
+  useEffect(() => {
+    api
+      .ignoreRules()
+      .then(setRules)
+      .catch(() => setRules(DEFAULT_IGNORE_RULES));
+  }, []);
 
   const compare = useCallback(
     async (b: SnapshotBundle) => {
       setLoading(true);
       setError(null);
       try {
-        const c = await api.compareSnapshot(env.id, b);
+        const c = await api.compareSnapshot(env.id, b, rules);
+        setComparedRules(rules);
         const defaults = new Set(c.missingOrModifiedItems.map((i) => i.id ?? -1).filter((id) => id >= 0));
         setComparison(c);
         setSelected(defaults);
@@ -99,7 +111,7 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
         setLoading(false);
       }
     },
-    [env.id, t],
+    [env.id, t, rules],
   );
 
   async function readFile(file: File) {
@@ -292,6 +304,7 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
     >
       {!comparison && (
         <div className="flex flex-col gap-3">
+          <IgnoreRulesPanel value={rules} onChange={setRules} />
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -360,6 +373,13 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
               <Upload size={14} /> {t('snapshot.otherFile')}
             </button>
           </div>
+          <IgnoreRulesPanel
+            value={rules}
+            onChange={setRules}
+            actionLabel={t('ignore.recompare')}
+            onAction={() => bundle && void compare(bundle)}
+            actionDisabled={loading || !bundle || sameRules(rules, comparedRules)}
+          />
 
           {(versionMismatch || comparison.targetHasUncommittedChanges) && !comparison.identical && (
             <div className="flex flex-col gap-1 text-xs">

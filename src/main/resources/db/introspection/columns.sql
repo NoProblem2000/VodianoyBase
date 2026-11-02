@@ -9,7 +9,8 @@ SELECT a.attrelid                                               AS table_oid,
        CASE a.attidentity WHEN 'a' THEN 'ALWAYS' WHEN 'd' THEN 'BY DEFAULT' END AS identity_generation,
        ({{ATTGENERATED}})::text = 's'                           AS generated_stored,
        CASE WHEN a.attcollation <> t.typcollation THEN pg_catalog.quote_ident(co.collname) END AS collation_name,
-       NOT a.attislocal                                         AS inherited
+       NOT a.attislocal                                         AS inherited,
+       pg_catalog.col_description(a.attrelid, a.attnum)         AS comment
 FROM pg_catalog.pg_attribute a
 JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace

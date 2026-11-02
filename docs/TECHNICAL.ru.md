@@ -17,6 +17,7 @@
 | 8 | Удаление брошенных коммитов и веток |
 | 9 | Эталонные слепки `.pgsnap.json`: экспорт, сравнение с базой заказчика, накат |
 | 10 | Анализатор безопасности миграций, Dry-Run, таймауты, Pre/Post-скрипты, многошаговые миграции |
+| 11 | Функции, процедуры, триггеры, ENUM, расширения, комментарии, владельцы/права/tablespace; правила игнорирования; матрица N баз |
 
 ## Окружения
 
@@ -75,10 +76,13 @@
 | GET | `/api/vc/commits/{hash}/deletion-plan?mode=COMMIT\|BRANCH` | что удалит удаление коммита / ветки и что мешает |
 | DELETE | `/api/vc/commits/{hash}?mode=COMMIT\|BRANCH` | удалить неиспользуемый коммит (с потомками) или брошенную ветку |
 | GET | `/api/vc/snapshot/export?envId=dev[&commitHash=..]` | скачать эталонный слепок `snapshot_<ветка>_<хеш>.pgsnap.json` |
-| POST | `/api/vc/snapshot/compare` | `{envId, bundle}`: живая схема окружения против слепка |
+| POST | `/api/vc/snapshot/compare` | `{envId, bundle, ignoreRules}`: живая схема окружения против слепка (`ignoreRules` — разовые правила, `null` — сохранённые) |
 | POST | `/api/vc/snapshot/apply` | `envId`, `upSql`, `downSql`, `author`, `message`, `sourceCommitHash`: накат и коммит |
 | POST | `/api/environments/{id}/vc/analyze` | `{sql, preScript, postScript}`: анализ безопасности произвольного SQL |
 | GET | `/api/about` | название, версия сборки, лицензия и её полный текст (окно «О проекте») |
+| GET | `/api/settings/ignore-rules` | правила игнорирования по умолчанию (`pgvc-settings.json`) |
+| PUT | `/api/settings/ignore-rules` | сохранить правила: `ignoreComments`, `ignoreTablespaces`, `ignoreOwnersAndGrants`, `ignorePartitions`, `excludedObjectPatterns` |
+| POST | `/api/vc/matrix/compare` | матрица N баз: `envIds`, `snapshots` (`[{name, bundle}]`), `baseline` (`env:<id>` / `snapshot:<n>`), `ignoreRules` |
 
 Контроллеры: `EnvironmentController` (окружения), `VcController` (`_pgvc`, схема, коммиты, откат, граф, сравнение,
 push), `MigrationExportController` (офлайн-бандлы).
@@ -120,6 +124,15 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
 | `indexes.sql` | `pg_index` (`relkind IN ('i','I')`) без индексов PK/UNIQUE/EXCLUDE (`conindid`) и без автоматически привязанных индексов партиций |
 | `sequences.sql` | `pg_sequence`: параметры и колонка-владелец; последовательности identity-колонок пропускаются |
 | `views.sql`, `view-dependencies.sql` | обычные и materialized view, `pg_get_viewdef`, зависимости от таблиц и колонок |
+| `functions.sql` | `pg_proc` (`prokind` f / p / w, агрегаты пропускаются): `pg_get_functiondef`, перегрузки через `pg_get_function_identity_arguments`, `pg_get_function_result` |
+| `triggers.sql` | `pg_trigger` с `NOT tgisinternal`, `pg_get_triggerdef(oid, true)`, `tgenabled`, функция триггера; на PG13+ клоны в партициях (`tgparentid <> 0`) пропускаются |
+| `enums.sql` | `pg_type` (`typtype = 'e'`) и метки `pg_enum` в порядке `enumsortorder` |
+| `extensions.sql` | `pg_extension` (кроме `plpgsql`): имя, схема, версия |
+
+Комментарии (`obj_description` / `col_description`), владельцы (`pg_get_userbyid`), права (`aclexplode` от `relacl` /
+`proacl`, а если они `NULL` — от `acldefault`; права самого владельца не хранятся) и tablespace (`reltablespace`, `0` —
+tablespace базы по умолчанию) читаются теми же запросами таблиц, представлений, последовательностей и функций.
+Снимок v1.6.0 имеет `formatVersion = 2`.
 
 Особенности модели:
 
@@ -213,6 +226,74 @@ curl -X POST localhost:8765/api/environments/dev/pgvc/initialize
 
 В UI: **Sync / Push to Env** → при несвязанных историях появляется панель **Link … to the history of …** с найденным
 коммитом и кнопкой **Link to …**; после привязки окно сразу показывает коммиты для push.
+
+## Функции, триггеры, ENUM, расширения, комментарии, права; правила игнорирования; матрица N баз (Шаг 11)
+
+### Новые объекты в Diff Engine
+
+| Объект | Новый | Изменён | Удалён |
+|---|---|---|---|
+| Функция / процедура | `CREATE OR REPLACE` (из `pg_get_functiondef`) | тело или параметры по умолчанию — `CREATE OR REPLACE`; тип результата или функция ↔ процедура — `DROP` + `CREATE` (триггеры на ней пересоздаются) | `DROP FUNCTION / PROCEDURE имя(аргументы)` |
+| Триггер | `CREATE TRIGGER … EXECUTE FUNCTION` (+ `DISABLE` / `ENABLE REPLICA / ALWAYS`) | определение — `DROP TRIGGER` + `CREATE TRIGGER`; только состояние — `ALTER TABLE … ENABLE / DISABLE TRIGGER` | `DROP TRIGGER IF EXISTS … ON …` |
+| ENUM | `CREATE TYPE … AS ENUM (…)` | добавленные метки — `ALTER TYPE … ADD VALUE IF NOT EXISTS 'x' AFTER 'y'`; удалённые или переставленные — предупреждение `MANUAL ACTION REQUIRED` | `DROP TYPE` |
+| Расширение | `CREATE EXTENSION IF NOT EXISTS "x" WITH SCHEMA s` | версия — `ALTER EXTENSION … UPDATE TO`, схема — `SET SCHEMA` | `DROP EXTENSION IF EXISTS` |
+| Комментарий | `COMMENT ON TABLE / COLUMN / VIEW / FUNCTION / TYPE … IS '…'` (кавычки удваиваются) | то же | `… IS NULL` |
+| Владелец / права / tablespace | `ALTER … OWNER TO`, `GRANT`, у новой функции `REVOKE EXECUTE … FROM PUBLIC`, если его нет в эталоне; `TABLESPACE` в `CREATE TABLE` | `OWNER TO`, `GRANT` / `REVOKE` (в т. ч. `GRANT OPTION`), `SET TABLESPACE` | — |
+
+Перегрузки функций — разные объекты: ключ `схема.имя(аргументы идентичности)`. Переименование функции, триггера и
+ENUM-типа с тем же OID — `ALTER … RENAME`. `EXECUTE PROCEDURE` (так пишет PostgreSQL 11) и `EXECUTE FUNCTION`
+считаются одинаковыми. Тела функций сравниваются текстом `pg_get_functiondef` без собственного имени функции.
+
+Порядок фаз: `ALTER TYPE … ADD VALUE` (отдельным шагом вне транзакции — PostgreSQL 11 не выполняет его в
+транзакции, на 12+ новая метка доступна только после `COMMIT`) → `-- pgvc:step` → `SET LOCAL check_function_bodies =
+off` (если создаются функции) → схемы → расширения → удаление триггеров и view → … → ENUM-типы → последовательности →
+функции → таблицы → функции, чья сигнатура использует новую таблицу → ограничения, индексы → view → триггеры →
+комментарии → владельцы, права, tablespace → удаление функций, типов, расширений, схем.
+
+У каждого `ChangeItem` теперь есть `rootType` / `rootName` — объект верхнего уровня, к которому относится изменение
+(колонка, ограничение, индекс, триггер, комментарий — к своей таблице). Ими пользуются матрица и обозреватель схемы.
+
+**Старые снимки.** Снимки v1.5.0 и раньше (`formatVersion = 1`) не содержат новых категорий. При сравнении с таким
+снимком функции, триггеры, ENUM, расширения, комментарии, владельцы, права и tablespace пропускаются с обеих сторон,
+поэтому после обновления Working Tree не покажет все функции как новые. Следующий коммит запишет снимок версии 2 —
+дальше они сравниваются. Если на разных окружениях функции разные, проверка после push это покажет (матрица — тоже).
+
+### Правила игнорирования (`DiffIgnoreRules`)
+
+`ignoreComments`, `ignoreTablespaces`, `ignoreOwnersAndGrants`, `ignorePartitions`, `excludedObjectPatterns`.
+По умолчанию игнорируются владельцы, права и tablespace (роли и диски на серверах обычно разные). Правила хранятся в
+`pgvc-settings.json` рядом с `pgvc-environments.json` (`pgvc.settings-file`), меняются окном «Правила игнорирования»
+или `PUT /api/settings/ignore-rules`.
+
+`SnapshotFilter` применяет правила к копиям обоих снимков внутри `SchemaDiffEngine`, поэтому они действуют везде,
+где сравниваются схемы: Working Tree и коммит из него, проверки «база совпадает с HEAD» перед push / откатом / привязкой
+и проверка после них, сравнение окружений, слепков и матрица. Сравнение со слепком и матрица принимают разовые правила
+(`ignoreRules` в запросе). Сохранённые в коммитах снимки остаются полными.
+
+Шаблоны: glob (`%` и `*` — любые символы, `?` — один, `_` — буквально, совпадение целиком) или regex (`re:…` или
+`/…/`, поиск подстроки); без учёта регистра; проверяются имя и `схема.имя`. Подходят таблицы (и их партиции),
+view, последовательности (и последовательности исключённых таблиц), функции, ENUM, триггеры, индексы и расширения.
+`ignorePartitions` убирает все партиции, сами партиционированные таблицы сравниваются.
+
+### Матрица N баз
+
+`MatrixCompareService`: каждая база (живое окружение — интроспекция параллельно, или загруженный слепок)
+сравнивается с эталоном `SchemaDiffEngine.compare(база, эталон, matchByNameOnly = true, правила)`. Изменения
+группируются по `rootType` / `rootName` в строки `MatrixRowDto (type, name, differs, cells)`; ячейка
+`MatrixCellDto (status, differences, upSql, downSql, warnings)`:
+
+| Статус | Значение |
+|---|---|
+| `IDENTICAL` | как в эталоне |
+| `MODIFIED` | есть в обоих, отличается (колонки, определение, комментарий, права …) |
+| `MISSING` | есть в эталоне, нет здесь |
+| `EXTRA_ONLY_HERE` | есть только здесь |
+| `ABSENT` | нет ни здесь, ни в эталоне (объект есть только в других базах) |
+| `UNAVAILABLE` | базу не удалось прочитать (ошибка — в заголовке столбца) |
+
+`upSql` ячейки приводит объект в этой базе к состоянию эталона. Окно «🌐 Матрица N баз»: выбор окружений,
+загрузка слепков, выбор эталона, разовые правила (с кнопкой «Сохранить по умолчанию»), фильтр «Только различия»,
+поиск; клик по отличающейся ячейке открывает различия, предупреждения и SQL (UP / обратный).
 
 ## Безопасность миграций и безопасное выполнение (Шаг 10)
 

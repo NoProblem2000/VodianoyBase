@@ -22,7 +22,14 @@ import java.util.Map;
 @AllArgsConstructor
 public class DatabaseSnapshot {
 
-    public static final int FORMAT_VERSION = 1;
+    /**
+     * 1: tables, views, sequences. 2 (v1.6.0): also functions, triggers, ENUM types, extensions, comments, owners,
+     * grants and tablespaces. When a version-1 snapshot is compared, the categories added in version 2 are skipped.
+     */
+    public static final int FORMAT_VERSION = 2;
+
+    /** First format version with functions, triggers, enums, extensions, comments, owners, grants, tablespaces. */
+    public static final int EXTENDED_OBJECTS_VERSION = 2;
 
     @Builder.Default
     private int formatVersion = FORMAT_VERSION;
@@ -55,6 +62,18 @@ public class DatabaseSnapshot {
     @Builder.Default
     private Map<String, SequenceModel> sequences = new LinkedHashMap<>();
 
+    /** Functions and procedures by {@code schema.name(identity arguments)}. */
+    @Builder.Default
+    private Map<String, FunctionModel> functions = new LinkedHashMap<>();
+
+    /** ENUM types by {@code schema.type}. */
+    @Builder.Default
+    private Map<String, EnumTypeModel> enumTypes = new LinkedHashMap<>();
+
+    /** Extensions by name (database-wide, not limited to the snapshot's schemas). */
+    @Builder.Default
+    private Map<String, ExtensionModel> extensions = new LinkedHashMap<>();
+
     /** Map key / reference format used everywhere in the model. */
     public static String key(String schemaName, String objectName) {
         return schemaName + "." + objectName;
@@ -62,6 +81,13 @@ public class DatabaseSnapshot {
 
     @JsonIgnore
     public boolean isEmpty() {
-        return tables.isEmpty() && views.isEmpty() && sequences.isEmpty();
+        // extensions are not user schema: a fresh database with an extension is still "empty"
+        return tables.isEmpty() && views.isEmpty() && sequences.isEmpty() && functions.isEmpty() && enumTypes.isEmpty();
+    }
+
+    /** The snapshot contains functions, triggers, enums, extensions, comments, owners, grants and tablespaces. */
+    @JsonIgnore
+    public boolean hasExtendedObjects() {
+        return formatVersion >= EXTENDED_OBJECTS_VERSION;
     }
 }

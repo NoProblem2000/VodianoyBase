@@ -13,6 +13,8 @@ pgvc:
   # filled in by Maven resource filtering (spring-boot-starter-parent, @...@ delimiters)
   version: '@project.version@'
   environments-file: ./pgvc-environments.json
+  # blank: pgvc-settings.json next to the environments file
+  settings-file: ""
   connect-timeout-seconds: 5
   max-pool-size: 4
   # defaults for every executed migration / rollback / push (SET LOCAL ...)

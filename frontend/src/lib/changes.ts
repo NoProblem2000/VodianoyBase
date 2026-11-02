@@ -9,22 +9,24 @@ export const CHANGE_CLASSES: Record<ChangeType, string> = {
   DELETED: 'bg-change-deleted/15 text-change-deleted border-change-deleted/40',
 };
 
+const TOP_LEVEL = new Set(['TABLE', 'PARTITION', 'VIEW', 'SEQUENCE', 'FUNCTION', 'PROCEDURE', 'TYPE', 'EXTENSION']);
+
 /**
- * Change indicator per relation (schema.name) for the Schema Explorer: the relation's own change, or "M" when only
- * its columns / constraints / indexes changed.
+ * Change indicator per top-level object (schema.name, function key, extension name) for the Schema Explorer: the
+ * object's own change, or "M" when only its columns / constraints / indexes / triggers / comments / grants changed.
  */
 export function relationIndicators(changes: ChangeItem[]): Map<string, ChangeType> {
   const result = new Map<string, ChangeType>();
   for (const c of changes) {
-    if (c.objectType === 'TABLE' || c.objectType === 'PARTITION' || c.objectType === 'VIEW' || c.objectType === 'SEQUENCE') {
-      result.set(c.objectName, c.changeType);
+    if (TOP_LEVEL.has(c.objectType) && (!c.rootName || c.rootName === c.objectName)) {
+      if (!result.has(c.objectName) || c.changeType !== 'MODIFIED') result.set(c.objectName, c.changeType);
     }
   }
   for (const c of changes) {
-    if (c.objectType === 'COLUMN' || c.objectType === 'CONSTRAINT') {
-      const owner = c.objectName.split('.').slice(0, 2).join('.');
-      if (!result.has(owner)) result.set(owner, 'MODIFIED');
-    }
+    const owner = c.rootName ?? (c.objectType === 'COLUMN' || c.objectType === 'CONSTRAINT'
+      ? c.objectName.split('.').slice(0, 2).join('.')
+      : null);
+    if (owner && owner !== c.objectName && !result.has(owner)) result.set(owner, 'MODIFIED');
   }
   return result;
 }

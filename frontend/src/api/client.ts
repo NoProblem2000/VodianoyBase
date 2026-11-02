@@ -15,7 +15,10 @@ import type {
   SqlSafetyReport,
   DeletionPlan,
   DeletionResult,
+  DiffIgnoreRules,
   GlobalGraph,
+  MatrixComparison,
+  MatrixSnapshotUpload,
   SnapshotBundle,
   SnapshotComparison,
   LinkResult,
@@ -132,6 +135,19 @@ export const api = {
 
   about: () => get<AboutInfo>('/about'),
 
+  // default ignore rules of every comparison
+  ignoreRules: () => get<DiffIgnoreRules>('/settings/ignore-rules'),
+  saveIgnoreRules: (rules: DiffIgnoreRules) =>
+    http.put<DiffIgnoreRules>('/settings/ignore-rules', rules).then((r) => r.data),
+
+  // N-database matrix
+  matrix: (body: {
+    envIds: string[];
+    snapshots: MatrixSnapshotUpload[];
+    baseline: string | null;
+    ignoreRules: DiffIgnoreRules | null;
+  }) => post<MatrixComparison>('/vc/matrix/compare', body),
+
   // reference snapshots (.pgsnap.json)
   /** Downloads snapshot_<branch>_<hash>.pgsnap.json of a commit (default: HEAD, or the live schema). */
   downloadSnapshot: async (envId: string, commitHash?: string | null): Promise<string> => {
@@ -149,8 +165,8 @@ export const api = {
     window.setTimeout(() => URL.revokeObjectURL(url), 10000);
     return fileName;
   },
-  compareSnapshot: (envId: string, bundle: SnapshotBundle) =>
-    post<SnapshotComparison>('/vc/snapshot/compare', { envId, bundle }),
+  compareSnapshot: (envId: string, bundle: SnapshotBundle, ignoreRules?: DiffIgnoreRules | null) =>
+    post<SnapshotComparison>('/vc/snapshot/compare', { envId, bundle, ignoreRules: ignoreRules ?? null }),
   applySnapshot: (body: SnapshotApplyBody) => post<CommitResult>('/vc/snapshot/apply', { ...body, dryRun: false }),
   dryRunSnapshot: (body: SnapshotApplyBody) => post<DryRunResult>('/vc/snapshot/apply', { ...body, dryRun: true }),
   deletionPlan: (hash: string, mode: DeletionMode) =>

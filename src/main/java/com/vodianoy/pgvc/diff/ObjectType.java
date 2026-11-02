@@ -9,5 +9,13 @@ public enum ObjectType {
     CONSTRAINT,
     INDEX,
     VIEW,
-    SEQUENCE
+    SEQUENCE,
+    FUNCTION,
+    PROCEDURE,
+    TRIGGER,
+    /** ENUM type. */
+    TYPE,
+    EXTENSION,
+    /** COMMENT ON a table, column, view, function or type (the commented object is the item's root). */
+    COMMENT
 }

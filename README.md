@@ -3,7 +3,7 @@
 **[English](#english) · [Русский](#русский)**
 
 Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.5.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
+One executable `pg-git-vc-1.6.0.jar` (Spring Boot 3 + embedded React UI), no Docker.
 Open source under the [Apache License 2.0](LICENSE).
 
 ---
@@ -39,7 +39,15 @@ Open source under the [Apache License 2.0](LICENSE).
 - **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
   records them — all inside `BEGIN … COMMIT`.
 - **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
-  materialized views and sequences; renames are detected by `oid` / `attnum`. Only `pg_catalog` is used.
+  materialized views, sequences, **functions and procedures** (overloads included), **triggers**, **ENUM types**,
+  **extensions**, **comments**, and — when you want them — **owners, GRANTs and tablespaces**; renames are detected by
+  `oid` / `attnum`. Only `pg_catalog` is used.
+- **Ignore rules.** Skip comments, owners & grants, tablespaces, partitions, or any object by pattern (`tmp_%`,
+  `bak_*`, `re:^tmp_\d+$`). The saved rules apply to every comparison — working tree, commits, the checks around push
+  and rollback, environment and snapshot compare; a comparison can override them once.
+- **🌐 N-Database Matrix.** Compare any number of environments and `.pgsnap.json` files with one baseline: one row per
+  object, one column per database — identical / differs / missing / only here. Click a cell to see what differs and
+  the SQL that brings that database to the baseline.
 - **Russian and English UI**, switched instantly; server messages follow the selected language.
 
 ### Download and run
@@ -48,7 +56,7 @@ Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2
 Only **Java 17+** is needed:
 
 ```bash
-java -jar pg-git-vc-1.5.0.jar
+java -jar pg-git-vc-1.6.0.jar
 ```
 
 Open http://localhost:8765.
@@ -59,9 +67,9 @@ Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven do
 the React UI from `frontend/` and puts it into the jar.
 
 ```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.5.0.jar
+mvn clean package                  # tests + UI + target/pg-git-vc-1.6.0.jar
 mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.5.0.jar
+java -jar target/pg-git-vc-1.6.0.jar
 ```
 
 Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
@@ -126,6 +134,7 @@ snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bund
 | `pgvc.max-pool-size` | `4` connections per environment |
 | `pgvc.lock-timeout` | `3s` (default of every migration, rollback and push) |
 | `pgvc.statement-timeout` | `60s` |
+| `pgvc.settings-file` | `pgvc-settings.json` next to the environments file (default ignore rules) |
 
 ### Releases
 
@@ -176,8 +185,16 @@ either express or implied. See the License for the specific language governing p
 - **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
   коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
 - Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
-  материализованные представления и последовательности; переименования распознаются по `oid` / `attnum`. Источник —
-  только `pg_catalog`.
+  материализованные представления, последовательности, **функции и процедуры** (с перегрузками), **триггеры**,
+  **ENUM-типы**, **расширения**, **комментарии**, а при желании — **владельцы, GRANT и tablespace**; переименования
+  распознаются по `oid` / `attnum`. Источник — только `pg_catalog`.
+- **Правила игнорирования.** Можно не сравнивать комментарии, владельцев и права, tablespace, партиции или любые
+  объекты по шаблону (`tmp_%`, `bak_*`, `re:^tmp_\d+$`). Сохранённые правила действуют во всех сравнениях — Working
+  Tree, коммиты, проверки вокруг push и отката, сравнение окружений и слепков; отдельное сравнение может их разово
+  переопределить.
+- **🌐 Матрица N баз.** Сравнение любого числа окружений и файлов `.pgsnap.json` с одной эталонной базой: строка на
+  объект, столбец на базу — совпадает / отличается / нет / только здесь. По клику на ячейку видно, что именно
+  отличается, и SQL, который приводит эту базу к эталону.
 - **Интерфейс на русском и английском** с мгновенным переключением; сообщения сервера приходят на выбранном языке.
 
 ### Скачать и запустить
@@ -186,7 +203,7 @@ either express or implied. See the License for the specific language governing p
 Нужна только **Java 17+**:
 
 ```bash
-java -jar pg-git-vc-1.5.0.jar
+java -jar pg-git-vc-1.6.0.jar
 ```
 
 Откройте http://localhost:8765.
@@ -197,9 +214,9 @@ java -jar pg-git-vc-1.5.0.jar
 React-интерфейс из `frontend/` и положит его внутрь jar.
 
 ```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.5.0.jar
+mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.6.0.jar
 mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.5.0.jar
+java -jar target/pg-git-vc-1.6.0.jar
 ```
 
 Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
@@ -264,6 +281,7 @@ src/main/java/com/vodianoy/pgvc/
 | `pgvc.max-pool-size` | `4` соединения на окружение |
 | `pgvc.lock-timeout` | `3s` (по умолчанию для миграций, откатов и push) |
 | `pgvc.statement-timeout` | `60s` |
+| `pgvc.settings-file` | `pgvc-settings.json` рядом с файлом окружений (правила игнорирования по умолчанию) |
 
 ### Релизы
 
