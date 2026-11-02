@@ -40,6 +40,8 @@ export function ReferenceDataModal({ env, author, initialized, onChanged, onClos
 
   async function toggle(table: ReferenceDataTable, track: boolean) {
     setBusy(table.key);
+    // optimistic: the checkbox follows the click at once, the list is reloaded (or restored) afterwards
+    setTables((all) => (all ?? []).map((x) => (x.key === table.key ? { ...x, tracked: track } : x)));
     try {
       if (track) {
         await api.trackTable(env.id, table.key, author);
@@ -52,6 +54,7 @@ export function ReferenceDataModal({ env, author, initialized, onChanged, onClos
       onChanged();
     } catch (e) {
       toast.error((e as Error).message);
+      await load();
     } finally {
       setBusy(null);
     }

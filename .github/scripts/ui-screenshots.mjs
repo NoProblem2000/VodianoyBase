@@ -295,7 +295,7 @@ await step('16p-reference-data', async () => {
   const table = page.getByRole('table', { name: '📌 Reference Data Tables' });
   await table.waitFor({ timeout: 20000 });
   const box = page.getByRole('checkbox', { name: '📌 Track as Reference Data: sales.customers' });
-  await box.check();
+  await box.click();
   await toast(/sales\.customers is tracked as reference data/);
   await page.waitForTimeout(800);
   if (!(await page.getByRole('checkbox', { name: '📌 Track as Reference Data: sales.customers' }).isChecked())) {
