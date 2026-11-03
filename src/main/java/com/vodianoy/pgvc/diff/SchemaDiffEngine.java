@@ -15,6 +15,7 @@ import com.vodianoy.pgvc.model.schema.TriggerModel;
 import com.vodianoy.pgvc.model.schema.ViewDependency;
 import com.vodianoy.pgvc.model.schema.ViewModel;
 import com.vodianoy.pgvc.settings.DiffSettingsService;
+import com.vodianoy.pgvc.util.SqlIdentifiers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -202,44 +203,48 @@ public class SchemaDiffEngine {
         private static final int PRELUDE = 2;
         private static final int CREATE_SCHEMA = 3;
         private static final int CREATE_EXTENSION = 4;
-        private static final int DROP_TRIGGER = 5;
-        private static final int DROP_VIEW = 6;
-        private static final int RELEASE_OWNERSHIP = 7;
-        private static final int DROP_FOREIGN_KEY = 8;
-        private static final int DROP_CONSTRAINT = 9;
-        private static final int DROP_INDEX = 10;
-        private static final int DETACH_PARTITION = 11;
-        private static final int DROP_TABLE = 12;
-        private static final int RENAME_RELATION = 13;
-        private static final int RENAME_COLUMN = 14;
-        private static final int RENAME_OTHER = 15;
-        private static final int CREATE_TYPE = 16;
-        private static final int DROP_SEQUENCE = 17;
-        private static final int CREATE_SEQUENCE = 18;
-        private static final int ALTER_SEQUENCE = 19;
-        private static final int CREATE_FUNCTION = 20;
-        private static final int CREATE_TABLE = 21;
-        private static final int ALTER_TABLE = 22;
+        /** Rows of a table that is recreated are copied into a temporary table before anything is dropped. */
+        private static final int BACKUP_DATA = 5;
+        private static final int DROP_TRIGGER = 6;
+        private static final int DROP_VIEW = 7;
+        private static final int RELEASE_OWNERSHIP = 8;
+        private static final int DROP_FOREIGN_KEY = 9;
+        private static final int DROP_CONSTRAINT = 10;
+        private static final int DROP_INDEX = 11;
+        private static final int DETACH_PARTITION = 12;
+        private static final int DROP_TABLE = 13;
+        private static final int RENAME_RELATION = 14;
+        private static final int RENAME_COLUMN = 15;
+        private static final int RENAME_OTHER = 16;
+        private static final int CREATE_TYPE = 17;
+        private static final int DROP_SEQUENCE = 18;
+        private static final int CREATE_SEQUENCE = 19;
+        private static final int ALTER_SEQUENCE = 20;
+        private static final int CREATE_FUNCTION = 21;
+        private static final int CREATE_TABLE = 22;
+        private static final int ALTER_TABLE = 23;
         /** Functions whose arguments / result use a table created by the same migration. */
-        private static final int CREATE_FUNCTION_LATE = 23;
-        private static final int ATTACH_PARTITION = 24;
-        private static final int ADD_CONSTRAINT = 25;
-        private static final int ADD_FOREIGN_KEY = 26;
-        private static final int CREATE_INDEX = 27;
-        private static final int SEQUENCE_OWNERSHIP = 28;
-        private static final int CREATE_VIEW = 29;
-        private static final int CREATE_VIEW_INDEX = 30;
-        private static final int CREATE_TRIGGER = 31;
-        private static final int COMMENT = 32;
+        private static final int CREATE_FUNCTION_LATE = 24;
+        private static final int ATTACH_PARTITION = 25;
+        /** The copied rows go into the recreated table once it and its partitions exist, before keys and indexes. */
+        private static final int RESTORE_DATA = 26;
+        private static final int ADD_CONSTRAINT = 27;
+        private static final int ADD_FOREIGN_KEY = 28;
+        private static final int CREATE_INDEX = 29;
+        private static final int SEQUENCE_OWNERSHIP = 30;
+        private static final int CREATE_VIEW = 31;
+        private static final int CREATE_VIEW_INDEX = 32;
+        private static final int CREATE_TRIGGER = 33;
+        private static final int COMMENT = 34;
         /** Owners, grants, tablespaces. */
-        private static final int ACCESS = 33;
+        private static final int ACCESS = 35;
         /** Reference data: DELETE of removed rows, then INSERT ... ON CONFLICT of new and changed rows. */
-        private static final int DATA_DELETE = 34;
-        private static final int DATA_UPSERT = 35;
-        private static final int DROP_FUNCTION = 36;
-        private static final int DROP_TYPE = 37;
-        private static final int DROP_EXTENSION = 38;
-        private static final int DROP_SCHEMA = 39;
+        private static final int DATA_DELETE = 36;
+        private static final int DATA_UPSERT = 37;
+        private static final int DROP_FUNCTION = 38;
+        private static final int DROP_TYPE = 39;
+        private static final int DROP_EXTENSION = 40;
+        private static final int DROP_SCHEMA = 41;
 
         /** Default privileges of a new object for other roles than its owner. */
         private static final List<String> NO_GRANTS = List.of();
@@ -271,6 +276,10 @@ public class SchemaDiffEngine {
 
         private Matching<TableModel> tables;
         private Matching<ViewModel> views;
+        /** Tables whose partitioning changes are dropped and created again (with their partitions). */
+        private final List<Recreation> recreations = new ArrayList<>();
+        private final Map<String, Recreation> recreationByFromKey = new HashMap<>();
+        private final Map<String, Recreation> recreationByToKey = new HashMap<>();
         /** from-keys of functions that are dropped and created again (their triggers are recreated too). */
         private final Set<String> recreatedFunctions = new HashSet<>();
         private boolean functionPrelude;
@@ -302,6 +311,8 @@ public class SchemaDiffEngine {
             for (ViewModel v : views.removed) {
                 relationMapping.put(v.getQualifiedName(), DROPPED + v.getQualifiedName());
             }
+
+            planRecreations();
 
             diffSchemas();
             diffExtensions();
@@ -417,18 +428,17 @@ public class SchemaDiffEngine {
                 ChangeItem item = item(ChangeType.DELETED, tableType(f), key, "dropped, its data will be lost",
                         pairKey("table", id(f.getOid()), null));
                 warn(item, (f.isPartition() ? "Partition " : "Table ") + key + " is dropped: its data will be lost.");
-                for (ConstraintModel c : sorted(f.getConstraints())) {
-                    if (c.getType() == ConstraintType.FOREIGN_KEY) {
-                        emit(DROP_FOREIGN_KEY, item, "ALTER TABLE " + qualified(f.getSchemaName(), f.getName())
-                                + " DROP CONSTRAINT " + ident(c.getName()) + ";");
-                    }
-                }
+                emitDropForeignKeys(item, f);
                 boolean droppedWithParent = f.isPartition() && droppedTables.contains(f.getParentTable());
                 if (droppedWithParent) {
                     emit(DROP_TABLE, item, "-- " + key + " is dropped together with its parent " + f.getParentTable());
                 } else {
                     emit(DROP_TABLE, item, "DROP TABLE " + qualified(f.getSchemaName(), f.getName()) + ";");
                 }
+            }
+
+            for (Recreation r : recreations) {
+                emitRecreation(r);
             }
 
             Map<String, TableModel> toByKey = to.getTables();
@@ -440,37 +450,261 @@ public class SchemaDiffEngine {
                         : t.isPartitioned() ? "new table partitioned by " + t.getPartitionKeyDef() : "new table";
                 ChangeItem item = item(ChangeType.ADDED, tableType(t), t.getQualifiedName(), details,
                         pairKey("table", null, id(t.getOid())));
-                emit(CREATE_TABLE, item, createTable(t));
-                for (ConstraintModel c : sorted(t.getConstraints())) {
-                    emit(c.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(t, c));
-                }
-                for (IndexModel i : sorted(t.getIndexes())) {
-                    emit(CREATE_INDEX, item, createIndex(i));
-                }
-                String tq = qualified(t.getSchemaName(), t.getName());
-                for (TriggerModel tr : sorted(t.getTriggers())) {
-                    emit(CREATE_TRIGGER, item, createTrigger(tr));
-                    String state = triggerState(tq, tr);
-                    if (state != null && !"O".equals(tr.getEnabled())) {
-                        emit(CREATE_TRIGGER, item, state);
-                    }
-                }
-                if (t.getComment() != null) {
-                    emit(COMMENT, item, "COMMENT ON TABLE " + tq + " IS " + literal(t.getComment()) + ";");
-                }
-                for (ColumnModel c : byAttnumOrder(t)) {
-                    if (c.getComment() != null && !t.isPartition()) {
-                        emit(COMMENT, item, "COMMENT ON COLUMN " + tq + "." + ident(c.getName()) + " IS "
-                                + literal(c.getComment()) + ";");
-                    }
-                }
-                emitNewAccess(item, "ALTER TABLE " + tq, "TABLE " + tq, t.getOwner(), t.getAcl(), NO_GRANTS);
+                emitTableObjects(item, t);
                 diffReferenceData(null, t);
             }
 
             for (Matching.Pair<TableModel> p : tables.matched) {
                 diffTable(p.from(), p.to());
             }
+        }
+
+        /** Foreign keys of a table that is dropped: dropped first, so the order of the DROP TABLEs does not matter. */
+        private void emitDropForeignKeys(ChangeItem item, TableModel f) {
+            for (ConstraintModel c : sorted(f.getConstraints())) {
+                if (c.getType() == ConstraintType.FOREIGN_KEY) {
+                    emit(DROP_FOREIGN_KEY, item, "ALTER TABLE " + qualified(f.getSchemaName(), f.getName())
+                            + " DROP CONSTRAINT " + ident(c.getName()) + ";");
+                }
+            }
+        }
+
+        /** CREATE TABLE with everything that belongs to the table: constraints, indexes, triggers, comments, grants. */
+        private void emitTableObjects(ChangeItem item, TableModel t) {
+            emit(CREATE_TABLE, item, createTable(t));
+            for (ConstraintModel c : sorted(t.getConstraints())) {
+                emit(c.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(item, t, c));
+            }
+            for (IndexModel i : sorted(t.getIndexes())) {
+                emit(CREATE_INDEX, item, createIndex(i));
+            }
+            String tq = qualified(t.getSchemaName(), t.getName());
+            for (TriggerModel tr : sorted(t.getTriggers())) {
+                emit(CREATE_TRIGGER, item, createTrigger(tr));
+                String state = triggerState(tq, tr);
+                if (state != null && !"O".equals(tr.getEnabled())) {
+                    emit(CREATE_TRIGGER, item, state);
+                }
+            }
+            if (t.getComment() != null) {
+                emit(COMMENT, item, "COMMENT ON TABLE " + tq + " IS " + literal(t.getComment()) + ";");
+            }
+            for (ColumnModel c : byAttnumOrder(t)) {
+                if (c.getComment() != null && !t.isPartition()) {
+                    emit(COMMENT, item, "COMMENT ON COLUMN " + tq + "." + ident(c.getName()) + " IS "
+                            + literal(c.getComment()) + ";");
+                }
+            }
+            emitNewAccess(item, "ALTER TABLE " + tq, "TABLE " + tq, t.getOwner(), t.getAcl(), NO_GRANTS);
+        }
+
+        // ------------------------------------------------------------------ recreated tables (partitioning changes)
+
+        /**
+         * A table whose partitioning changes (not partitioned -> partitioned, partitioned -> not partitioned, another
+         * partition key). PostgreSQL cannot alter that in place, so the table is dropped and created again: its rows
+         * are copied into a temporary table first and inserted into the new table afterwards (rows are routed into the
+         * new partitions). Its partitions, the foreign keys of other tables that reference it, the views that read it
+         * and the sequences it owns are recreated with it - all statements belong to one change.
+         */
+        private static final class Recreation {
+            final TableModel from;
+            final TableModel to;
+            /** "from" tables dropped together with the root (the root and its partitions). */
+            final List<TableModel> dropped = new ArrayList<>();
+            /** "to" tables created (the root and its partitions). */
+            final List<TableModel> created = new ArrayList<>();
+            ChangeItem item;
+
+            Recreation(TableModel from, TableModel to) {
+                this.from = from;
+                this.to = to;
+            }
+        }
+
+        private static boolean partitioningChanged(TableModel f, TableModel t) {
+            return f.isPartitioned() != t.isPartitioned() || !Objects.equals(f.getPartitionKeyDef(), t.getPartitionKeyDef());
+        }
+
+        private void planRecreations() {
+            Set<String> fromKeys = new HashSet<>();
+            Set<String> toKeys = new HashSet<>();
+            for (Matching.Pair<TableModel> p : tables.matched) {
+                if (partitioningChanged(p.from(), p.to())) {
+                    fromKeys.add(p.from().getQualifiedName());
+                    toKeys.add(p.to().getQualifiedName());
+                }
+            }
+            if (fromKeys.isEmpty()) {
+                return;
+            }
+            // partitions of a recreated table are recreated with it (also partitions of partitions)
+            List<Matching.Pair<TableModel>> members = new ArrayList<>();
+            List<TableModel> removedMembers = new ArrayList<>();
+            List<TableModel> addedMembers = new ArrayList<>();
+            boolean grown = true;
+            while (grown) {
+                grown = false;
+                for (Matching.Pair<TableModel> p : tables.matched) {
+                    boolean member = fromKeys.contains(p.from().getQualifiedName())
+                            || (p.from().isPartition() && fromKeys.contains(p.from().getParentTable()))
+                            || (p.to().isPartition() && toKeys.contains(p.to().getParentTable()));
+                    if (member && !members.contains(p)) {
+                        members.add(p);
+                        fromKeys.add(p.from().getQualifiedName());
+                        toKeys.add(p.to().getQualifiedName());
+                        grown = true;
+                    }
+                }
+                for (TableModel f : tables.removed) {
+                    if (f.isPartition() && fromKeys.contains(f.getParentTable()) && fromKeys.add(f.getQualifiedName())) {
+                        removedMembers.add(f);
+                        grown = true;
+                    }
+                }
+                for (TableModel t : tables.added) {
+                    if (t.isPartition() && toKeys.contains(t.getParentTable()) && toKeys.add(t.getQualifiedName())) {
+                        addedMembers.add(t);
+                        grown = true;
+                    }
+                }
+            }
+            tables.matched.removeAll(members);
+            tables.removed.removeAll(removedMembers);
+            tables.added.removeAll(addedMembers);
+
+            // one recreation per topmost table, the partitions below it join it
+            for (Matching.Pair<TableModel> p : members) {
+                boolean root = !(p.from().isPartition() && fromKeys.contains(p.from().getParentTable()))
+                        && !(p.to().isPartition() && toKeys.contains(p.to().getParentTable()));
+                if (root) {
+                    Recreation r = new Recreation(p.from(), p.to());
+                    recreations.add(r);
+                    recreationByFromKey.put(p.from().getQualifiedName(), r);
+                    recreationByToKey.put(p.to().getQualifiedName(), r);
+                }
+            }
+            Map<String, TableModel> fromTables = from.getTables();
+            Map<String, TableModel> toTables = to.getTables();
+            List<TableModel> fromMembers = new ArrayList<>(removedMembers);
+            List<TableModel> toMembers = new ArrayList<>(addedMembers);
+            for (Matching.Pair<TableModel> p : members) {
+                fromMembers.add(p.from());
+                toMembers.add(p.to());
+            }
+            for (TableModel f : fromMembers) {
+                Recreation r = recreationByFromKey.get(topmost(f, fromKeys, fromTables));
+                if (r != null) {
+                    r.dropped.add(f);
+                    recreationByFromKey.putIfAbsent(f.getQualifiedName(), r);
+                }
+            }
+            for (TableModel t : toMembers) {
+                Recreation r = recreationByToKey.get(topmost(t, toKeys, toTables));
+                if (r != null) {
+                    r.created.add(t);
+                    recreationByToKey.putIfAbsent(t.getQualifiedName(), r);
+                }
+            }
+            for (Recreation r : recreations) {
+                r.created.sort(Comparator.comparingInt((TableModel t) -> depth(t, toTables)).thenComparing(TableModel::getQualifiedName));
+            }
+        }
+
+        /** Key of the highest ancestor of {@code t} that is in {@code keys} (t itself when its parent is not). */
+        private static String topmost(TableModel t, Set<String> keys, Map<String, TableModel> byKey) {
+            TableModel cur = t;
+            Set<String> seen = new HashSet<>();
+            while (cur.isPartition() && keys.contains(cur.getParentTable()) && seen.add(cur.getQualifiedName())) {
+                TableModel parent = byKey.get(cur.getParentTable());
+                if (parent == null) {
+                    break;
+                }
+                cur = parent;
+            }
+            return cur.getQualifiedName();
+        }
+
+        private void emitRecreation(Recreation r) {
+            TableModel f = r.from;
+            TableModel t = r.to;
+            String fq = qualified(f.getSchemaName(), f.getName());
+            String tq = qualified(t.getSchemaName(), t.getName());
+            String change = describePartitioning(f) + " -> " + describePartitioning(t);
+            ChangeItem item = item(ChangeType.MODIFIED, tableType(t), t.getQualifiedName(),
+                    "recreated, partitioning changes: " + change + "; its rows are copied into the new table",
+                    pairKey("table-recreate", id(f.getOid()), id(t.getOid())));
+            r.item = item;
+            warn(item, "Table " + t.getQualifiedName() + " is recreated: its partitioning changes (" + change
+                    + ") and PostgreSQL cannot alter that in place. The rows are copied into the new table (a row that "
+                    + "fits no partition makes the migration fail); its partitions, dependent views, foreign keys "
+                    + "referencing it and owned sequences are recreated too.");
+
+            String copy = "pg_temp." + ident("_pgvc_copy_" + recreations.indexOf(r));
+            List<String> columns = copiedColumns(f, t);
+            if (columns.isEmpty()) {
+                warn(item, "Table " + t.getQualifiedName() + " has no column in common with its previous version: its rows are not kept.");
+            } else {
+                emit(BACKUP_DATA, item, "CREATE TEMPORARY TABLE " + ident("_pgvc_copy_" + recreations.indexOf(r))
+                        + " AS SELECT * FROM " + fq + ";");
+            }
+            for (TableModel dropped : r.dropped) {
+                emitDropForeignKeys(item, dropped);
+            }
+            emit(DROP_TABLE, item, "DROP TABLE " + fq + ";");
+            for (TableModel created : r.created) {
+                emitTableObjects(item, created);
+            }
+            if (!columns.isEmpty()) {
+                Map<String, ColumnModel> fromColumns = f.getColumns();
+                boolean overriding = false;
+                List<String> select = new ArrayList<>();
+                for (String name : columns) {
+                    ColumnModel tc = t.getColumns().get(name);
+                    ColumnModel fc = fromColumns.get(name);
+                    overriding |= "ALWAYS".equalsIgnoreCase(tc.getIdentityGeneration());
+                    select.add(fc.getDataType().equals(tc.getDataType()) ? ident(name)
+                            : ident(name) + "::" + tc.getDataType());
+                }
+                emit(RESTORE_DATA, item, "INSERT INTO " + tq + " (" + columns.stream().map(SqlIdentifiers::ident)
+                        .collect(Collectors.joining(", ")) + ")" + (overriding ? " OVERRIDING SYSTEM VALUE" : "")
+                        + "\n    SELECT " + String.join(", ", select) + " FROM " + copy + ";");
+                for (String name : columns) {
+                    if (t.getColumns().get(name).getIdentityGeneration() != null) {
+                        // the identity sequence of the new table starts at 1: continue after the copied values
+                        emit(RESTORE_DATA, item, "SELECT pg_catalog.setval(pg_catalog.pg_get_serial_sequence("
+                                + literal(tq) + ", " + literal(name) + "), m) FROM (SELECT max(" + ident(name)
+                                + ") AS m FROM " + tq + ") s WHERE m IS NOT NULL;");
+                    }
+                }
+                emit(RESTORE_DATA, item, "DROP TABLE " + copy + ";");
+            }
+            diffReferenceData(f, t);
+        }
+
+        /** Columns of the new table that are filled from the previous version (same name, not generated). */
+        private static List<String> copiedColumns(TableModel f, TableModel t) {
+            List<String> columns = new ArrayList<>();
+            for (ColumnModel tc : byAttnumOrder(t)) {
+                ColumnModel fc = f.getColumns().get(tc.getName());
+                if (fc != null && tc.getGeneratedExpression() == null) {
+                    columns.add(tc.getName());
+                }
+            }
+            return columns;
+        }
+
+        /** The recreation that a foreign key of another table depends on (its referenced table is recreated). */
+        private Recreation recreationReferencedBy(ConstraintModel fc, ConstraintModel tc) {
+            if (fc != null && fc.getType() == ConstraintType.FOREIGN_KEY && fc.getReferencedTable() != null
+                    && recreationByFromKey.containsKey(fc.getReferencedTable())) {
+                return recreationByFromKey.get(fc.getReferencedTable());
+            }
+            if (tc != null && tc.getType() == ConstraintType.FOREIGN_KEY && tc.getReferencedTable() != null
+                    && recreationByToKey.containsKey(tc.getReferencedTable())) {
+                return recreationByToKey.get(tc.getReferencedTable());
+            }
+            return null;
         }
 
         private static int depth(TableModel t, Map<String, TableModel> byKey) {
@@ -526,9 +760,101 @@ public class SchemaDiffEngine {
             return sb.toString();
         }
 
-        private static String addConstraint(TableModel t, ConstraintModel c) {
+        private String addConstraint(ChangeItem item, TableModel t, ConstraintModel c) {
+            String definition = c.getDefinition();
+            List<String> missing = missingPartitionColumns(t, c);
+            if (!missing.isEmpty()) {
+                definition = withKeyColumns(definition, missing);
+                warn(item, c.getType() + " " + c.getName() + " of the partitioned table " + t.getQualifiedName()
+                        + " did not contain the partition key column(s) " + String.join(", ", missing)
+                        + ", which PostgreSQL requires: they are added to the key.");
+            }
             return "ALTER TABLE " + qualified(t.getSchemaName(), t.getName()) + " ADD CONSTRAINT " + ident(c.getName())
-                    + " " + c.getDefinition() + ";";
+                    + " " + definition + ";";
+        }
+
+        /**
+         * A PRIMARY KEY / UNIQUE constraint of a partitioned table must contain every column of the partition key.
+         * Snapshots taken from PostgreSQL always do; this guards hand-edited or converted snapshots.
+         */
+        static List<String> missingPartitionColumns(TableModel t, ConstraintModel c) {
+            if (!t.isPartitioned() || (c.getType() != ConstraintType.PRIMARY_KEY && c.getType() != ConstraintType.UNIQUE)
+                    || c.getDefinition() == null || c.getColumns() == null || c.getColumns().isEmpty()) {
+                return List.of();
+            }
+            List<String> missing = new ArrayList<>();
+            for (String column : partitionKeyColumns(t.getPartitionKeyDef())) {
+                if (!c.getColumns().contains(column) && !missing.contains(column)) {
+                    missing.add(column);
+                }
+            }
+            return missing;
+        }
+
+        /** Plain columns of a partition key such as {@code RANGE (created_at, "Region")}; expressions are skipped. */
+        static List<String> partitionKeyColumns(String partitionKeyDef) {
+            List<String> columns = new ArrayList<>();
+            if (partitionKeyDef == null) {
+                return columns;
+            }
+            int open = partitionKeyDef.indexOf('(');
+            int close = partitionKeyDef.lastIndexOf(')');
+            if (open < 0 || close <= open) {
+                return columns;
+            }
+            for (String part : splitTopLevel(partitionKeyDef.substring(open + 1, close))) {
+                String p = part.strip();
+                java.util.regex.Matcher m = KEY_COLUMN.matcher(p);
+                if (m.matches()) {
+                    columns.add(m.group(1) != null ? m.group(1).replace("\"\"", "\"") : m.group(2));
+                }
+            }
+            return columns;
+        }
+
+        private static final Pattern KEY_COLUMN = Pattern.compile(
+                "(?:\"((?:[^\"]|\"\")+)\"|([a-z_][a-z0-9_$]*))(?:\\s+(?:COLLATE\\s+\\S+|[a-z_][a-z0-9_.]*_ops))*");
+
+        private static List<String> splitTopLevel(String s) {
+            List<String> parts = new ArrayList<>();
+            int depth = 0;
+            boolean quoted = false;
+            int start = 0;
+            for (int i = 0; i < s.length(); i++) {
+                char ch = s.charAt(i);
+                if (ch == '"') {
+                    quoted = !quoted;
+                } else if (!quoted && ch == '(') {
+                    depth++;
+                } else if (!quoted && ch == ')') {
+                    depth--;
+                } else if (!quoted && depth == 0 && ch == ',') {
+                    parts.add(s.substring(start, i));
+                    start = i + 1;
+                }
+            }
+            parts.add(s.substring(start));
+            return parts;
+        }
+
+        /** {@code PRIMARY KEY (id)} + [date] -> {@code PRIMARY KEY (id, date)} (the first column list of the definition). */
+        static String withKeyColumns(String definition, List<String> columns) {
+            int open = definition.indexOf('(');
+            if (open < 0) {
+                return definition;
+            }
+            int depth = 0;
+            for (int i = open; i < definition.length(); i++) {
+                char ch = definition.charAt(i);
+                if (ch == '(') {
+                    depth++;
+                } else if (ch == ')' && --depth == 0) {
+                    return definition.substring(0, i) + ", "
+                            + columns.stream().map(SqlIdentifiers::ident).collect(Collectors.joining(", "))
+                            + definition.substring(i);
+                }
+            }
+            return definition;
         }
 
         /** pg_get_indexdef of a partitioned table says "ON ONLY": strip it so the index cascades to the partitions. */
@@ -556,15 +882,7 @@ public class SchemaDiffEngine {
                 }
             }
 
-            // partitioning scheme cannot be altered in place
-            if (f.isPartitioned() != t.isPartitioned() || !Objects.equals(f.getPartitionKeyDef(), t.getPartitionKeyDef())) {
-                String msg = "Partitioning of " + t.getQualifiedName() + " changed (" + describePartitioning(f) + " -> "
-                        + describePartitioning(t) + "). PostgreSQL cannot change it in place: recreate the table manually.";
-                ChangeItem item = item(ChangeType.MODIFIED, tableType(t), t.getQualifiedName(), msg,
-                        pairKey("table-partitioning", fromId, tableId));
-                warn(item, msg);
-                emit(ALTER_TABLE, item, "-- MANUAL ACTION REQUIRED: " + msg);
-            }
+            // a change of the partitioning is a recreation (planRecreations): matched tables keep their partitioning
 
             // partition membership / bounds
             String fromParentAsTo = f.isPartition() ? mapRelation(f.getParentTable()) : null;
@@ -739,7 +1057,7 @@ public class SchemaDiffEngine {
                 ChangeItem item = under(item(ChangeType.ADDED, ObjectType.CONSTRAINT, t.getQualifiedName() + "." + c.getName(),
                         c.getType() + ": " + c.getDefinition(), pairKey("constraint", null, id(c.getOid()))),
                         tableType(t), t.getQualifiedName());
-                emit(c.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(t, c));
+                emit(c.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(item, t, c));
             }
             for (Matching.Pair<ConstraintModel> p : cm.matched) {
                 ConstraintModel fc = p.from();
@@ -751,13 +1069,20 @@ public class SchemaDiffEngine {
                 } else {
                     changed = fc.getType() != tc.getType() || !Objects.equals(fc.getDefinition(), tc.getDefinition());
                 }
+                Recreation referenced = changed ? null : recreationReferencedBy(fc, tc);
+                if (referenced != null) {
+                    // the referenced table is dropped and created again: the key goes with it and comes back
+                    emit(DROP_FOREIGN_KEY, referenced.item, "ALTER TABLE " + fq + " DROP CONSTRAINT " + ident(fc.getName()) + ";");
+                    emit(ADD_FOREIGN_KEY, referenced.item, addConstraint(referenced.item, t, tc));
+                    continue;
+                }
                 if (changed) {
                     ChangeItem item = under(item(ChangeType.MODIFIED, ObjectType.CONSTRAINT, name,
                             fc.getDefinition() + " -> " + tc.getDefinition(),
                             pairKey("constraint", id(fc.getOid()), id(tc.getOid()))), tableType(t), t.getQualifiedName());
                     emit(fc.getType() == ConstraintType.FOREIGN_KEY ? DROP_FOREIGN_KEY : DROP_CONSTRAINT, item,
                             "ALTER TABLE " + fq + " DROP CONSTRAINT " + ident(fc.getName()) + ";");
-                    emit(tc.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(t, tc));
+                    emit(tc.getType() == ConstraintType.FOREIGN_KEY ? ADD_FOREIGN_KEY : ADD_CONSTRAINT, item, addConstraint(item, t, tc));
                 } else if (!fc.getName().equals(tc.getName())) {
                     ChangeItem item = under(item(ChangeType.RENAMED, ObjectType.CONSTRAINT, name, "renamed from " + fc.getName(),
                             pairKey("constraint-rename", id(fc.getOid()), id(tc.getOid()))), tableType(t),
@@ -836,6 +1161,8 @@ public class SchemaDiffEngine {
                     String reason = null;
                     if (droppedTables.contains(rel)) {
                         reason = rel + " is dropped";
+                    } else if (recreationByFromKey.containsKey(rel)) {
+                        reason = rel + " is recreated";
                     } else if (d.getColumn() != null && affectedColumns.contains(rel + "." + d.getColumn())) {
                         reason = "column " + rel + "." + d.getColumn() + " changes";
                     } else if (d.getColumn() == null && affectedTables.contains(rel)) {
@@ -1080,6 +1407,13 @@ public class SchemaDiffEngine {
                         sql.add(new String[]{Integer.toString(SEQUENCE_OWNERSHIP),
                                 "ALTER SEQUENCE " + tq + " OWNED BY " + ownedBy(t) + ";"});
                     }
+                }
+                Recreation owner = Objects.equals(fromOwner, toOwner) && f.getOwnedByTable() != null
+                        ? recreationByFromKey.get(f.getOwnedByTable()) : null;
+                if (owner != null) {
+                    // DROP TABLE would drop the sequence it owns: released before, owned by the new table after
+                    emit(RELEASE_OWNERSHIP, owner.item, "ALTER SEQUENCE " + qualified(f.getSchemaName(), f.getName()) + " OWNED BY NONE;");
+                    emit(SEQUENCE_OWNERSHIP, owner.item, "ALTER SEQUENCE " + tq + " OWNED BY " + ownedBy(t) + ";");
                 }
                 if (!sql.isEmpty()) {
                     ChangeItem item = item(ChangeType.MODIFIED, ObjectType.SEQUENCE, t.getQualifiedName(),

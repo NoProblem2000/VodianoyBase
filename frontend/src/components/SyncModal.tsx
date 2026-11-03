@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Link2, Send } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, Link2, Send } from 'lucide-react';
 import { api } from '../api/client';
-import type { EnvironmentComparison, GlobalGraph, HistoryRelation, LinkResult, PushResult } from '../api/types';
+import type { EnvironmentComparison, GlobalGraph, HistoryRelation, LinkPreview, LinkResult, PushResult } from '../api/types';
 import { ancestorsOf } from '../lib/graphLayout';
 import { firstLine, shortHash } from '../lib/format';
 import { ChangeList } from './ChangeList';
@@ -263,6 +263,24 @@ function LinkPanel({ comparison, history, sourceName, targetName, onLinked }: Li
   const isMatch = match !== null && commit === match.hash;
   const chosen = history.find((c) => c.hash === commit);
   const after = history.findIndex((c) => c.hash === commit);
+  const [preview, setPreview] = useState<LinkPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [showSql, setShowSql] = useState(false);
+
+  // what the target lacks or has differently compared with the chosen commit (UP = target -> commit)
+  useEffect(() => {
+    if (!commit) return;
+    let cancelled = false;
+    setPreview(null);
+    setPreviewError(null);
+    api
+      .linkPreview(comparison.sourceEnvironmentId, comparison.targetEnvironmentId, commit)
+      .then((p) => !cancelled && setPreview(p))
+      .catch((e: Error) => !cancelled && setPreviewError(e.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [comparison.sourceEnvironmentId, comparison.targetEnvironmentId, commit]);
 
   async function link() {
     setBusy(true);
@@ -329,6 +347,29 @@ function LinkPanel({ comparison, history, sourceName, targetName, onLinked }: Li
         <p className="mt-2 text-xs text-gray-400">
           {tn('plural.newerCommits', after, { source: sourceName, target: targetName })}
         </p>
+      )}
+      {previewError && <p className="mt-2 text-xs text-red-300">{previewError}</p>}
+      {preview && !preview.identical && (
+        <div className="mt-3 rounded-md border border-amber-800/70 bg-amber-950/20 px-3 py-2" data-testid="link-preview">
+          <div className="text-[12.5px] font-medium text-amber-200">
+            {t('link.previewTitle', { target: targetName, hash: shortHash(commit) })}
+          </div>
+          <p className="mt-0.5 text-xs text-gray-400">{rich('link.previewHint', { target: targetName, discard: <b>{t('link.discardWord')}</b>, commit: <b>{t('link.commitWord')}</b> })}</p>
+          <div className="mt-1.5 max-h-[180px] overflow-auto rounded border border-kraken-line px-2">
+            <ChangeList changes={preview.differences.changes} />
+          </div>
+          <button className="mt-1.5 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200" onClick={() => setShowSql(!showSql)}>
+            {showSql ? <ChevronDown size={13} /> : <ChevronRight size={13} />} {t('link.previewSql', { target: targetName })}
+          </button>
+          {showSql && (
+            <pre className="mt-1 max-h-[220px] overflow-auto rounded bg-kraken-bg p-2 font-mono text-[11.5px] text-gray-300">
+              {preview.differences.upSql}
+            </pre>
+          )}
+        </div>
+      )}
+      {preview && preview.identical && !isMatch && (
+        <p className="mt-2 text-xs text-teal-300">{t('link.previewIdentical', { target: targetName, hash: shortHash(commit) })}</p>
       )}
       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
         {!isMatch && (

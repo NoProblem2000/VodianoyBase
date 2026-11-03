@@ -207,6 +207,20 @@ export interface LinkResult {
   acceptedDifferences: ChangeItem[];
 }
 
+/**
+ * What linking would leave behind. {@code differences} is written from the point of view of the target: its UP SQL
+ * turns the live target into the commit (ADD COLUMN for what the target lacks) — exactly what Discard runs after a
+ * link with accepted differences.
+ */
+export interface LinkPreview {
+  sourceEnvironmentId: string;
+  targetEnvironmentId: string;
+  commit: CommitNode;
+  identical: boolean;
+  targetInitialized: boolean;
+  differences: SchemaDiffResult;
+}
+
 export interface PushResult {
   sourceEnvironmentId: string;
   targetEnvironmentId: string;

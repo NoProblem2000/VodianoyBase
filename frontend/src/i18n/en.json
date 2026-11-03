@@ -75,6 +75,14 @@
       "few": "{{count}} steps",
       "many": "{{count}} steps",
       "other": "{{count}} steps"
+    },
+    "riskyChanges": {
+      "one": "⚠️ {{count}} potentially dangerous change",
+      "other": "⚠️ {{count}} potentially dangerous changes"
+    },
+    "warnings": {
+      "one": "⚠️ {{count}} warning",
+      "other": "⚠️ {{count}} warnings"
     }
   },
   "changeType": {
@@ -144,7 +152,9 @@
     "inspectorHint": "Select the working tree to review and commit changes, or a commit to see its SQL, export it or roll back to it.",
     "rollbackUnavailable": "The active environment is not available",
     "rollbackAlreadyHere": "{{name}} is already at this commit",
-    "rollbackNotAncestor": "Not an earlier commit of the history of {{name}}"
+    "rollbackNotAncestor": "Not an earlier commit of the history of {{name}}",
+    "resizeInspector": "Drag to resize the panel · double-click: default width",
+    "inspector": "Inspector"
   },
   "explorer": {
     "title": "Schema Explorer",
@@ -185,7 +195,30 @@
     "committed": "Committed {{hash}}: {{message}}",
     "noChanges": "No schema changes",
     "discardAll": "🗑️ Discard All Changes (Reset to HEAD)",
-    "discardItem": "Discard / Revert Item"
+    "discardItem": "Discard / Revert Item",
+    "tabChanges": "📋 Changes",
+    "tabUp": "⬆️ UP SQL",
+    "tabDown": "⬇️ DOWN SQL",
+    "tabSafety": "🛡️ Safety & Risks",
+    "filter": "Filter changes",
+    "filterPlaceholder": "Filter by name or details…",
+    "typeFilter": "Filter by change type",
+    "select": "Select",
+    "selectAll": "Select all shown changes",
+    "discardSelected": "Discard selected ({{count}})",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "summaryExclusive": "{{count}} ACCESS EXCLUSIVE",
+    "summaryDataLoss": "{{count}} with data loss",
+    "openSafetyTab": "Open the 🛡️ Safety & Risks tab",
+    "noRisks": "No dangerous changes: no exclusive locks, table rewrites or data loss.",
+    "warningsTitle": "Warnings of the migration",
+    "expand": "Expand fullscreen",
+    "fullscreenHint": "Edits made here are kept: this is the SQL that will be committed.",
+    "openCommit": "Commit Changes…",
+    "hideCommit": "Hide the commit form",
+    "shown": "{{shown}} of {{total}} shown",
+    "noneMatch": "No change matches the filter"
   },
   "commit": {
     "commit": "Commit",
@@ -323,7 +356,13 @@
     "allowDifferences": "Link even if the schemas differ (the differences stay as uncommitted changes of {{target}})",
     "keepOwn": "Keep the previous commits of {{target}} (by default they are replaced)",
     "done": "{{target}} linked to {{hash}}",
-    "doneReplaced": "{{target}} linked to {{hash}} ({{count}} own commit(s) replaced)"
+    "doneReplaced": "{{target}} linked to {{hash}} ({{count}} own commit(s) replaced)",
+    "previewTitle": "What {{target}} lacks or has differently compared with {{hash}}",
+    "previewHint": "After linking these differences stay as uncommitted changes of {{target}}: {{discard}} runs the SQL below and brings {{target}} to the commit, {{commit}} records the current schema of {{target}} instead.",
+    "discardWord": "Discard",
+    "commitWord": "Commit",
+    "previewSql": "SQL that brings {{target}} to the commit (what Discard runs)",
+    "previewIdentical": "The schema of {{target}} equals commit {{hash}}."
   },
   "about": {
     "title": "About & License",

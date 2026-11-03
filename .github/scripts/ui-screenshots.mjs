@@ -93,6 +93,47 @@ await step('10-explorer-filter', async () => {
 
 // ---- real actions through the UI
 const toast = (re) => page.getByRole('status').filter({ hasText: re }).first().waitFor({ timeout: 30000 });
+await step('10a-inspector-layout', async () => {
+  await page.getByLabel('Filter schema objects').fill('');
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByRole('tab', { name: /Changes/ }).waitFor({ timeout: 10000 });
+  // the panel is wider after dragging its left edge
+  const handle = page.getByRole('separator', { name: /resize the panel/ });
+  const before = Number(await handle.getAttribute('aria-valuenow'));
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 300);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 140, box.y + 300, { steps: 6 });
+  await page.mouse.up();
+  const after = Number(await handle.getAttribute('aria-valuenow'));
+  if (!(after > before + 100)) throw new Error(`panel width ${before} -> ${after}`);
+  // filter + checkboxes in the changes tab
+  await page.getByLabel('Filter changes').fill('phone');
+  await page.getByText(/^2 of 3 shown$/).waitFor({ timeout: 5000 });
+  await page.getByLabel('Select all shown changes').check();
+  await page.getByRole('button', { name: 'Discard selected (2)' }).waitFor({ timeout: 5000 });
+  await shot('10a-inspector-changes');
+  await page.getByLabel('Select all shown changes').uncheck();
+  await page.getByLabel('Filter changes').fill('');
+  // the collapsed safety summary opens on click (when the changes have risks or warnings)
+  const details = page.getByRole('button', { name: /Show details/ });
+  if (await details.count()) {
+    await details.click();
+    await page.getByRole('button', { name: /Hide details/ }).waitFor({ timeout: 5000 });
+  }
+  await page.getByRole('tab', { name: /Safety & Risks/ }).click();
+  await shot('10a-inspector-safety');
+  // UP SQL over the whole panel, then fullscreen
+  await page.getByRole('tab', { name: /UP SQL/ }).click();
+  await page.getByText(/RENAME COLUMN note TO remark/).first().waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Expand fullscreen' }).click();
+  await page.getByText('Edits made here are kept').waitFor({ timeout: 5000 });
+  await shot('10a-inspector-fullscreen');
+  await page.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('tab', { name: /Changes/ }).click();
+  await shot('10a-inspector-wide');
+  await handle.dblclick();
+});
 await step('10b-discard-item', async () => {
   await page.getByLabel('Filter schema objects').fill('');
   await page.getByText('Working Tree (Uncommitted Changes)').first().click();
@@ -113,9 +154,10 @@ await step('10c-discard-all-dialog', async () => {
 await step('11-commit-working-tree', async () => {
   await page.getByLabel('Filter schema objects').fill('');
   await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByRole('button', { name: 'Commit Changes…' }).click();
   await page.getByPlaceholder('your name').fill('alice');
   await page.getByPlaceholder('What changed and why').fill('Customer phone, rename note to remark');
-  await page.getByRole('button', { name: 'Commit Changes' }).click();
+  await page.getByRole('button', { name: 'Commit Changes', exact: true }).click();
   await toast(/Committed/);
   await shot('11-commit-working-tree');
 });
@@ -151,6 +193,17 @@ await step('15-link-panel', async () => {
   await page.getByText(/Link QA to the history of Dev/).waitFor({ timeout: 15000 });
   await page.getByText('matches commit').waitFor({ timeout: 15000 });
   await shot('15-link-panel');
+});
+await step('15b-link-preview', async () => {
+  // Prod diverged (hotfix index): the preview lists what Prod has differently from the Dev commit
+  await page.getByLabel('To (target)').selectOption('prod');
+  await page.getByText(/What Prod lacks or has differently compared with/).waitFor({ timeout: 15000 });
+  await page.getByTestId('link-preview').getByText('sales.orders_status_hotfix_idx').first().waitFor({ timeout: 5000 });
+  await page.getByText(/SQL that brings Prod to the commit/).click();
+  await page.getByTestId('link-preview').getByText(/DROP INDEX sales.orders_status_hotfix_idx/).waitFor({ timeout: 5000 });
+  await shot('15b-link-preview');
+  await page.getByLabel('To (target)').selectOption('qa');
+  await page.getByText('matches commit').waitFor({ timeout: 15000 });
 });
 await step('16-linked-then-push', async () => {
   await page.getByRole('button', { name: /^Link to / }).click();

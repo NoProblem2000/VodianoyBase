@@ -37,6 +37,10 @@ public final class SqlIdentifiers {
         if (name == null) {
             throw new IllegalArgumentException("identifier is null");
         }
+        if (name.isEmpty()) {
+            // PostgreSQL rejects "" (zero-length delimited identifier): fail where the empty name comes from
+            throw new IllegalArgumentException("identifier is empty");
+        }
         if (SIMPLE.matcher(name).matches() && !KEYWORDS.contains(name)) {
             return name;
         }

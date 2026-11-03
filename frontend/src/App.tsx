@@ -3,6 +3,7 @@ import { DatabaseZap, Plus, ServerCrash, ShieldAlert } from 'lucide-react';
 import { api } from './api/client';
 import type { GraphCommit } from './api/types';
 import { useAppData } from './hooks/useAppData';
+import { useResizablePanel } from './hooks/useResizablePanel';
 import { ancestorsOf } from './lib/graphLayout';
 import { loadSetting, saveSetting } from './lib/storage';
 import { I18nProvider, useI18n } from './i18n';
@@ -59,6 +60,7 @@ function Workspace() {
   const data = useAppData(toast.error);
   const { environments, activeEnv, graph, status, workingTree, snapshot, auditLog } = data;
   const [selected, setSelected] = useState<string | null>(null);
+  const inspector = useResizablePanel('pgvc.inspectorWidth');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const [author, setAuthorState] = useState(() => loadSetting('pgvc.author', ''));
   const [initializing, setInitializing] = useState(false);
@@ -188,7 +190,7 @@ function Workspace() {
         <div className="border-b border-red-900 bg-red-950/40 px-4 py-2 text-[12.5px] text-red-200">{data.envError}</div>
       )}
 
-      <main className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_minmax(420px,34%)]">
+      <main className="grid min-h-0 flex-1" style={{ gridTemplateColumns: `280px minmax(0,1fr) ${inspector.width}px` }}>
         <aside className="flex min-h-0 flex-col border-r border-kraken-line bg-kraken-panel">
           <SchemaExplorer snapshot={snapshot} changes={workingTree?.diff.changes ?? []} />
           <AuditLogPanel entries={auditLog} live={ready} />
@@ -223,7 +225,13 @@ function Workspace() {
           )}
         </section>
 
-        <aside className="min-h-0 border-l border-kraken-line bg-kraken-panel">
+        <aside className="relative min-h-0 border-l border-kraken-line bg-kraken-panel" aria-label={t('app.inspector')}>
+          <div
+            {...inspector.handleProps}
+            aria-label={t('app.resizeInspector')}
+            title={t('app.resizeInspector')}
+            className="absolute -left-1 top-0 z-20 h-full w-2 cursor-col-resize touch-none outline-none transition-colors hover:bg-teal-500/40 focus-visible:bg-teal-500/50"
+          />
           {selected === WORKING_TREE_ID && activeEnv && workingTree && hasChanges ? (
             <WorkingTreeInspector
               env={activeEnv}

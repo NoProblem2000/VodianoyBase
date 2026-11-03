@@ -1,6 +1,6 @@
 # PgGitVisualizer — User and Architecture Manual
 
-Version 1.8.0. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
+Version 1.8.1. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
 Russian): [TECHNICAL.ru.md](TECHNICAL.ru.md).
 
 The same manual is built into the UI: the **📖 Docs** button in the top bar (works offline — on an isolated site the
@@ -157,7 +157,7 @@ same hash** in every database — that is how the graph knows where each environ
 
 ### 2.1. First start
 
-1. **Start the application:** `java -jar pg-git-vc-1.8.0.jar` and open http://localhost:8765.
+1. **Start the application:** `java -jar pg-git-vc-1.8.1.jar` and open http://localhost:8765.
 2. **Add an environment:** **Environments → Add environment**: name, badge color, JDBC URL
    (`jdbc:postgresql://host:5432/db`), user, password → **Test connection** → **Save**.
 3. **Initialize:** on the yellow bar "Version control is not set up in … yet" press **Initialize version control**
@@ -527,7 +527,7 @@ applied.
 | Initialize: "needs a SUPERUSER" | a superuser initializes once; afterwards an ordinary role is enough |
 | DDL does not appear in the log | check the triggers: `SELECT evtname, evtenabled FROM pg_event_trigger WHERE evtname LIKE 'pgvc%';` (`D` = disabled: `ALTER EVENT TRIGGER pgvc_ddl_trigger ENABLE;`) |
 | "Cannot connect" | JDBC URL, network, `pg_hba.conf`; **Test connection** shows the driver error |
-| Port 8765 is busy | `java -jar pg-git-vc-1.8.0.jar --server.port=9000` |
+| Port 8765 is busy | `java -jar pg-git-vc-1.8.1.jar --server.port=9000` |
 | The UI must be opened from another machine | `--server.address=0.0.0.0` (the UI has no authentication — internal networks only) |
 
 ### 5.4. Manual changes to the `_pgvc` schema
@@ -548,6 +548,10 @@ applied.
 
 - **Dropping or reordering an ENUM value** is impossible in PostgreSQL: the application shows `MANUAL ACTION
   REQUIRED`.
+- **Changing the partitioning** (ordinary table ↔ `PARTITION BY`, another key) cannot be done in place in PostgreSQL:
+  the application recreates the table — copies the rows into a temporary table, creates the table again with its
+  partitions, puts the rows back and restores foreign keys, views and serial sequences. A row that fits no partition
+  stops the whole migration (nothing changes). On big tables this takes time under an exclusive lock.
 - **A reference-data table with more than 10 000 rows** is no longer compared (the list shows "over the limit").
 - **After an upgrade** commits of older versions do not contain functions, triggers, ENUMs etc.: comparisons with them
   skip these categories, the first new commit records them.

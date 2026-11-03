@@ -10,7 +10,8 @@ import java.util.List;
  *
  * @param linkedCommits      source commits written to the target history, oldest first
  * @param discardedCommits   number of the target's own previous commits that were deleted
- * @param acceptedDifferences differences between the live target schema and the commit snapshot that were accepted
+ * @param acceptedDifferences what the live target schema lacks or has differently compared with the commit snapshot
+ *                           (UP = target -> commit, the SQL a Discard of the target runs), accepted
  *                           with {@code allowSchemaDifferences} (empty when the schemas matched)
  */
 public record LinkResult(String sourceEnvironmentId, String targetEnvironmentId, String previousHead, String newHead,
