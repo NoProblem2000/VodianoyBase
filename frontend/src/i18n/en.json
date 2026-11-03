@@ -78,10 +78,14 @@
     },
     "riskyChanges": {
       "one": "⚠️ {{count}} potentially dangerous change",
+      "few": "⚠️ {{count}} potentially dangerous changes",
+      "many": "⚠️ {{count}} potentially dangerous changes",
       "other": "⚠️ {{count}} potentially dangerous changes"
     },
     "warnings": {
       "one": "⚠️ {{count}} warning",
+      "few": "⚠️ {{count}} warnings",
+      "many": "⚠️ {{count}} warnings",
       "other": "⚠️ {{count}} warnings"
     }
   },
