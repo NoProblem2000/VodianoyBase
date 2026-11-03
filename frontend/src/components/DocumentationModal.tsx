@@ -46,7 +46,7 @@ const RU: Section[] = [
       {
         k: 'ul',
         items: [
-          '**Один jar без Docker.** `java -jar pg-git-vc-1.8.0.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
+          '**Один jar без Docker.** `java -jar pg-git-vc-1.8.1.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
           '**История в базе.** Каждая база хранит свои коммиты в служебной схеме `_pgvc`. Один и тот же коммит имеет одинаковый хеш на Dev, Stage и Prod — поэтому общий граф знает, где какая база.',
           '**Окружение** — подключение к одной базе (Dev, Test, Stage, Prod, заказчик). Цветные бейджи на графе показывают `HEAD` каждого окружения.',
           '**Working Tree** — то, что изменилось в базе после последнего коммита (как незакоммиченные файлы в Git).',
@@ -73,7 +73,7 @@ const RU: Section[] = [
           ['Работайте как обычно', 'Меняйте схему в любой IDE или через **Новая SQL-миграция**, коммитьте, переносите изменения на другие окружения через **Синхронизация / Push**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.8.0.jar\njava -jar target/pg-git-vc-1.8.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.0.jar --server.port=9000   # другой порт' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.8.1.jar\njava -jar target/pg-git-vc-1.8.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.1.jar --server.port=9000   # другой порт' },
       { k: 'note', tone: 'warning', text: 'Подключения хранятся в `pgvc-environments.json` рядом с jar, **пароли — открытым текстом**. Не публикуйте файл и не добавляйте его в Git. По умолчанию приложение слушает только `127.0.0.1`.' },
       { k: 'h', text: 'Верхняя панель' },
       {
@@ -260,7 +260,7 @@ const RU: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'Event triggers пакет устанавливает, только если его выполняет SUPERUSER. На PostgreSQL 11 пакет с `ALTER TYPE … ADD VALUE` не пройдёт — используйте Push или слепок.' },
       { k: 'h', text: 'CI/CD и Git' },
-      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.8.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.8.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.8.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.8.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Экспорт в Git-папку** раскладывает схему по файлу на объект (`schema/tables`, `views`, `functions` …, `migrations/`) — для код-ревью в GitLab / GitHub.' },
     ],
   },
@@ -364,6 +364,7 @@ const RU: Section[] = [
         k: 'ul',
         items: [
           'Удалить или переставить значение ENUM PostgreSQL не умеет — программа покажет `MANUAL ACTION REQUIRED`.',
+          'Смена секционирования (обычная таблица ↔ `PARTITION BY`, другой ключ) — таблица пересоздаётся: строки копируются во временную таблицу и возвращаются, внешние ключи, view и serial-последовательности восстанавливаются. Строка вне всех партиций останавливает миграцию целиком.',
           'Справочник больше 10 000 строк перестаёт сравниваться («превышен лимит» в списке справочников).',
           'Коммиты старых версий не содержат функций, триггеров, ENUM: при сравнении с ними эти категории пропускаются, первый новый коммит их запишет.',
           'Подробное руководство со схемами — `docs/MANUAL_RU.md`, техническая справка — `docs/TECHNICAL.ru.md` в репозитории.',
@@ -386,7 +387,7 @@ const EN: Section[] = [
       {
         k: 'ul',
         items: [
-          '**One jar, no Docker.** `java -jar pg-git-vc-1.8.0.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
+          '**One jar, no Docker.** `java -jar pg-git-vc-1.8.1.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
           '**History in the database.** Every database keeps its commits in the `_pgvc` schema. A commit has the same hash on Dev, Stage and Prod — that is how the shared graph knows where each database is.',
           '**Environment** — a connection to one database (Dev, Test, Stage, Prod, a customer). Colored badges in the graph show the `HEAD` of every environment.',
           '**Working Tree** — what changed in the database since the last commit (like uncommitted files in Git).',
@@ -413,7 +414,7 @@ const EN: Section[] = [
           ['Work as usual', 'Change the schema in any IDE or with **New SQL Migration**, commit, and move changes to other environments with **Sync / Push to Env**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.8.0.jar\njava -jar target/pg-git-vc-1.8.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.0.jar --server.port=9000   # another port' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.8.1.jar\njava -jar target/pg-git-vc-1.8.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.1.jar --server.port=9000   # another port' },
       { k: 'note', tone: 'warning', text: 'Connections are stored in `pgvc-environments.json` next to the jar, **passwords in plain text**. Do not publish the file or add it to Git. By default the application listens on `127.0.0.1` only.' },
       { k: 'h', text: 'Top bar' },
       {
@@ -600,7 +601,7 @@ const EN: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'The bundle installs the event triggers only when a SUPERUSER runs it. On PostgreSQL 11 a bundle with `ALTER TYPE … ADD VALUE` fails — use Push or a snapshot.' },
       { k: 'h', text: 'CI/CD and Git' },
-      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.8.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.8.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.8.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.8.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Export Git Folder** writes the schema as one file per object (`schema/tables`, `views`, `functions` …, `migrations/`) — for code review in GitLab / GitHub.' },
     ],
   },
@@ -704,6 +705,7 @@ const EN: Section[] = [
         k: 'ul',
         items: [
           'Dropping or reordering an ENUM value is impossible in PostgreSQL — the application shows `MANUAL ACTION REQUIRED`.',
+          'Changing the partitioning (ordinary table ↔ `PARTITION BY`, another key) recreates the table: the rows are copied into a temporary table and back, foreign keys, views and serial sequences are restored. A row that fits no partition stops the whole migration.',
           'A reference-data table with more than 10 000 rows is no longer compared ("over the limit" in the reference-data list).',
           'Commits of older versions do not contain functions, triggers or ENUMs: comparisons with them skip these categories, the first new commit records them.',
           'The detailed manual with diagrams is `docs/MANUAL_EN.md`, the technical reference `docs/TECHNICAL.ru.md` in the repository.',

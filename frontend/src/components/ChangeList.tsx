@@ -16,21 +16,52 @@ interface Props {
   patternUsed?: Set<number>;
   /** offers "Discard / Revert Item" for every change (working tree) */
   onDiscard?: (index: number) => void;
+  /** checkboxes: the selected changes (by index in {@code changes}) */
+  selected?: Set<number>;
+  onToggleSelect?: (index: number) => void;
+  /** shows only the changes it accepts; indexes stay those of the full list */
+  filter?: (change: ChangeItem, index: number) => boolean;
+  /** text when the filter hides every change */
+  filteredText?: string;
 }
 
-export function ChangeList({ changes, emptyText, expandable = true, onUsePattern, patternUsed, onDiscard }: Props) {
+export function ChangeList({
+  changes,
+  emptyText,
+  expandable = true,
+  onUsePattern,
+  patternUsed,
+  onDiscard,
+  selected,
+  onToggleSelect,
+  filter,
+  filteredText,
+}: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState<number | null>(null);
   if (changes.length === 0) {
     return <p className="px-1 py-2 text-gray-500">{emptyText ?? t('workingTree.noChanges')}</p>;
   }
+  const shown = changes.map((c, i) => [c, i] as const).filter(([c, i]) => !filter || filter(c, i));
+  if (shown.length === 0) {
+    return <p className="px-1 py-2 text-gray-500">{filteredText ?? t('workingTree.noneMatch')}</p>;
+  }
   return (
     <ul className="divide-y divide-kraken-line/60">
-      {changes.map((c, i) => {
+      {shown.map(([c, i]) => {
         const pattern = !!c.safety?.alternatives?.length && !!onUsePattern;
         return (
           <li key={`${c.objectType}-${c.objectName}-${c.changeType}-${i}`}>
             <div className="group flex items-start">
+            {onToggleSelect && (
+              <input
+                type="checkbox"
+                className="ml-1 mt-2 shrink-0 accent-teal-500"
+                checked={selected?.has(i) ?? false}
+                onChange={() => onToggleSelect(i)}
+                aria-label={`${t('workingTree.select')}: ${c.objectName}`}
+              />
+            )}
             <button
               className="flex min-w-0 flex-1 items-start gap-2 px-1 py-1.5 text-left hover:bg-kraken-hover disabled:hover:bg-transparent"
               onClick={() => setOpen(open === i ? null : i)}

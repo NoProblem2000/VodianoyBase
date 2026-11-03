@@ -592,8 +592,7 @@ public class VersionControlService {
             }
 
             DatabaseSnapshot commitSnapshot = parseSnapshot(commit.getSchemaSnapshotJson());
-            SchemaDiffResult diff = diffEngine.diffAcrossEnvironments(commitSnapshot,
-                    SnapshotFilter.withoutDataUntrackedIn(commitSnapshot, live));
+            SchemaDiffResult diff = linkDifferences(commitSnapshot, live);
             if (diff.isHasChanges() && !request.allowSchemaDifferences()) {
                 throw ApiException.conflict("link.schemaDiffers", targetEnvId, shortHash(commit.getHash()), commit.getMessage(), summary(diff.getChanges()));
             }
@@ -612,6 +611,32 @@ public class VersionControlService {
                     linked.stream().map(CommitRecord::toNode).toList(), discarded,
                     diff.isHasChanges() ? diff.getChanges() : List.of());
         });
+    }
+
+    /**
+     * Differences between the live schema of a target and a commit snapshot, from the point of view of the target:
+     * UP = live target -&gt; commit (what the target lacks or has differently), DOWN = back. That is the SQL a Discard
+     * runs after linking with accepted differences. Objects are matched by name (two different databases).
+     */
+    private SchemaDiffResult linkDifferences(DatabaseSnapshot commitSnapshot, DatabaseSnapshot live) {
+        return diffEngine.diffAcrossEnvironments(SnapshotFilter.withoutDataUntrackedIn(commitSnapshot, live), commitSnapshot);
+    }
+
+    /** What linking {@code targetEnvId} to a commit of {@code sourceEnvId} would leave as uncommitted changes. */
+    public LinkPreview linkPreview(String sourceEnvId, String targetEnvId, String commitHash) {
+        requireDifferent(sourceEnvId, targetEnvId);
+        String sourceHead = storage.getHead(sourceEnvId).orElseThrow(() ->
+                ApiException.badRequest("link.noCommits", sourceEnvId));
+        String hash = isBlank(commitHash) ? sourceHead : commitHash.strip();
+        CommitRecord commit = storage.requireCommit(sourceEnvId, hash);
+        if (!history.ancestors(sourceEnvId, sourceHead).contains(hash)) {
+            throw ApiException.badRequest("link.notInHistory", shortHash(hash), sourceEnvId, shortHash(sourceHead));
+        }
+        PgVcStatus target = requireReachable(targetEnvId);
+        DatabaseSnapshot live = introspector.introspect(targetEnvId);
+        SchemaDiffResult diff = linkDifferences(parseSnapshot(commit.getSchemaSnapshotJson()), live);
+        safety.annotate(diff, live);
+        return new LinkPreview(sourceEnvId, targetEnvId, commit.toNode(), !diff.isHasChanges(), target.initialized(), diff);
     }
 
     public PushResult pushCommitsToEnvironment(String sourceEnvId, String targetEnvId, String targetCommitHash) {

@@ -184,6 +184,13 @@ public class VcController {
         return deletion.delete(hash, mode);
     }
 
+    /** Differences that linking would leave as uncommitted changes of the target (UP = target -> commit). */
+    @GetMapping("/vc/link-preview")
+    public LinkPreview linkPreview(@RequestParam("source") String source, @RequestParam("target") String target,
+                                   @RequestParam(value = "commit", required = false) String commit) {
+        return versionControl.linkPreview(source, target, commit);
+    }
+
     @PostMapping("/vc/link")
     public LinkResult link(@RequestBody LinkRequest request) {
         return versionControl.linkEnvironmentToHistory(request);

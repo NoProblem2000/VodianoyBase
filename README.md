@@ -13,7 +13,7 @@ a commit graph and moves changes between Dev, Stage, Prod and isolated customer 
 
 ### Why
 
-- **No Docker, single JAR** — `java -jar pg-git-vc-1.8.0.jar`, the UI is built in; nothing to install on the servers.
+- **No Docker, single JAR** — `java -jar pg-git-vc-1.8.1.jar`, the UI is built in; nothing to install on the servers.
 - **GitKraken-style graph** — commits of all environments in one graph, colored badges show where every database is.
 - **Captures changes from any IDE** — event triggers log the DDL of DBeaver / pgAdmin / DataGrip; a **Working Tree**
   node shows what is not committed yet, with ready UP / DOWN SQL.
@@ -30,9 +30,9 @@ Requirements: **Java 17+**, **PostgreSQL 11+**, a **SUPERUSER** once per databas
 the event triggers (afterwards an ordinary role is enough).
 
 ```bash
-# download pg-git-vc-1.8.0.jar from the Releases page, or build it:
-mvn clean package                        # tests + UI -> target/pg-git-vc-1.8.0.jar
-java -jar target/pg-git-vc-1.8.0.jar     # then open http://localhost:8765
+# download pg-git-vc-1.8.1.jar from the Releases page, or build it:
+mvn clean package                        # tests + UI -> target/pg-git-vc-1.8.1.jar
+java -jar target/pg-git-vc-1.8.1.jar     # then open http://localhost:8765
 ```
 
 1. **Environments → Add environment** (JDBC URL, user, password) → **Test connection** → **Save**.
@@ -65,7 +65,7 @@ PgGitVisualizer хранит историю схемы PostgreSQL **в само�
 
 ### Преимущества
 
-- **Без Docker, один JAR** — `java -jar pg-git-vc-1.8.0.jar`, интерфейс встроен; на серверы ничего не ставится.
+- **Без Docker, один JAR** — `java -jar pg-git-vc-1.8.1.jar`, интерфейс встроен; на серверы ничего не ставится.
 - **Граф в стиле GitKraken** — коммиты всех окружений в одном графе, цветные бейджи показывают, где каждая база.
 - **Изменения из любой IDE** — event triggers записывают DDL из DBeaver / pgAdmin / DataGrip; узел **Working Tree**
   показывает незакоммиченное с готовыми UP / DOWN SQL.
@@ -82,9 +82,9 @@ PgGitVisualizer хранит историю схемы PostgreSQL **в само�
 triggers (дальше достаточно обычной роли).
 
 ```bash
-# скачайте pg-git-vc-1.8.0.jar со страницы Releases или соберите:
-mvn clean package                        # тесты + интерфейс -> target/pg-git-vc-1.8.0.jar
-java -jar target/pg-git-vc-1.8.0.jar     # затем откройте http://localhost:8765
+# скачайте pg-git-vc-1.8.1.jar со страницы Releases или соберите:
+mvn clean package                        # тесты + интерфейс -> target/pg-git-vc-1.8.1.jar
+java -jar target/pg-git-vc-1.8.1.jar     # затем откройте http://localhost:8765
 ```
 
 1. **Окружения → Добавить окружение** (JDBC URL, пользователь, пароль) → **Проверить подключение** → **Сохранить**.
