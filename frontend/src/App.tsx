@@ -15,6 +15,7 @@ import { EnvironmentsModal } from './components/EnvironmentsModal';
 import { ExportModal } from './components/ExportModal';
 import { GitExportModal } from './components/GitExportModal';
 import { ReferenceDataModal } from './components/ReferenceDataModal';
+import { DocumentationModal } from './components/DocumentationModal';
 import { IgnoreRulesModal } from './components/IgnoreRulesModal';
 import { MatrixModal } from './components/MatrixModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
@@ -39,7 +40,8 @@ type ModalState =
   | { kind: 'matrix' }
   | { kind: 'ignore-rules' }
   | { kind: 'reference-data' }
-  | { kind: 'git-export' };
+  | { kind: 'git-export' }
+  | { kind: 'docs' };
 
 export function App() {
   return (
@@ -159,6 +161,7 @@ function Workspace() {
         onIgnoreRules={() => setModal({ kind: 'ignore-rules' })}
         onReferenceData={() => setModal({ kind: 'reference-data' })}
         onGitExport={() => setModal({ kind: 'git-export' })}
+        onDocs={() => setModal({ kind: 'docs' })}
       />
 
       {activeEnv && status && !status.reachable && (
@@ -294,6 +297,7 @@ function Workspace() {
         />
       )}
       {modal.kind === 'about' && <AboutModal onClose={closeModal} />}
+      {modal.kind === 'docs' && <DocumentationModal onClose={closeModal} />}
       {modal.kind === 'matrix' && (
         <MatrixModal environments={environments} activeEnvId={activeEnv?.id ?? null} onClose={closeModal} />
       )}

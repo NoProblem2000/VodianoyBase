@@ -1,346 +1,109 @@
 # PgGitVisualizer (pg-git-vc)
 
-**[English](#english) · [Русский](#русский)**
+**Git-like version control for PostgreSQL schemas** — one executable jar with a GitKraken-style web UI.
 
-Version control for PostgreSQL 11+ schemas with a GitKraken-style commit graph.
-One executable `pg-git-vc-1.7.1.jar` (Spring Boot 3 + embedded React UI), no Docker.
-Open source under the [Apache License 2.0](LICENSE).
+[English](#english) · [Русский](#русский)
 
 ---
 
 ## English
 
-### What it does
+PgGitVisualizer keeps the history of a PostgreSQL schema **inside the database itself** (schema `_pgvc`), shows it as
+a commit graph and moves changes between Dev, Stage, Prod and isolated customer sites.
 
-- **Mode A — capture changes made in your IDE.** Change the schema in DBeaver, pgAdmin or DataGrip: `EVENT TRIGGER`s
-  log the DDL into `_pgvc.ddl_audit_log`, and the introspector compares `pg_catalog` with the snapshot of `HEAD`.
-  A pulsing **Working Tree** node appears on top of the graph with ready-made `UP SQL` / `DOWN SQL` that you can edit
-  and commit.
-- **Mode B — migrations from the UI.** `UP SQL` runs in one transaction together with introspection and the commit
-  record; any error rolls everything back. `DOWN SQL` is generated if you leave it empty.
-- **Environments (Dev / Test / Stage / Prod …).** Connections live in `./pgvc-environments.json`. Colored badges on
-  the graph show which commit every database is at. **Sync / Push to Env** applies the missing commits to another
-  environment in one transaction; **Link** attaches an environment that already has the schema to the shared history
-  without running SQL.
-- **Rollback** of a database to any earlier commit, with an editable script and a schema check afterwards.
-- **Discard uncommitted changes** (`git reset --hard HEAD`): all of them or a single one, with the editable revert SQL.
-- **Delete** commits that are no longer used (left behind by a rollback) — a single commit with the commits on top of
-  it, or a whole abandoned branch. Commits in the current history of any environment are protected.
-- **Reference snapshots for isolated sites.** Export the schema of any commit as `snapshot_<branch>_<hash>.pgsnap.json`,
-  load it into the installation at the customer, see what the customer database lacks or has extra (matched by object
-  names — OIDs of another server mean nothing), pick the changes, adjust the SQL and **Apply Selected Changes &
-  Commit** in one transaction. Objects that exist only at the customer are never dropped unless you select them.
-- **Migration Safety & Lock Analyzer.** Every change and every statement gets a risk level (SAFE / WARNING /
-  DANGEROUS), the PostgreSQL lock it takes, the table size (`1229 MB / 4.5M rows`), Data Loss / Table Rewrite markers
-  and a duration estimate — and, where one exists, **⚡ Use Zero-Downtime Pattern** (`NOT VALID` + `VALIDATE`,
-  `CREATE INDEX CONCURRENTLY`, nullable column + `CHECK … NOT VALID`).
-- **Safe execution.** `lock_timeout` / `statement_timeout` (`SET LOCAL`, defaults 3s / 60s), Pre- and Post-Scripts,
-  multi-step migrations (`-- pgvc:step`: one transaction per step, `CONCURRENTLY` outside of a transaction) and
-  **🧪 Dry-Run** — the script runs on the real database in a transaction that is rolled back, with real timings.
-- **Offline bundles.** A self-contained `.sql` for isolated sites: checks the target `HEAD`, applies the commits,
-  records them — all inside `BEGIN … COMMIT`.
-- **Every user schema** of the database is tracked: tables, partitions, columns, constraints, indexes, views,
-  materialized views, sequences, **functions and procedures** (overloads included), **triggers**, **ENUM types**,
-  **extensions**, **comments**, and — when you want them — **owners, GRANTs and tablespaces**; renames are detected by
-  `oid` / `attnum`. Only `pg_catalog` is used.
-- **Ignore rules.** Skip comments, owners & grants, tablespaces, partitions, or any object by pattern (`tmp_%`,
-  `bak_*`, `re:^tmp_\d+$`). The saved rules apply to every comparison — working tree, commits, the checks around push
-  and rollback, environment and snapshot compare; a comparison can override them once.
-- **🌐 N-Database Matrix.** Compare any number of environments and `.pgsnap.json` files with one baseline: one row per
-  object, one column per database — identical / differs / missing / only here. Click a cell to see what differs and
-  the SQL that brings that database to the baseline.
-- **📌 Reference data.** Mark small dictionaries (up to 10 000 rows, with a PRIMARY KEY) as tracked: their rows become
-  part of every snapshot, and row changes turn into `INSERT … ON CONFLICT … DO UPDATE` / `DELETE` in commits, pushes,
-  snapshot compares and the matrix.
-- **📁 Git folder export.** The schema as one file per object (`schema/tables`, `views`, `functions`, `triggers`,
-  `enums`, `reference_data`, `migrations/0001_<hash>_<slug>.up.sql`) — as a `.zip` or written into a local Git working
-  copy — for classic code review in GitLab / GitHub.
-- **CLI for CI/CD.** `java -jar pg-git-vc.jar --cli --action=check-drift --env=prod` exits with 2 when the database
-  drifted from its HEAD; `--action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md`
-  writes a Markdown report with the risk of every change for a Merge Request comment.
-- **Russian and English UI**, switched instantly; server messages follow the selected language.
+### Why
 
-### Download and run
+- **No Docker, single JAR** — `java -jar pg-git-vc-1.8.0.jar`, the UI is built in; nothing to install on the servers.
+- **GitKraken-style graph** — commits of all environments in one graph, colored badges show where every database is.
+- **Captures changes from any IDE** — event triggers log the DDL of DBeaver / pgAdmin / DataGrip; a **Working Tree**
+  node shows what is not committed yet, with ready UP / DOWN SQL.
+- **Transaction-safe rollbacks** — rollback, discard and push run in one transaction, with `lock_timeout`, a schema
+  check afterwards and a migration safety analyzer (locks, rewrites, data loss, zero-downtime patterns).
+- **Offline sync** — self-registering `.sql` bundles for `psql`, and state-based `.pgsnap.json` snapshots for
+  customer databases with their own history.
+- Also: N-database matrix, ignore rules, reference data (dictionary rows), Git folder export, CLI for CI/CD,
+  Russian and English UI with a built-in manual (**📖 Docs**).
 
-Download `pg-git-vc-<version>.jar` from [Releases](https://github.com/NoProblem2000/VodianoyBase/releases).
-Only **Java 17+** is needed:
+### Quick start
+
+Requirements: **Java 17+**, **PostgreSQL 11+**, a **SUPERUSER** once per database to create the `_pgvc` schema and
+the event triggers (afterwards an ordinary role is enough).
 
 ```bash
-java -jar pg-git-vc-1.7.1.jar
+# download pg-git-vc-1.8.0.jar from the Releases page, or build it:
+mvn clean package                        # tests + UI -> target/pg-git-vc-1.8.0.jar
+java -jar target/pg-git-vc-1.8.0.jar     # then open http://localhost:8765
 ```
 
-Open http://localhost:8765.
+1. **Environments → Add environment** (JDBC URL, user, password) → **Test connection** → **Save**.
+2. **Initialize version control** on the yellow bar.
+3. Select the **Working Tree** node → **Commit Changes** ("Baseline").
 
-### Build from source
+The build needs network access for Maven and npm (the frontend-maven-plugin downloads Node itself). Tests against a
+real database run when `PGVC_TEST_JDBC_URL` is set. Options: `--server.port=…`, `--server.address=…` (default
+`127.0.0.1`), `--pgvc.environments-file=…` (connections, passwords in plain text — keep it private).
 
-Requirements: **JDK 17+** and **Maven 3.9+**. Node.js is not needed — Maven downloads it into `target/node`, builds
-the React UI from `frontend/` and puts it into the jar.
+### Documentation
 
-```bash
-mvn clean package                  # tests + UI + target/pg-git-vc-1.7.1.jar
-mvn clean package -DskipTests      # faster, without tests
-java -jar target/pg-git-vc-1.7.1.jar
-```
-
-Change the port with `--server.port=9000`. By default the application listens on `127.0.0.1` only.
-UI development with hot reload: start the jar, then `cd frontend && npm ci && npm run dev`
-(http://localhost:5173, `/api` is proxied to `:8765`).
-
-### First steps
-
-1. **Environments** (top bar) → name, JDBC URL (`jdbc:postgresql://host:5432/db`), user, password →
-   **Test connection** → **Save**.
-2. **Initialize version control** — creates the `_pgvc` schema and the event triggers (needs a `SUPERUSER`).
-3. The **Working Tree** shows the whole current schema: enter an author and a message and press **Commit Changes** —
-   this is the baseline.
-4. Do **not** commit other environments that already have the same schema separately: open **Sync / Push to Env**,
-   choose the first environment as the source and the other one as the target, press **Link to …**. Later commits are
-   delivered with **Push**.
-
-### Interface
-
-- **Top bar:** environment switcher and **Environments**; **New SQL Migration (Mode B)**; **Export Offline .SQL**;
-  **Sync / Push to Env**; **Export Snapshot** (camera) and **Compare with Snapshot**; language switch **RU | EN**;
-  **About & License**.
-- **Left:** Schema Explorer (Tables / Partitions / Views / Sequences) with a filter and change indicators
-  **A** added · **M** modified · **R** renamed · **D** deleted; below it the **Live DDL Audit Log**.
-- **Center:** commit graph growing upwards, with environment badges and a separate lane for diverged histories.
-- **Right:** Working Tree (changes, editable UP/DOWN SQL, commit) or a commit (changes, UP / DOWN / Snapshot /
-  DDL Trigger Log, single-commit export, rollback, delete).
-
-The language is stored in the browser (`localStorage`, key `pgvc_lang`, default `ru`); every API request carries
-`Accept-Language`, so server errors come back in the same language.
-
-### Architecture
-
-```
-frontend/                         React 18 + TypeScript + Vite + Tailwind, @xyflow/react, @monaco-editor/react
-  src/i18n/                       typed i18n context, en.json / ru.json
-src/main/java/com/vodianoy/pgvc/
-  environment/                    connections (pgvc-environments.json), one Hikari pool per environment
-  storage/                        _pgvc schema: commits, refs, DDL audit log, event triggers
-  introspection/                  pg_catalog -> DatabaseSnapshot (SQL in resources/db/introspection)
-  diff/                           SchemaDiffEngine: snapshot A -> B = ordered UP / DOWN DDL
-  vcs/                            commit (Mode A/B), rollback, compare, push, link, global graph
-  migration/                      offline .sql bundles
-  snapshot/                       .pgsnap.json reference snapshots: export, compare by name, apply as a commit
-  safety/                         Migration Safety & Lock Analyzer (locks, rewrites, data loss, zero-downtime patterns)
-  execution/                      steps (-- pgvc:step), timeouts, CONCURRENTLY outside of transactions
-  about/, common/, config/        /api/about, errors and i18n (resources/i18n/messages_*.properties)
-```
-
-Everything that changes a database runs in one transaction of that database and is verified against the schema
-snapshot afterwards. Details (REST API, `_pgvc`, introspection, diff rules, bundles, linking, tests):
-[docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md) (in Russian).
-
-### CLI (CI/CD)
-
-```bash
-# nightly drift check: exit code 2 = someone changed the schema outside of version control
-java -jar pg-git-vc-1.7.1.jar --cli --action=check-drift --env=prod --output=drift.md
-
-# Merge Request comment: what the release snapshot changes on stage, failing on dangerous changes
-java -jar pg-git-vc-1.7.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
-     --output=pr-comment.md --fail-on=dangerous
-```
-
-Exit codes: `0` ok, `1` error (arguments, connection), `2` drift / `--fail-on` threshold reached. Environments come
-from `./pgvc-environments.json` (`--pgvc.environments-file=<path>`); no web server is started.
-
-### Configuration
-
-| Property | Default |
+| Document | Contents |
 |---|---|
-| `server.port` | `8765` |
-| `server.address` | `127.0.0.1` (local only) |
-| `pgvc.environments-file` | `./pgvc-environments.json` (passwords in plain text — keep it private) |
-| `pgvc.connect-timeout-seconds` | `5` |
-| `pgvc.max-pool-size` | `4` connections per environment |
-| `pgvc.lock-timeout` | `3s` (default of every migration, rollback and push) |
-| `pgvc.statement-timeout` | `60s` |
-| `pgvc.settings-file` | `pgvc-settings.json` next to the environments file (default ignore rules) |
-
-### Releases
-
-Bump the version in `pom.xml`, add release notes `.github/release/vX.Y.Z.md` and merge into `main`:
-`.github/workflows/release.yml` builds the jar, creates the tag `vX.Y.Z` and publishes the release with the jar and
-its SHA-256.
+| [docs/MANUAL_EN.md](docs/MANUAL_EN.md) | user & architecture manual: `_pgvc` and event triggers, Workflow A / B, discard, branches and rollback, the three ways to ship changes to a customer, troubleshooting |
+| [docs/MANUAL_RU.md](docs/MANUAL_RU.md) | the same in Russian |
+| [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md) | technical reference (Russian): REST API, formats, diff engine, safety analyzer, CLI, step history |
+| **📖 Docs** in the UI | the manual inside the application (works offline, RU / EN) |
 
 ### License
 
-Copyright 2026 NoProblem2000.
-
-Licensed under the **Apache License, Version 2.0** (the "License"); you may not use this software except in compliance
-with the License. You may obtain a copy of the License in [LICENSE](LICENSE) or at
-https://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an **"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**,
-either express or implied. See the License for the specific language governing permissions and limitations.
+[Apache License 2.0](LICENSE) — Copyright 2026 NoProblem2000. See also [NOTICE](NOTICE).
 
 ---
 
 ## Русский
 
-### Что умеет
+PgGitVisualizer хранит историю схемы PostgreSQL **в самой базе** (схема `_pgvc`), показывает её графом коммитов и
+переносит изменения между Dev, Stage, Prod и изолированными площадками заказчиков.
 
-- **Mode A — перехват изменений из IDE.** Меняете схему в DBeaver, pgAdmin или DataGrip — `EVENT TRIGGER` пишут DDL в
-  `_pgvc.ddl_audit_log`, а интроспектор сравнивает `pg_catalog` со снимком `HEAD`. Вверху графа пульсирует узел
-  **Working Tree** с готовыми `UP SQL` / `DOWN SQL`, которые можно поправить и закоммитить.
-- **Mode B — миграция из интерфейса.** `UP SQL` выполняется в одной транзакции вместе с интроспекцией и записью
-  коммита; любая ошибка откатывает всё. `DOWN SQL` сгенерируется, если оставить его пустым.
-- **Окружения (Dev / Test / Stage / Prod …).** Подключения хранятся в `./pgvc-environments.json`. Цветные бейджи на
-  графе показывают, на каком коммите каждая база. **Синхронизация / Push** накатывает недостающие коммиты в другое
-  окружение одной транзакцией; **привязка (Link)** подключает к общей истории окружение, где схема уже есть, без
-  выполнения SQL.
-- **Откат** базы к любому более раннему коммиту — с редактируемым скриптом и проверкой схемы после него.
-- **Отмена незакоммиченных изменений** (`git reset --hard HEAD`): всех сразу или одного, с редактируемым SQL отмены.
-- **Удаление** ненужных коммитов (оставшихся после отката): один коммит вместе с коммитами поверх него или целиком
-  брошенная ветка. Коммиты из текущей истории любого окружения защищены от удаления.
-- **Эталонные слепки для изолированных площадок.** Схема любого коммита выгружается в
-  `snapshot_<ветка>_<хеш>.pgsnap.json`; на площадке заказчика файл загружается в приложение, и видно, чего в его базе
-  не хватает и что в ней лишнее (сопоставление по именам объектов — OID другого сервера ничего не значат). Нужные
-  изменения отмечаются галочками, SQL можно поправить, и **«Применить выбранное и закоммитить»** накатывает их одной
-  транзакцией. Объекты, которые есть только у заказчика, не удаляются, пока их явно не выбрать.
-- **Анализатор безопасности миграций.** У каждого изменения и каждой команды — уровень риска (SAFE / WARNING /
-  DANGEROUS), блокировка PostgreSQL, размер таблицы (`1229 MB / 4.5M строк`), отметки «Потеря данных» / «Перезапись
-  таблицы» и оценка времени, а где возможно — **⚡ безопасный шаблон без простоя** (`NOT VALID` + `VALIDATE`,
-  `CREATE INDEX CONCURRENTLY`, nullable-колонка + `CHECK … NOT VALID`).
-- **Безопасное выполнение.** `lock_timeout` / `statement_timeout` (`SET LOCAL`, по умолчанию 3s / 60s), Pre- и
-  Post-скрипты, многошаговые миграции (`-- pgvc:step`: каждый шаг — своя транзакция, `CONCURRENTLY` — вне транзакции)
-  и **🧪 Dry-Run** — скрипт выполняется на реальной базе в транзакции, которая откатывается, с реальным временем.
-- **Офлайн-бандлы.** Самодостаточный `.sql` для изолированных площадок: проверяет `HEAD` целевой базы, накатывает
-  коммиты и записывает их — всё внутри `BEGIN … COMMIT`.
-- Отслеживаются **все пользовательские схемы** базы: таблицы, партиции, колонки, ограничения, индексы, представления,
-  материализованные представления, последовательности, **функции и процедуры** (с перегрузками), **триггеры**,
-  **ENUM-типы**, **расширения**, **комментарии**, а при желании — **владельцы, GRANT и tablespace**; переименования
-  распознаются по `oid` / `attnum`. Источник — только `pg_catalog`.
-- **Правила игнорирования.** Можно не сравнивать комментарии, владельцев и права, tablespace, партиции или любые
-  объекты по шаблону (`tmp_%`, `bak_*`, `re:^tmp_\d+$`). Сохранённые правила действуют во всех сравнениях — Working
-  Tree, коммиты, проверки вокруг push и отката, сравнение окружений и слепков; отдельное сравнение может их разово
-  переопределить.
-- **🌐 Матрица N баз.** Сравнение любого числа окружений и файлов `.pgsnap.json` с одной эталонной базой: строка на
-  объект, столбец на базу — совпадает / отличается / нет / только здесь. По клику на ячейку видно, что именно
-  отличается, и SQL, который приводит эту базу к эталону.
-- **📌 Справочники.** Небольшие таблицы (до 10 000 строк, с PRIMARY KEY) можно взять под контроль версий: их строки
-  попадают в каждый снимок, а изменения строк превращаются в `INSERT … ON CONFLICT … DO UPDATE` / `DELETE` в коммитах,
-  push, сравнении со слепками и матрице.
-- **📁 Экспорт в Git-папку.** Схема по файлу на объект (`schema/tables`, `views`, `functions`, `triggers`, `enums`,
-  `reference_data`, `migrations/0001_<хеш>_<slug>.up.sql`) — архивом `.zip` или прямо в локальную рабочую копию Git —
-  для привычного код-ревью в GitLab / GitHub.
-- **CLI для CI/CD.** `java -jar pg-git-vc.jar --cli --action=check-drift --env=prod` завершается с кодом 2, если база
-  разошлась со своим HEAD; `--action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md`
-  пишет Markdown-отчёт с оценкой риска каждого изменения для комментария к Merge Request.
-- **Интерфейс на русском и английском** с мгновенным переключением; сообщения сервера приходят на выбранном языке.
+### Преимущества
 
-### Скачать и запустить
+- **Без Docker, один JAR** — `java -jar pg-git-vc-1.8.0.jar`, интерфейс встроен; на серверы ничего не ставится.
+- **Граф в стиле GitKraken** — коммиты всех окружений в одном графе, цветные бейджи показывают, где каждая база.
+- **Изменения из любой IDE** — event triggers записывают DDL из DBeaver / pgAdmin / DataGrip; узел **Working Tree**
+  показывает незакоммиченное с готовыми UP / DOWN SQL.
+- **Транзакционно безопасные откаты** — откат, сброс и push выполняются одной транзакцией, с `lock_timeout`,
+  проверкой схемы после и анализатором безопасности (блокировки, перезапись, потеря данных, шаблоны без простоя).
+- **Офлайн-синхронизация** — саморегистрирующиеся `.sql`-пакеты для `psql` и слепки `.pgsnap.json` для баз
+  заказчиков со своей историей.
+- А также: матрица N баз, правила игнорирования, справочники (строки таблиц), экспорт в Git-папку, CLI для CI/CD,
+  интерфейс на русском и английском со встроенным руководством (**📖 Руководство**).
 
-Скачайте `pg-git-vc-<версия>.jar` со страницы [Releases](https://github.com/NoProblem2000/VodianoyBase/releases).
-Нужна только **Java 17+**:
+### Быстрый старт
+
+Требования: **Java 17+**, **PostgreSQL 11+**, один раз на базу — **SUPERUSER** для создания схемы `_pgvc` и event
+triggers (дальше достаточно обычной роли).
 
 ```bash
-java -jar pg-git-vc-1.7.1.jar
+# скачайте pg-git-vc-1.8.0.jar со страницы Releases или соберите:
+mvn clean package                        # тесты + интерфейс -> target/pg-git-vc-1.8.0.jar
+java -jar target/pg-git-vc-1.8.0.jar     # затем откройте http://localhost:8765
 ```
 
-Откройте http://localhost:8765.
+1. **Окружения → Добавить окружение** (JDBC URL, пользователь, пароль) → **Проверить подключение** → **Сохранить**.
+2. На жёлтой полосе — **Подключить контроль версий**.
+3. Выберите узел **Незакоммиченные изменения (Working Tree)** → **Закоммитить изменения** («Baseline»).
 
-### Сборка из исходников
+Для сборки нужен доступ к Maven и npm (frontend-maven-plugin сам скачивает Node). Тесты на реальной базе
+выполняются, если задан `PGVC_TEST_JDBC_URL`. Параметры: `--server.port=…`, `--server.address=…` (по умолчанию
+`127.0.0.1`), `--pgvc.environments-file=…` (подключения, пароли открытым текстом — не публикуйте файл).
 
-Нужны **JDK 17+** и **Maven 3.9+**. Node.js ставить не нужно — Maven сам скачает его в `target/node`, соберёт
-React-интерфейс из `frontend/` и положит его внутрь jar.
+### Документация
 
-```bash
-mvn clean package                  # тесты + интерфейс + target/pg-git-vc-1.7.1.jar
-mvn clean package -DskipTests      # быстрее, без тестов
-java -jar target/pg-git-vc-1.7.1.jar
-```
-
-Порт меняется так: `--server.port=9000`. По умолчанию приложение слушает только `127.0.0.1`.
-Разработка интерфейса с горячей перезагрузкой: запустите jar, затем `cd frontend && npm ci && npm run dev`
-(http://localhost:5173, `/api` проксируется на `:8765`).
-
-### Первые шаги
-
-1. **Окружения** (верхняя панель) → имя, JDBC URL (`jdbc:postgresql://host:5432/db`), пользователь, пароль →
-   **Проверить подключение** → **Сохранить**.
-2. **Подключить контроль версий** — создаёт схему `_pgvc` и event triggers (нужен `SUPERUSER`).
-3. В **Working Tree** появится вся текущая схема: укажите автора и сообщение и нажмите **Закоммитить изменения** —
-   это базовый коммит.
-4. Остальные окружения, где такая же схема уже есть, **не коммитьте отдельно**: откройте **Синхронизация / Push**,
-   источник — первое окружение, цель — другое, нажмите **Привязать к …**. Дальнейшие коммиты доставляются кнопкой
-   **Накатить**.
-
-### Интерфейс
-
-- **Верхняя панель:** переключатель окружения и **Окружения**; **Новая SQL-миграция (Mode B)**;
-  **Экспорт офлайн .SQL**; **Синхронизация / Push**; **Экспорт слепка** (камера) и **Сравнить со слепком**; переключатель языка **RU | EN**;
-  **О проекте и лицензии**.
-- **Слева:** обозреватель схемы (Таблицы / Партиции / Представления / Последовательности) с фильтром и индикаторами
-  **A** добавлено · **M** изменено · **R** переименовано · **D** удалено; ниже — **Журнал DDL (онлайн)**.
-- **В центре:** граф коммитов растёт снизу вверх, с бейджами окружений и отдельной линией для разошедшихся историй.
-- **Справа:** Working Tree (изменения, редактируемые UP/DOWN SQL, коммит) или коммит (изменения,
-  UP / DOWN / Снимок / Журнал DDL, экспорт одного коммита, откат, удаление).
-
-Язык хранится в браузере (`localStorage`, ключ `pgvc_lang`, по умолчанию `ru`); каждый запрос к API несёт
-`Accept-Language`, поэтому ошибки сервера приходят на том же языке.
-
-### Архитектура
-
-```
-frontend/                         React 18 + TypeScript + Vite + Tailwind, @xyflow/react, @monaco-editor/react
-  src/i18n/                       типизированный контекст переводов, en.json / ru.json
-src/main/java/com/vodianoy/pgvc/
-  environment/                    подключения (pgvc-environments.json), свой пул Hikari на окружение
-  storage/                        схема _pgvc: коммиты, refs, журнал DDL, event triggers
-  introspection/                  pg_catalog -> DatabaseSnapshot (SQL в resources/db/introspection)
-  diff/                           SchemaDiffEngine: снимок A -> B = упорядоченный UP / DOWN DDL
-  vcs/                            коммит (Mode A/B), откат, сравнение, push, привязка, общий граф
-  migration/                      офлайн .sql-бандлы
-  snapshot/                       эталонные слепки .pgsnap.json: экспорт, сравнение по именам, накат коммитом
-  safety/                         анализатор безопасности (блокировки, перезапись, потеря данных, шаблоны без простоя)
-  execution/                      шаги (-- pgvc:step), таймауты, CONCURRENTLY вне транзакций
-  about/, common/, config/        /api/about, ошибки и i18n (resources/i18n/messages_*.properties)
-```
-
-Всё, что меняет базу, выполняется в одной транзакции этой базы и затем сверяется со снимком схемы. Подробности
-(REST API, `_pgvc`, интроспекция, правила Diff Engine, бандлы, привязка, тесты) —
-в [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md).
-
-### CLI (CI/CD)
-
-```bash
-# ночная проверка дрейфа: код 2 — кто-то поменял схему мимо контроля версий
-java -jar pg-git-vc-1.7.1.jar --cli --action=check-drift --env=prod --output=drift.md
-
-# комментарий к Merge Request: что релизный слепок меняет на stage; ошибка, если есть опасные изменения
-java -jar pg-git-vc-1.7.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json \
-     --output=pr-comment.md --fail-on=dangerous
-```
-
-Коды возврата: `0` — всё в порядке, `1` — ошибка (аргументы, подключение), `2` — дрейф / достигнут порог `--fail-on`.
-Окружения берутся из `./pgvc-environments.json` (`--pgvc.environments-file=<путь>`); веб-сервер не запускается.
-
-### Настройки
-
-| Параметр | По умолчанию |
+| Документ | Содержание |
 |---|---|
-| `server.port` | `8765` |
-| `server.address` | `127.0.0.1` (только локально) |
-| `pgvc.environments-file` | `./pgvc-environments.json` (пароли открытым текстом — не публикуйте файл) |
-| `pgvc.connect-timeout-seconds` | `5` |
-| `pgvc.max-pool-size` | `4` соединения на окружение |
-| `pgvc.lock-timeout` | `3s` (по умолчанию для миграций, откатов и push) |
-| `pgvc.statement-timeout` | `60s` |
-| `pgvc.settings-file` | `pgvc-settings.json` рядом с файлом окружений (правила игнорирования по умолчанию) |
-
-### Релизы
-
-Поднимите версию в `pom.xml`, добавьте заметки `.github/release/vX.Y.Z.md` и влейте в `main`:
-`.github/workflows/release.yml` соберёт jar, создаст тег `vX.Y.Z` и опубликует релиз с jar и его SHA-256.
+| [docs/MANUAL_RU.md](docs/MANUAL_RU.md) | руководство пользователя и архитектора: `_pgvc` и event triggers, Workflow A / B, сброс изменений, ветки и откат, три способа переноса изменений к заказчику, troubleshooting |
+| [docs/MANUAL_EN.md](docs/MANUAL_EN.md) | то же на английском |
+| [docs/TECHNICAL.ru.md](docs/TECHNICAL.ru.md) | техническая справка: REST API, форматы, Diff Engine, анализатор безопасности, CLI, история шагов |
+| **📖 Руководство** в интерфейсе | руководство внутри приложения (работает без интернета, RU / EN) |
 
 ### Лицензия
 
-Copyright 2026 NoProblem2000.
-
-Распространяется по лицензии **Apache License, Version 2.0**. Программу можно свободно использовать, изменять и
-распространять, в том числе в коммерческих целях, при условии сохранения текста лицензии и уведомлений об авторских
-правах. Полный текст — в файле [LICENSE](LICENSE) и на https://www.apache.org/licenses/LICENSE-2.0. Программа
-предоставляется **«КАК ЕСТЬ», БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ И УСЛОВИЙ**, явных или подразумеваемых.
+[Apache License 2.0](LICENSE) — Copyright 2026 NoProblem2000. См. также [NOTICE](NOTICE).

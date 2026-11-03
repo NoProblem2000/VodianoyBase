@@ -123,7 +123,8 @@
     "matrix": "N-Database Matrix",
     "ignoreRules": "Ignore rules",
     "referenceData": "📌 Reference Data Tables",
-    "gitExport": "📁 Export Git Folder (.zip / Local Path)"
+    "gitExport": "📁 Export Git Folder (.zip / Local Path)",
+    "docs": "📖 Docs"
   },
   "app": {
     "cannotConnect": "Cannot connect to {{name}}: {{error}}",
@@ -568,5 +569,19 @@
     "doneAll": "{{env}} is back at {{head}}",
     "doneSome": "Reverted {{count}} change(s), {{left}} left",
     "logCleared": "DDL log cleared ({{count}} entries)"
+  },
+  "docs": {
+    "title": "Documentation Center",
+    "subtitle": "User manual of PgGitVisualizer — works offline",
+    "sections": "Sections",
+    "search": "Search the manual…",
+    "clearSearch": "Clear search",
+    "results": "Found: {{count}}",
+    "noResults": "Nothing found. Try another word, e.g. \"rollback\", \"psql\" or \"lock\".",
+    "repoHint": "The detailed manual with diagrams is {{file}} in the repository.",
+    "step": "Step {{n}}",
+    "tip": "Tip",
+    "warning": "Warning",
+    "danger": "Danger"
   }
 }

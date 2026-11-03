@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Camera,
   Database,
   Download,
@@ -35,6 +36,7 @@ interface Props {
   onIgnoreRules: () => void;
   onReferenceData: () => void;
   onGitExport: () => void;
+  onDocs: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -149,6 +151,10 @@ export function TopBar(p: Props) {
       </button>
 
       <span className="mx-0.5 h-6 w-px bg-kraken-line" aria-hidden="true" />
+      <button className="btn btn-ghost px-2" onClick={p.onDocs} title={t('docs.title')} aria-label={t('topBar.docs')}>
+        <BookOpen size={15} />
+        <span className="hidden min-[1400px]:inline">{t('topBar.docs').replace(/^📖\s*/u, '')}</span>
+      </button>
       <LanguageSwitch />
       <button className="btn btn-ghost px-2" onClick={p.onAbout} title={t('topBar.about')} aria-label={t('topBar.about')}>
         <Info size={16} />
