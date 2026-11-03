@@ -352,6 +352,22 @@ await step('17-about', async () => {
   await shot('17-about');
   await page.keyboard.press('Escape');
 });
+await step('17b-docs', async () => {
+  await page.getByRole('button', { name: '📖 Docs' }).click();
+  await page.getByText('Documentation Center').first().waitFor({ timeout: 5000 });
+  await page.getByRole('heading', { name: /Quick Start & Concepts/ }).waitFor({ timeout: 5000 });
+  await shot('17b-docs');
+});
+await step('17c-docs-search', async () => {
+  await page.getByPlaceholder('Search the manual…').fill('psql bundle');
+  const nav = page.getByRole('navigation', { name: 'Sections' });
+  await nav.getByText(/Found: [1-9]/).waitFor({ timeout: 5000 });
+  await nav.getByRole('button', { name: /Offline Bundles & Multi-Env/ }).click();
+  await page.getByRole('heading', { name: /Offline Bundles & Multi-Env/ }).waitFor({ timeout: 5000 });
+  await page.locator('article mark').first().waitFor({ timeout: 5000 });
+  await shot('17c-docs-search');
+  await page.keyboard.press('Escape');
+});
 await step('18-ru-main', async () => {
   await page.getByRole('button', { name: 'RU', exact: true }).click();
   await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
@@ -387,6 +403,17 @@ await step('20b-ru-matrix', async () => {
   await page.getByRole('table', { name: '🌐 Матрица N баз' }).waitFor({ timeout: 30000 });
   await page.getByText('Только различия').waitFor({ timeout: 5000 });
   await shot('20b-ru-matrix');
+  await page.keyboard.press('Escape');
+});
+await step('20c-ru-docs', async () => {
+  await page.getByRole('button', { name: '📖 Руководство' }).click();
+  await page.getByText('Центр документации').first().waitFor({ timeout: 5000 });
+  const nav = page.getByRole('navigation', { name: 'Разделы' });
+  await nav.getByRole('button', { name: /Откаты и сброс изменений/ }).click();
+  await page.getByRole('heading', { name: /Откаты и сброс изменений/ }).waitFor({ timeout: 5000 });
+  await page.getByText('Отменить все изменения (сброс к HEAD)').first().waitFor({ timeout: 5000 });
+  await page.getByRole('note').first().waitFor({ timeout: 5000 });
+  await shot('20c-ru-docs');
   await page.keyboard.press('Escape');
 });
 await step('21-ru-reload-keeps-language', async () => {
