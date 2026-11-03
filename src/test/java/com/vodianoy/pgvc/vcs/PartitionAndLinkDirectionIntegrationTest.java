@@ -45,7 +45,7 @@ class PartitionAndLinkDirectionIntegrationTest {
                 id         int PRIMARY KEY,
                 event_id   bigint,
                 event_date date,
-                FOREIGN KEY (event_id, event_date) REFERENCES app.events (id, date)
+                CONSTRAINT notes_event_fk FOREIGN KEY (event_id, event_date) REFERENCES app.events (id, date)
             );
             CREATE VIEW app.v_events AS SELECT id, date FROM app.events;
             INSERT INTO app.events (date, payload) SELECT date '2026-01-01' + g, 'row ' || g FROM generate_series(1, 120) g;
@@ -54,7 +54,7 @@ class PartitionAndLinkDirectionIntegrationTest {
 
     /** The developer converts app.events to a table partitioned by date (keeping the rows and the dependents). */
     private static final String CONVERT_TO_PARTITIONED = """
-            ALTER TABLE app.notes DROP CONSTRAINT notes_event_id_event_date_fkey;
+            ALTER TABLE app.notes DROP CONSTRAINT notes_event_fk;
             DROP VIEW app.v_events;
             ALTER SEQUENCE app.events_id_seq OWNED BY NONE;
             ALTER TABLE app.events RENAME TO events_old;
@@ -70,7 +70,13 @@ class PartitionAndLinkDirectionIntegrationTest {
             INSERT INTO app.events SELECT * FROM app.events_old;
             DROP TABLE app.events_old;
             ALTER SEQUENCE app.events_id_seq OWNED BY app.events.id;
-            ALTER TABLE app.notes ADD FOREIGN KEY (event_id, event_date) REFERENCES app.events (id, date);
+            -- a foreign key may reference a partitioned table from PostgreSQL 12 on
+            DO $$ BEGIN
+                IF current_setting('server_version_num')::int >= 120000 THEN
+                    ALTER TABLE app.notes ADD CONSTRAINT notes_event_fk
+                        FOREIGN KEY (event_id, event_date) REFERENCES app.events (id, date);
+                END IF;
+            END $$;
             CREATE VIEW app.v_events AS SELECT id, date FROM app.events;
             """;
 

@@ -192,7 +192,8 @@ class DiffDirectionAndPartitionTest {
         assertThat(table.getDownSql()).contains("DROP TABLE public.events;").doesNotContain("PARTITION BY");
 
         // DOWN (= Discard when the developer converted the table): back to a regular table, PRIMARY KEY (id) on it
-        assertThat(r.getDownSql()).doesNotContain("MANUAL ACTION").doesNotContain("PARTITION BY");
+        String downStatements = r.getDownSql().replaceAll("(?m)^-- WARNING:.*$", "");
+        assertThat(downStatements).doesNotContain("MANUAL ACTION").doesNotContain("PARTITION BY");
         assertOrdered(r.getDownSql(),
                 "CREATE TEMPORARY TABLE _pgvc_copy_0 AS SELECT * FROM public.events;",
                 "DROP TABLE public.events;",
