@@ -125,7 +125,7 @@ await step('10a-inspector-layout', async () => {
   await shot('10a-inspector-safety');
   // UP SQL over the whole panel, then fullscreen
   await page.getByRole('tab', { name: /UP SQL/ }).click();
-  await page.getByText(/RENAME COLUMN note TO remark/).first().waitFor({ timeout: 10000 });
+  await page.locator('.monaco-editor').filter({ hasText: /RENAME\s+COLUMN\s+note\s+TO\s+remark/ }).first().waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: 'Expand fullscreen' }).click();
   await page.getByText('Edits made here are kept').waitFor({ timeout: 5000 });
   await shot('10a-inspector-fullscreen');
@@ -137,6 +137,7 @@ await step('10a-inspector-layout', async () => {
 await step('10b-discard-item', async () => {
   await page.getByLabel('Filter schema objects').fill('');
   await page.getByText('Working Tree (Uncommitted Changes)').first().click();
+  await page.getByRole('tab', { name: /Changes/ }).click();
   await page.getByRole('button', { name: 'Discard / Revert Item: sales.customers_phone_idx' }).click();
   await page.getByText('DROP INDEX sales.customers_phone_idx;').first().waitFor({ timeout: 15000 });
   await shot('10b-discard-item');
