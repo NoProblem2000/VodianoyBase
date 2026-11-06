@@ -211,7 +211,8 @@ class SchemaDiffEngineTest {
         assertOrdered(r.getUpSql(), "ALTER TABLE public.b DROP CONSTRAINT b_a_fk;", "DROP TABLE public.");
         assertOrdered(r.getDownSql(), "CREATE TABLE public.a", "CREATE TABLE public.b",
                 "ALTER TABLE public.b ADD CONSTRAINT b_a_fk FOREIGN KEY (a_id) REFERENCES public.a(id);");
-        assertTrue(r.getWarnings().stream().anyMatch(w -> w.contains("data will be lost")));
+        // diff() = working tree: the tables are already gone from the live database
+        assertTrue(r.getWarnings().stream().anyMatch(w -> w.contains("is permanently lost")), r.getWarnings().toString());
     }
 
     @Test
@@ -306,7 +307,8 @@ class SchemaDiffEngineTest {
         assertEquals(ChangeType.ADDED, email.getChangeType());
         assertTrue(legacy.isExtraInTargetDb());
         // warnings belong to their change: only the drop warns about data loss
-        assertTrue(legacy.getWarnings().stream().anyMatch(w -> w.contains("data will be lost")), legacy.toString());
+        assertTrue(legacy.getWarnings().stream().anyMatch(w -> w.contains("drops column public.users.legacy_code together with all its data")),
+                legacy.toString());
         assertTrue(email.getWarnings().isEmpty(), email.toString());
         assertTrue(r.getWarnings().containsAll(legacy.getWarnings()));
 

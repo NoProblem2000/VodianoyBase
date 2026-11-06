@@ -260,6 +260,13 @@ public class MigrationSafetyAnalyzer {
             }
             SafetyReport aggregated = aggregate(reports, item.getUpSql());
             attachAlternatives(aggregated, statements, reports, item.getUpSql());
+            if (ChangeItem.ALREADY_LOST.equals(item.getDataLoss())) {
+                // the object is already gone from the live database: "is dropped with its rows" would describe the
+                // future; the change carries the "already lost" warning instead
+                String column = item.getObjectName().substring(item.getObjectName().lastIndexOf('.') + 1);
+                aggregated.getNotes().removeIf(n -> n.equals(text("safety.note.dropTable"))
+                        || n.equals(text("safety.note.dropColumn", column)));
+            }
             item.setSafety(aggregated);
         }
     }

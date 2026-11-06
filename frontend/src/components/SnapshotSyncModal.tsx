@@ -70,6 +70,7 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
   const [rebuiltOverEdits, setRebuiltOverEdits] = useState(false);
   const [tab, setTab] = useState<Tab>('up');
   const [message, setMessage] = useState('');
+  const [description, setDescription] = useState('');
   const [busy, setBusy] = useState<'apply' | 'dry' | null>(null);
   const [options, setOptions] = useState<ExecutionOptions>(DEFAULT_EXECUTION);
   const [patterns, setPatterns] = useState<Set<number>>(new Set());
@@ -170,7 +171,8 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
       upSql: up,
       downSql: down,
       author,
-      message,
+      message: message.trim(),
+      description: description.trim() || undefined,
       sourceCommitHash: comparison?.source.sourceCommitHash ?? null,
       lockTimeout: options.lockTimeout,
       statementTimeout: options.statementTimeout,
@@ -270,8 +272,18 @@ export function SnapshotSyncModal({ env, author, onAuthorChange, onApplied, onCl
               />
             </label>
             <label className="min-w-0 flex-1">
-              <span className="label">{t('common.commitMessage')}</span>
-              <input className="input" value={message} onChange={(e) => setMessage(e.target.value)} />
+              <span className="label">{t('common.commitSummary')}</span>
+              <input className="input" value={message} onChange={(e) => setMessage(e.target.value.replace(/[\r\n]+/g, ' '))} />
+            </label>
+            <label className="min-w-0 flex-1">
+              <span className="label">{t('common.commitDescription')}</span>
+              <textarea
+                className="input h-[34px] min-h-[34px] resize-y py-1.5 leading-snug"
+                rows={1}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('common.commitDescriptionPlaceholder')}
+              />
             </label>
             <TimeoutFields value={options} onChange={setOptions} />
             <button className="btn self-end" onClick={() => void runDry()} disabled={busy !== null || !up.trim()}>

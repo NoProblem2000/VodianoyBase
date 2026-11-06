@@ -18,6 +18,10 @@ public class SchemaDiffResult {
 
     private boolean hasChanges;
 
+    /** What the comparison describes: changes already in the live database, a script to run, or history. */
+    @Builder.Default
+    private DiffMode mode = DiffMode.APPLIED;
+
     @Builder.Default
     private List<ChangeItem> changes = new ArrayList<>();
 

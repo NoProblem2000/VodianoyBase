@@ -12,6 +12,8 @@ import { useToast } from './Toasts';
 interface Props {
   graph: GlobalGraph;
   defaultSource: string;
+  /** "Up to commit" preselected (e.g. "Create branch here"); default: the source HEAD */
+  defaultTip?: string;
   onDone: (result: PushResult) => void;
   /** the target was linked to the source history; the modal stays open so the remaining commits can be pushed */
   onLinked: (result: LinkResult) => void;
@@ -29,7 +31,7 @@ const RELATION_TONE: Record<HistoryRelation, string> = {
 
 const PUSHABLE: HistoryRelation[] = ['TARGET_BEHIND', 'TARGET_EMPTY', 'TARGET_NOT_INITIALIZED'];
 
-export function SyncModal({ graph, defaultSource, onDone, onLinked, onClose }: Props) {
+export function SyncModal({ graph, defaultSource, defaultTip, onDone, onLinked, onClose }: Props) {
   const toast = useToast();
   const { t, tn } = useI18n();
   const sources = graph.environments.filter((e) => e.initialized && e.head);
@@ -38,7 +40,7 @@ export function SyncModal({ graph, defaultSource, onDone, onLinked, onClose }: P
   const [target, setTarget] = useState(targets[0]?.id ?? '');
   const [comparison, setComparison] = useState<EnvironmentComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tip, setTip] = useState('');
+  const [tip, setTip] = useState(defaultTip ?? '');
   const [allowDirty, setAllowDirty] = useState(false);
   const [skipVerification, setSkipVerification] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,8 @@ export function SyncModal({ graph, defaultSource, onDone, onLinked, onClose }: P
   useEffect(() => {
     setComparison(null);
     setError(null);
-    setTip('');
+    // a chosen commit stays when the new source has it in its history
+    setTip((current) => (current && history.some((c) => c.hash === current) ? current : ''));
     if (!source || !target || source === target) return;
     let cancelled = false;
     api

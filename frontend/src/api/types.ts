@@ -90,10 +90,24 @@ export interface ChangeItem {
   warnings?: string[];
   /** Migration Safety & Lock Analyzer result for upSql on the target database */
   safety?: SafetyReport;
+  /**
+   * data of a dropped table / partition / column: ALREADY_LOST — the drop already happened in the live database
+   * (working tree), WILL_BE_LOST — running the script drops it
+   */
+  dataLoss?: DataLoss;
+  /** estimated rows / size of the table that held the lost data */
+  lostRows?: number;
+  lostPrettySize?: string;
 }
+
+export type DataLoss = 'ALREADY_LOST' | 'WILL_BE_LOST';
+
+/** APPLIED: changes already in the live database; PLANNED: a script to run; RECORDED: history of a commit */
+export type DiffMode = 'APPLIED' | 'PLANNED' | 'RECORDED';
 
 export interface SchemaDiffResult {
   hasChanges: boolean;
+  mode?: DiffMode;
   changes: ChangeItem[];
   upSql: string;
   downSql: string;
@@ -111,7 +125,10 @@ export interface CommitNode {
   hash: string;
   parentHash: string | null;
   author: string;
+  /** one-line summary shown in the graph */
   message: string;
+  /** longer description (details, ticket numbers) */
+  description?: string | null;
   createdAt: string;
 }
 
@@ -128,11 +145,34 @@ export interface CommitDetails {
   parentHash: string | null;
   author: string;
   message: string;
+  description?: string | null;
   createdAt: string;
   upSql: string;
   downSql: string;
   schemaSnapshot: DatabaseSnapshot;
   ddlLogHistory: unknown;
+}
+
+/** What "Revert Commit" (git revert) would run: the DOWN SQL of one commit, recorded as a new commit on top of HEAD. */
+export interface RevertPlan {
+  envId: string;
+  head: string;
+  target: CommitNode;
+  targetIsHead: boolean;
+  laterCommits: number;
+  revertSql: string;
+  revertDownSql: string;
+  defaultMessage: string;
+  targetChanges: ChangeItem[];
+  /** tables / partitions / columns the reverted commit dropped: their structure comes back, their rows do not */
+  restoredObjects: string[];
+  /** tables / partitions / columns the reverted commit created: the revert drops them with their data */
+  droppedObjects: string[];
+  /** objects changed again by later commits: the SQL may not fit the current schema */
+  conflicts: string[];
+  firstCommit: boolean;
+  safety: SqlSafetyReport;
+  dirty: boolean;
 }
 
 export interface RollbackPlan {
@@ -155,6 +195,7 @@ export interface GraphCommit {
   parentHash: string | null;
   author: string;
   message: string;
+  description?: string | null;
   createdAt: string;
   environments: string[];
 }

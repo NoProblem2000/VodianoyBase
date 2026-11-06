@@ -18,6 +18,16 @@ CREATE TABLE IF NOT EXISTS _pgvc.commits (
 
 CREATE INDEX IF NOT EXISTS commits_parent_hash_idx ON _pgvc.commits (parent_hash);
 
+-- v1.9.0: description of a commit (details, ticket numbers) next to its one-line message. Upgrades installations of
+-- older versions; a role that does not own the table cannot add it (the version still works without descriptions).
+DO $pgvc_upgrade$
+BEGIN
+    ALTER TABLE _pgvc.commits ADD COLUMN IF NOT EXISTS description TEXT NULL;
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'pgvc: column _pgvc.commits.description not added: %', SQLERRM;
+END
+$pgvc_upgrade$;
+
 -- Named pointers into the graph; 'HEAD' is the commit the database schema is at.
 CREATE TABLE IF NOT EXISTS _pgvc.refs (
     ref_name    VARCHAR(100) PRIMARY KEY,

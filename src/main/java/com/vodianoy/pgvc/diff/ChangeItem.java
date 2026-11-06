@@ -63,6 +63,27 @@ public class ChangeItem {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private com.vodianoy.pgvc.safety.SafetyReport safety;
 
+    /** {@link #dataLoss}: the object was already dropped in the live database, its rows are gone (working tree). */
+    public static final String ALREADY_LOST = "ALREADY_LOST";
+    /** {@link #dataLoss}: running the script drops the object with its rows. */
+    public static final String WILL_BE_LOST = "WILL_BE_LOST";
+
+    /**
+     * Data of a dropped table / partition / column: {@link #ALREADY_LOST} (the change already happened in the live
+     * database - discarding it recreates only an empty structure) or {@link #WILL_BE_LOST} (the script drops it);
+     * null otherwise or in the history of a commit.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String dataLoss;
+
+    /** Estimated rows of the table that held the lost data (statistics of the snapshot), when known. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long lostRows;
+
+    /** Size of the table that held the lost data, e.g. "147 GB", when known. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String lostPrettySize;
+
     /** Identity used to pair a change with its inverse from the reverse diff (not serialized). */
     @JsonIgnore
     private String pairKey;

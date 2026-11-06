@@ -339,7 +339,9 @@ public class GitDirectoryExporterService {
             String base = String.format("migrations/%04d_%s_%s", i + 1, c.getHash().substring(0, 7), slug(c.getMessage()));
             String head = "-- Commit:  " + c.getHash() + "\n-- Parent:  " + (c.getParentHash() == null ? "-" : c.getParentHash())
                     + "\n-- Author:  " + c.getAuthor() + "\n-- Date:    " + c.getCreatedAt()
-                    + "\n-- Message: " + c.getMessage().replace("\n", "\n--          ") + "\n\n";
+                    + "\n-- Message: " + c.getMessage().replace("\n", "\n--          ")
+                    + (c.getDescription() == null || c.getDescription().isBlank() ? ""
+                    : "\n--\n-- " + c.getDescription().strip().replace("\n", "\n-- ")) + "\n\n";
             files.put(base + ".up.sql", head + nullToEmpty(c.getUpSql()).strip() + "\n");
             files.put(base + ".down.sql", head + nullToEmpty(c.getDownSql()).strip() + "\n");
         }

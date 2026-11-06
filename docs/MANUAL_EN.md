@@ -1,6 +1,6 @@
 # PgGitVisualizer — User and Architecture Manual
 
-Version 1.8.1. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
+Version 1.9.0. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
 Russian): [TECHNICAL.ru.md](TECHNICAL.ru.md).
 
 The same manual is built into the UI: the **📖 Docs** button in the top bar (works offline — on an isolated site the
@@ -18,7 +18,8 @@ single `.jar` is enough).
    2.4. [Discarding uncommitted changes](#24-discarding-uncommitted-changes-safely)
 3. [Branches and history](#3-branches-and-history)
    3.1. [What a branch is](#31-what-a-branch-is-in-pggitvisualizer) · 3.2. [Switching](#32-switching-between-environments-and-branches) ·
-   3.3. [Rollback](#33-rolling-a-database-back-to-a-commit) · 3.4. [Deleting commits and branches](#34-deleting-commits-and-branches)
+   3.3. [Rollback](#33-rolling-a-database-back-to-a-commit) · 3.4. [Revert Commit](#34-reverting-one-commit-revert-commit) ·
+   3.5. [Context menu](#35-commit-context-menu) · 3.6. [Deleting commits and branches](#36-deleting-commits-and-branches)
 4. [Playbook: shipping changes to a customer](#4-playbook-shipping-changes-to-an-external-customer)
    4.1. [Choosing a method](#41-choosing-a-method) · 4.2. [Online Sync](#42-method-1-online-sync--push) ·
    4.3. [`.pgsnap.json` snapshot](#43-method-2-state-based-sync-with-pgsnapjson) ·
@@ -157,7 +158,7 @@ same hash** in every database — that is how the graph knows where each environ
 
 ### 2.1. First start
 
-1. **Start the application:** `java -jar pg-git-vc-1.8.1.jar` and open http://localhost:8765.
+1. **Start the application:** `java -jar pg-git-vc-1.9.0.jar` and open http://localhost:8765.
 2. **Add an environment:** **Environments → Add environment**: name, badge color, JDBC URL
    (`jdbc:postgresql://host:5432/db`), user, password → **Test connection** → **Save**.
 3. **Initialize:** on the yellow bar "Version control is not set up in … yet" press **Initialize version control**
@@ -196,8 +197,15 @@ graph TD
 3. **Edit the SQL if needed,** e.g. add `USING` to a column type change or replace an index creation with
    **⚡ Use Zero-Downtime Pattern**. The changes are already in the database: committing only **records** them, it does
    not execute anything.
-4. **Commit:** fill in **Author** and **Commit message** → **Commit Changes** (or Ctrl+Enter). `HEAD` moves, the DDL
-   log is cleared.
+4. **Commit:** press **Commit Changes…**, fill in **Author**, **Commit summary** (one line, shown in the graph) and
+   optionally **Commit description** (details, ticket number; line breaks are kept), then **Commit Changes** (or
+   Ctrl+Enter). `HEAD` moves, the DDL log is cleared. The description is shown in the commit panel and in the tooltip
+   when hovering over the commit in the graph.
+
+> **Warning.** When a table, partition or column was already dropped in the live database (e.g. in DBeaver), the
+> Working Tree marks it **💀 Data ALREADY lost in DB**: its rows are gone for good, and **Discard All Changes (Reset to
+> HEAD)** runs `CREATE` / `ALTER` and brings back only an empty structure. In scripts that still have to run (sync,
+> snapshot, rollback, revert) the same change is marked **⚠️ Data will be lost on apply**.
 
 > **Tip.** Renames are recognised by OID / attnum: `ALTER TABLE … RENAME` becomes a `RENAME`, not "drop and create
 > again" with data loss.
@@ -334,7 +342,34 @@ sequenceDiagram
 > **Tip.** With uncommitted changes in the database the rollback is refused. Commit or discard them first, or enable
 > "Allow uncommitted changes".
 
-### 3.4. Deleting commits and branches
+### 3.4. Reverting one commit (Revert Commit)
+
+Like `git revert <hash>`: undoes the changes of **one** commit — even from the middle of the history — with a **new
+commit** on top of `HEAD`, leaving the commits after it alone. A rollback ("Rollback DB to here") returns the whole
+chain, Revert only the chosen commit.
+
+1. Right-click the commit in the graph → **Revert Commit…** (or **Revert Commit…** in the commit panel). The commit
+   must be in the history of the active environment.
+2. The dialog shows the compensating SQL (the DOWN SQL of the commit) in an editor: edit it if the schema changed since.
+   Next to it: the safety analysis and what the commit changed.
+3. Warnings: the commit dropped a table / column — Revert brings back the structure but not the rows; the commit created
+   a table / column — Revert drops it with its data; later commits changed the same objects — the SQL may not fit.
+4. **Revert & Commit**: SQL, schema snapshot and the new commit are one transaction, the DDL log is cleared. Default
+   message `Revert "<message>"`, description "Reverts commit <hash>". The DOWN SQL of the new commit is the UP SQL of
+   the reverted one (generated from the schema difference when the SQL was edited).
+
+### 3.5. Commit context menu
+
+Right-clicking a commit in the graph opens a menu (instead of the browser's): **Revert Commit…**, **Rollback DB to
+here…**, **Create branch here…**, **Export snapshot (.pgsnap.json)**, **Export .SQL of this commit**, **Copy Commit
+Hash**, **Copy Message**, **Delete Commit…**. It closes on a click outside or Escape; unavailable items are greyed out
+with a tooltip saying why.
+
+**Create branch here** — there are no named branches, so the dialog offers the two ways to start a line at this
+commit: roll the active database back to it (its next commit starts the branch), or push the history up to it into
+another (empty or behind) environment with **Sync / Push to Env** — "Up to commit" is preselected.
+
+### 3.6. Deleting commits and branches
 
 **Delete…** in the commit panel. Only commits that are **not in the current history of any environment** (not an
 ancestor of any `HEAD`) can be deleted.
@@ -527,7 +562,7 @@ applied.
 | Initialize: "needs a SUPERUSER" | a superuser initializes once; afterwards an ordinary role is enough |
 | DDL does not appear in the log | check the triggers: `SELECT evtname, evtenabled FROM pg_event_trigger WHERE evtname LIKE 'pgvc%';` (`D` = disabled: `ALTER EVENT TRIGGER pgvc_ddl_trigger ENABLE;`) |
 | "Cannot connect" | JDBC URL, network, `pg_hba.conf`; **Test connection** shows the driver error |
-| Port 8765 is busy | `java -jar pg-git-vc-1.8.1.jar --server.port=9000` |
+| Port 8765 is busy | `java -jar pg-git-vc-1.9.0.jar --server.port=9000` |
 | The UI must be opened from another machine | `--server.address=0.0.0.0` (the UI has no authentication — internal networks only) |
 
 ### 5.4. Manual changes to the `_pgvc` schema

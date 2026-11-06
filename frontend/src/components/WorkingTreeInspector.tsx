@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, GitCommitHorizontal, Maximize2, Search, ShieldAlert, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { ChangeItem, ChangeType, CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
@@ -7,6 +7,7 @@ import { shortHash } from '../lib/format';
 import { loadSetting, saveSetting } from '../lib/storage';
 import { ChangeBadge } from './Badges';
 import { ChangeList } from './ChangeList';
+import { CommitMessageFields } from './CommitMessageFields';
 import { DiscardModal } from './DiscardModal';
 import { Modal } from './Modal';
 import { SqlEditor } from './SqlEditor';
@@ -47,6 +48,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   const [up, setUp] = useState(diff.upSql);
   const [down, setDown] = useState(diff.downSql);
   const [message, setMessage] = useState('');
+  const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   // null: closed; []: discard everything; [i, ...]: the given changes
   const [discarding, setDiscarding] = useState<number[] | null>(null);
@@ -56,7 +58,6 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   const [query, setQuery] = useState('');
   const [types, setTypes] = useState<Set<ChangeType>>(new Set());
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const messageBox = useRef<HTMLTextAreaElement>(null);
 
   // new DDL arrived: show the regenerated scripts, the old selection means other changes now
   useEffect(() => {
@@ -67,7 +68,6 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
 
   useEffect(() => {
     saveSetting(COMMIT_FORM_KEY, String(commitOpen));
-    if (commitOpen) messageBox.current?.focus();
   }, [commitOpen]);
 
   const edited = up !== diff.upSql || down !== diff.downSql;
@@ -135,7 +135,8 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
     setBusy(true);
     try {
       const result = await api.commit(env.id, {
-        message,
+        message: message.trim(),
+        description: description.trim() || undefined,
         author,
         upSql: up,
         downSql: down,
@@ -143,6 +144,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
       });
       toast.success(t('workingTree.committed', { hash: shortHash(result.commit.hash), message: result.commit.message }));
       setMessage('');
+      setDescription('');
       onCommitted(result);
     } catch (e) {
       toast.error((e as Error).message);
@@ -371,24 +373,19 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
       {/* ---------------------------------------------------------- compact commit bar */}
       <footer className="border-t border-kraken-line px-3 py-2">
         {commitOpen && (
-          <div className="mb-2 grid grid-cols-[150px_1fr] gap-2">
+          <div className="mb-2 grid grid-cols-[150px_minmax(0,1fr)] gap-2">
             <label>
               <span className="label">{t('common.author')}</span>
               <input className="input" value={author} onChange={(e) => onAuthorChange(e.target.value)} placeholder={t('common.authorPlaceholder')} />
             </label>
-            <label>
-              <span className="label">{t('common.commitMessage')}</span>
-              <textarea
-                ref={messageBox}
-                className="input h-[52px] resize-none py-1.5"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder={t('workingTree.messagePlaceholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void commit();
-                }}
-              />
-            </label>
+            <CommitMessageFields
+              message={message}
+              onMessageChange={setMessage}
+              description={description}
+              onDescriptionChange={setDescription}
+              onSubmit={() => void commit()}
+              autoFocus
+            />
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

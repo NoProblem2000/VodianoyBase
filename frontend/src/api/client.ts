@@ -28,6 +28,7 @@ import type {
   PgVcStatus,
   PushResult,
   ReferenceDataTable,
+  RevertPlan,
   RollbackPlan,
   RollbackResult,
   SchemaDiffResult,
@@ -68,6 +69,7 @@ const e = encodeURIComponent;
 /** Mode B request (dryRun is set by the client function). */
 export interface MigrationBody {
   message: string;
+  description?: string;
   author: string;
   upSql: string;
   downSql: string;
@@ -84,6 +86,7 @@ export interface SnapshotApplyBody {
   downSql: string;
   author: string;
   message: string;
+  description?: string;
   sourceCommitHash: string | null;
   lockTimeout?: string;
   statementTimeout?: string;
@@ -131,8 +134,10 @@ export const api = {
 
   // version control
   workingTree: (id: string) => get<WorkingTreeStatus>(`/environments/${e(id)}/vc/working-tree`),
-  commit: (id: string, body: { message: string; author: string; upSql: string; downSql: string; expectedHead: string }) =>
-    post<CommitResult>(`/environments/${e(id)}/vc/commit`, body),
+  commit: (
+    id: string,
+    body: { message: string; description?: string; author: string; upSql: string; downSql: string; expectedHead: string },
+  ) => post<CommitResult>(`/environments/${e(id)}/vc/commit`, body),
   execute: (id: string, body: MigrationBody) =>
     post<CommitResult>(`/environments/${e(id)}/vc/execute`, { ...body, dryRun: false }),
   /** runs the migration in a transaction that is rolled back */
@@ -143,6 +148,19 @@ export const api = {
   commitDetails: (id: string, hash: string) => get<CommitDetails>(`/environments/${e(id)}/vc/commits/${e(hash)}`),
   commitChanges: (id: string, hash: string) =>
     get<SchemaDiffResult>(`/environments/${e(id)}/vc/commits/${e(hash)}/changes`),
+  revertPlan: (id: string, target: string) => get<RevertPlan>(`/environments/${e(id)}/vc/revert-plan`, { target }),
+  revert: (body: {
+    envId: string;
+    targetCommitHash: string;
+    author: string;
+    message: string;
+    description: string;
+    customRevertSql: string | null;
+    allowDirty: boolean;
+    lockTimeout?: string;
+    statementTimeout?: string;
+    expectedHead: string;
+  }) => post<CommitResult>('/vc/revert', body),
   rollbackPlan: (id: string, target: string) =>
     get<RollbackPlan>(`/environments/${e(id)}/vc/rollback-plan`, { target }),
   rollback: (

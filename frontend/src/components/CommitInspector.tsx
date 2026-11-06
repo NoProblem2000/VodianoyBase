@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Download, FileDown, RotateCcw, Trash2 } from 'lucide-react';
+import { Copy, Download, FileDown, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { AuditLogEntry, CommitDetails, EnvironmentHead, GraphCommit, SchemaDiffResult } from '../api/types';
 import { formatDate, shortHash, timeOfDay } from '../lib/format';
@@ -19,6 +19,9 @@ interface Props {
   rollbackBlockedReason: string | null;
   /** null when the commit can be offered for deletion (not used by any environment's current history) */
   deleteBlockedReason: string | null;
+  /** null when the commit can be reverted in the active environment (it is in its history) */
+  revertBlockedReason: string | null;
+  onRevert: () => void;
   onExportSingle: () => void;
   onRollback: () => void;
   onDelete: () => void;
@@ -54,12 +57,23 @@ export function CommitInspector(p: Props) {
 
   const ddl: AuditLogEntry[] = Array.isArray(details?.ddlLogHistory) ? (details!.ddlLogHistory as AuditLogEntry[]) : [];
   const message = p.commit.message.split('\n');
+  // older commits kept details in further lines of the message
+  const description = [message.slice(1).join('\n').trim(), (details?.description ?? p.commit.description ?? '').trim()]
+    .filter(Boolean)
+    .join('\n\n');
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-kraken-line px-4 py-3">
         <h2 className="break-words text-[15px] font-semibold text-gray-100">{message[0]}</h2>
-        {message.length > 1 && <p className="mt-1 whitespace-pre-wrap text-xs text-gray-400">{message.slice(1).join('\n').trim()}</p>}
+        {description && (
+          <p
+            className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-kraken-line/70 bg-kraken-bg/60 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-gray-300"
+            data-testid="commit-description"
+          >
+            {description}
+          </p>
+        )}
         <dl className="mt-2.5 grid grid-cols-[96px_1fr] gap-x-3 gap-y-1 text-[12.5px]">
           <dt className="text-gray-500">{t('commit.commit')}</dt>
           <dd className="flex items-center gap-1.5">
@@ -152,6 +166,14 @@ export function CommitInspector(p: Props) {
           <FileDown size={14} /> {t('commit.exportSnapshot')}
         </button>
         <span className="flex-1" />
+        <button
+          className="btn"
+          onClick={p.onRevert}
+          disabled={p.revertBlockedReason !== null}
+          title={p.revertBlockedReason ?? t('commit.revertTitle')}
+        >
+          <Undo2 size={14} /> {t('commit.revert')}
+        </button>
         <button
           className="btn btn-ghost text-red-300 hover:text-red-200"
           onClick={p.onDelete}

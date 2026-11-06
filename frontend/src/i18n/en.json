@@ -19,7 +19,10 @@
     "loadingEditor": "Loading editor…",
     "requestFailed": "Request failed",
     "dismiss": "Dismiss",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "commitSummary": "Commit summary",
+    "commitDescription": "Commit description (optional)",
+    "commitDescriptionPlaceholder": "Details of the change, ticket number, …"
   },
   "plural": {
     "changes": {
@@ -158,7 +161,9 @@
     "rollbackAlreadyHere": "{{name}} is already at this commit",
     "rollbackNotAncestor": "Not an earlier commit of the history of {{name}}",
     "resizeInspector": "Drag to resize the panel · double-click: default width",
-    "inspector": "Inspector"
+    "inspector": "Inspector",
+    "revertUnavailable": "Revert needs a reachable environment with version control and commits",
+    "revertNotInHistory": "The commit is not in the history of {{name}}"
   },
   "explorer": {
     "title": "Schema Explorer",
@@ -244,7 +249,9 @@
     "deleteTitle": "Delete this commit from the version history",
     "deleteBlocked": "Used by the current history of {{envs}}. Roll back to an earlier commit first.",
     "exportSnapshot": "Snapshot .pgsnap",
-    "exportSnapshotTitle": "Export the schema of this commit as a reference snapshot (.pgsnap.json)"
+    "exportSnapshotTitle": "Export the schema of this commit as a reference snapshot (.pgsnap.json)",
+    "revert": "Revert Commit…",
+    "revertTitle": "Undo the changes of this commit with a new commit on top of HEAD (git revert)"
   },
   "environments": {
     "title": "Environments",
@@ -626,5 +633,58 @@
     "tip": "Tip",
     "warning": "Warning",
     "danger": "Danger"
+  },
+  "dataLoss": {
+    "already": "💀 Data ALREADY lost in DB",
+    "willBe": "⚠️ Data will be lost on apply",
+    "rows": "{{rows}} rows",
+    "alreadyHint": "The object was already dropped in the live database. Its data is permanently lost: Discard (reset to HEAD) recreates only an empty structure without rows.",
+    "willBeHint": "Running this script drops the table / column together with all its data."
+  },
+  "ctx": {
+    "title": "Actions of commit {{hash}}",
+    "revert": "Revert Commit…",
+    "rollback": "Rollback DB to here…",
+    "branch": "Create branch here…",
+    "snapshot": "Export snapshot (.pgsnap.json)",
+    "sql": "Export .SQL of this commit",
+    "copyHash": "Copy Commit Hash",
+    "copyMessage": "Copy Message",
+    "delete": "Delete Commit…",
+    "copied": "Copied: {{what}}",
+    "copyFailed": "The browser does not allow copying here",
+    "hashWord": "commit hash",
+    "messageWord": "commit message"
+  },
+  "revert": {
+    "title": "Revert Commit",
+    "subtitle": "{{env}} · undoes {{hash}} “{{message}}” with a new commit on top of HEAD {{head}}",
+    "sqlTab": "Compensating SQL",
+    "changesTab": "What the commit changed",
+    "sqlTitle": "DOWN SQL of {{hash}}: check it, the schema may have changed since the commit",
+    "restoredWarning": "The commit dropped {{objects}}: Revert recreates their structure, but the rows deleted then do not come back.",
+    "droppedWarning": "The commit created {{objects}}: Revert drops them together with the data written since.",
+    "conflictsWarning": "{{commits}} after it changed {{objects}} as well: the compensating SQL may not fit the current schema — check and edit it.",
+    "headNote": "This commit is HEAD: the same as a rollback by one commit, but recorded as a new commit.",
+    "firstCommit": "This is the first commit of the history: reverting it removes everything it created.",
+    "dirty": "{{env}} has uncommitted changes: the revert refuses to run unless they are allowed (they become part of the commit).",
+    "allowDirty": "Allow uncommitted changes",
+    "editedNote": "The SQL was edited: the DOWN SQL of the new commit is generated from the schema difference.",
+    "run": "Revert & Commit",
+    "running": "Reverting…",
+    "done": "{{hash}} reverted on {{env}}: new commit {{newHash}}",
+    "defaultDescription": "Reverts commit {{hash}} “{{message}}”."
+  },
+  "branch": {
+    "title": "Create branch here",
+    "subtitle": "{{hash}} “{{message}}”",
+    "intro": "There are no named branches: every database has one history and one HEAD. A branch is a new line of the graph that starts at this commit — choose the database that continues from here.",
+    "inActive": "In {{env}}",
+    "inActiveText": "Roll {{env}} back to {{hash}}. Its next commit starts the new branch; the commits after {{hash}} stay in the graph as the other line.",
+    "inActiveButton": "Roll back {{env}} to here…",
+    "inOther": "In another database",
+    "inOtherText": "Push the history up to {{hash}} into an empty or behind environment (for example a database for an experiment); it then goes on with its own commits.",
+    "inOtherButton": "Open Sync / Push…",
+    "noOther": "Add another environment first (Environments)."
   }
 }

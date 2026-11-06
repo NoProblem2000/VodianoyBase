@@ -46,7 +46,7 @@ const RU: Section[] = [
       {
         k: 'ul',
         items: [
-          '**Один jar без Docker.** `java -jar pg-git-vc-1.8.1.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
+          '**Один jar без Docker.** `java -jar pg-git-vc-1.9.0.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
           '**История в базе.** Каждая база хранит свои коммиты в служебной схеме `_pgvc`. Один и тот же коммит имеет одинаковый хеш на Dev, Stage и Prod — поэтому общий граф знает, где какая база.',
           '**Окружение** — подключение к одной базе (Dev, Test, Stage, Prod, заказчик). Цветные бейджи на графе показывают `HEAD` каждого окружения.',
           '**Working Tree** — то, что изменилось в базе после последнего коммита (как незакоммиченные файлы в Git).',
@@ -73,7 +73,7 @@ const RU: Section[] = [
           ['Работайте как обычно', 'Меняйте схему в любой IDE или через **Новая SQL-миграция**, коммитьте, переносите изменения на другие окружения через **Синхронизация / Push**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.8.1.jar\njava -jar target/pg-git-vc-1.8.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.1.jar --server.port=9000   # другой порт' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.9.0.jar\njava -jar target/pg-git-vc-1.9.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.0.jar --server.port=9000   # другой порт' },
       { k: 'note', tone: 'warning', text: 'Подключения хранятся в `pgvc-environments.json` рядом с jar, **пароли — открытым текстом**. Не публикуйте файл и не добавляйте его в Git. По умолчанию приложение слушает только `127.0.0.1`.' },
       { k: 'h', text: 'Верхняя панель' },
       {
@@ -107,7 +107,7 @@ const RU: Section[] = [
           ['Измените схему', 'Например: `ALTER TABLE sales.customers ADD COLUMN phone varchar(32);` в любой IDE.'],
           ['Откройте Working Tree', 'Вверху графа появится узел **Незакоммиченные изменения (Working Tree) · N изменений**, в панели **Журнал DDL (онлайн)** — перехваченные команды. Нажмите на узел.'],
           ['Проверьте изменения', 'Список: A — добавлено, M — изменено, R — переименовано, D — удалено. У каждого — бейджи риска. Вкладки **UP SQL** / **DOWN SQL** можно править (например, добавить `USING`).'],
-          ['Закоммитьте', 'Заполните **Автор** и **Сообщение коммита**, нажмите **Закоммитить изменения** (Ctrl+Enter). Ничего не выполняется — изменения уже в базе, коммит их записывает.'],
+          ['Закоммитьте', '**Закоммитить изменения…** → **Автор**, **Сообщение коммита** (одна строка для графа) и при желании **Описание коммита** (подробности, номер задачи) → **Закоммитить изменения** (Ctrl+Enter). Ничего не выполняется — изменения уже в базе, коммит их записывает.'],
         ],
       },
       { k: 'note', tone: 'tip', text: 'Переименования распознаются по внутренним идентификаторам (`oid`, `attnum`): `RENAME COLUMN` останется переименованием, а не «удалить и создать» с потерей данных.' },
@@ -174,6 +174,17 @@ const RU: Section[] = [
       },
       { k: 'note', tone: 'tip', text: 'Застряли старые события в журнале DDL, а схема в порядке? Кнопка **Только очистить журнал DDL** в том же диалоге.' },
       { k: 'note', tone: 'danger', text: 'Сброс и откат — необратимые операции над данными: то, что удаляется, не возвращается. Если сомневаетесь, сначала выгрузите слепок (📷) или сделайте резервную копию.' },
+      { k: 'note', tone: 'danger', text: 'Таблица, партиция или колонка, уже удалённая в живой базе, помечена **💀 Данные УЖЕ утеряны в БД**: строки удалены безвозвратно, сброс к HEAD вернёт только пустую структуру. В скриптах, которые ещё выполнятся (синхронизация, слепок, откат, Revert), — **⚠️ Потеря данных при накате**.' },
+      { k: 'h', text: 'Обращение одного коммита (Revert Commit)' },
+      { k: 'p', text: 'Как `git revert`: отменяет изменения одного коммита (даже из середины истории) **новым коммитом** поверх `HEAD`, коммиты после него остаются. Правый клик по коммиту → **Обратить этот коммит…**.' },
+      {
+        k: 'steps',
+        items: [
+          ['Проверьте SQL', 'Компенсирующий SQL — DOWN SQL коммита; если схема с тех пор менялась, поправьте его прямо в окне.'],
+          ['Прочитайте предупреждения', 'Удалённая коммитом таблица / колонка вернётся без строк; созданная им — удалится с данными; объекты, которые меняли позже, отмечены отдельно.'],
+          ['Обратите', '**Обратить и закоммитить**: SQL и новый коммит `Revert "…"` — одна транзакция, журнал DDL очищается.'],
+        ],
+      },
       { k: 'h', text: 'Если есть незакоммиченные изменения' },
       { k: 'p', text: 'Откат и push в окружение с незакоммиченными изменениями отказываются выполняться — чтобы не затереть чужую работу. Закоммитьте или отмените изменения, либо включите «Разрешить при незакоммиченных изменениях».' },
     ],
@@ -260,7 +271,7 @@ const RU: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'Event triggers пакет устанавливает, только если его выполняет SUPERUSER. На PostgreSQL 11 пакет с `ALTER TYPE … ADD VALUE` не пройдёт — используйте Push или слепок.' },
       { k: 'h', text: 'CI/CD и Git' },
-      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.8.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.8.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.9.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.9.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Экспорт в Git-папку** раскладывает схему по файлу на объект (`schema/tables`, `views`, `functions` …, `migrations/`) — для код-ревью в GitLab / GitHub.' },
     ],
   },
@@ -364,6 +375,7 @@ const RU: Section[] = [
         k: 'ul',
         items: [
           'Удалить или переставить значение ENUM PostgreSQL не умеет — программа покажет `MANUAL ACTION REQUIRED`.',
+          'Правый клик по коммиту в графе — меню: обратить, откатить, создать ветку, слепок, .SQL, скопировать хэш / сообщение, удалить. Именованных веток нет: «Создать ветку отсюда» предлагает откатить базу к коммиту или накатить историю до него в другое окружение.',
           'Смена секционирования (обычная таблица ↔ `PARTITION BY`, другой ключ) — таблица пересоздаётся: строки копируются во временную таблицу и возвращаются, внешние ключи, view и serial-последовательности восстанавливаются. Строка вне всех партиций останавливает миграцию целиком.',
           'Справочник больше 10 000 строк перестаёт сравниваться («превышен лимит» в списке справочников).',
           'Коммиты старых версий не содержат функций, триггеров, ENUM: при сравнении с ними эти категории пропускаются, первый новый коммит их запишет.',
@@ -387,7 +399,7 @@ const EN: Section[] = [
       {
         k: 'ul',
         items: [
-          '**One jar, no Docker.** `java -jar pg-git-vc-1.8.1.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
+          '**One jar, no Docker.** `java -jar pg-git-vc-1.9.0.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
           '**History in the database.** Every database keeps its commits in the `_pgvc` schema. A commit has the same hash on Dev, Stage and Prod — that is how the shared graph knows where each database is.',
           '**Environment** — a connection to one database (Dev, Test, Stage, Prod, a customer). Colored badges in the graph show the `HEAD` of every environment.',
           '**Working Tree** — what changed in the database since the last commit (like uncommitted files in Git).',
@@ -414,7 +426,7 @@ const EN: Section[] = [
           ['Work as usual', 'Change the schema in any IDE or with **New SQL Migration**, commit, and move changes to other environments with **Sync / Push to Env**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.8.1.jar\njava -jar target/pg-git-vc-1.8.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.8.1.jar --server.port=9000   # another port' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.9.0.jar\njava -jar target/pg-git-vc-1.9.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.0.jar --server.port=9000   # another port' },
       { k: 'note', tone: 'warning', text: 'Connections are stored in `pgvc-environments.json` next to the jar, **passwords in plain text**. Do not publish the file or add it to Git. By default the application listens on `127.0.0.1` only.' },
       { k: 'h', text: 'Top bar' },
       {
@@ -448,7 +460,7 @@ const EN: Section[] = [
           ['Change the schema', 'For example: `ALTER TABLE sales.customers ADD COLUMN phone varchar(32);` in any IDE.'],
           ['Open the Working Tree', '**Working Tree (Uncommitted Changes) · N changes** appears on top of the graph, the **Live DDL Audit Log** lists the captured commands. Click the node.'],
           ['Review the changes', 'A — added, M — modified, R — renamed, D — deleted, each with risk badges. The **UP SQL** / **DOWN SQL** tabs are editable (e.g. add `USING`).'],
-          ['Commit', 'Fill in **Author** and **Commit message**, press **Commit Changes** (Ctrl+Enter). Nothing is executed — the changes are already in the database, the commit records them.'],
+          ['Commit', '**Commit Changes…** → **Author**, **Commit summary** (one line for the graph) and optionally **Commit description** (details, ticket number) → **Commit Changes** (Ctrl+Enter). Nothing is executed — the changes are already in the database, the commit records them.'],
         ],
       },
       { k: 'note', tone: 'tip', text: 'Renames are recognised by internal identities (`oid`, `attnum`): a `RENAME COLUMN` stays a rename instead of "drop and create" with data loss.' },
@@ -515,6 +527,17 @@ const EN: Section[] = [
       },
       { k: 'note', tone: 'tip', text: 'Stale events stuck in the DDL log while the schema is fine? **Only clear the DDL log** in the same dialog.' },
       { k: 'note', tone: 'danger', text: 'Discard and rollback cannot be undone for data: what is dropped does not come back. When in doubt, export a snapshot (📷) or make a backup first.' },
+      { k: 'note', tone: 'danger', text: 'A table, partition or column already dropped in the live database is marked **💀 Data ALREADY lost in DB**: its rows are gone for good, a reset to HEAD brings back only an empty structure. Scripts that still have to run (sync, snapshot, rollback, revert) say **⚠️ Data will be lost on apply**.' },
+      { k: 'h', text: 'Reverting one commit (Revert Commit)' },
+      { k: 'p', text: 'Like `git revert`: undoes the changes of one commit (even from the middle of the history) with a **new commit** on top of `HEAD`; the commits after it stay. Right-click the commit → **Revert Commit…**.' },
+      {
+        k: 'steps',
+        items: [
+          ['Check the SQL', 'The compensating SQL is the DOWN SQL of the commit; edit it right in the dialog if the schema changed since.'],
+          ['Read the warnings', 'A table / column the commit dropped comes back without rows; one it created is dropped with its data; objects changed later are listed separately.'],
+          ['Revert', '**Revert & Commit**: the SQL and the new commit `Revert "…"` are one transaction, the DDL log is cleared.'],
+        ],
+      },
       { k: 'h', text: 'With uncommitted changes' },
       { k: 'p', text: 'Rollbacks and pushes into an environment with uncommitted changes are refused, so nobody’s work is overwritten. Commit or discard the changes, or enable "Allow uncommitted changes".' },
     ],
@@ -601,7 +624,7 @@ const EN: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'The bundle installs the event triggers only when a SUPERUSER runs it. On PostgreSQL 11 a bundle with `ALTER TYPE … ADD VALUE` fails — use Push or a snapshot.' },
       { k: 'h', text: 'CI/CD and Git' },
-      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.8.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.8.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.9.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.9.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Export Git Folder** writes the schema as one file per object (`schema/tables`, `views`, `functions` …, `migrations/`) — for code review in GitLab / GitHub.' },
     ],
   },
@@ -705,6 +728,7 @@ const EN: Section[] = [
         k: 'ul',
         items: [
           'Dropping or reordering an ENUM value is impossible in PostgreSQL — the application shows `MANUAL ACTION REQUIRED`.',
+          'Right-click a commit in the graph for its menu: revert, roll back, create a branch, snapshot, .SQL, copy hash / message, delete. There are no named branches: "Create branch here" offers to roll a database back to the commit or to push the history up to it into another environment.',
           'Changing the partitioning (ordinary table ↔ `PARTITION BY`, another key) recreates the table: the rows are copied into a temporary table and back, foreign keys, views and serial sequences are restored. A row that fits no partition stops the whole migration.',
           'A reference-data table with more than 10 000 rows is no longer compared ("over the limit" in the reference-data list).',
           'Commits of older versions do not contain functions, triggers or ENUMs: comparisons with them skip these categories, the first new commit records them.',

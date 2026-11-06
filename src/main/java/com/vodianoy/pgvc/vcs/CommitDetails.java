@@ -6,6 +6,7 @@ import com.vodianoy.pgvc.model.schema.DatabaseSnapshot;
 import java.time.OffsetDateTime;
 
 /** Everything stored for one commit. */
-public record CommitDetails(String hash, String parentHash, String author, String message, OffsetDateTime createdAt,
+public record CommitDetails(String hash, String parentHash, String author, String message, String description,
+                            OffsetDateTime createdAt,
                             String upSql, String downSql, DatabaseSnapshot schemaSnapshot, JsonNode ddlLogHistory) {
 }
