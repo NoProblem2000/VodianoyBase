@@ -1,0 +1,16 @@
+PgGitVisualizer CLI
+
+  java -jar pg-git-vc.jar --cli --action=check-drift --env=<id> [--output=drift.md]
+      Compares the live database with its HEAD commit. Exit code 2 when there are uncommitted
+      schema changes (schema drift), 0 when the database matches HEAD.
+
+  java -jar pg-git-vc.jar --cli --action=diff-report --env=<id> [--snapshot=<file.pgsnap.json>]
+                          [--output=pr-comment.md] [--fail-on=dangerous|warning]
+      Markdown report for a Merge Request / Pull Request comment: what has to change in the database
+      to reach the snapshot (without --snapshot: the uncommitted changes since HEAD), with the risk of
+      every change. With --fail-on the exit code is 2 when a change reaches that risk level.
+
+  Environments are read from ./pgvc-environments.json (--pgvc.environments-file=<path> to change it);
+  the default ignore rules from pgvc-settings.json next to it.
+  Exit codes: 0 ok, 1 error, 2 drift / risk threshold reached.
+exit=1

@@ -1,0 +1,17 @@
+SCHEMA DRIFT: Dev (dev) has 3 uncommitted change(s) since HEAD f531a6c
+  D COLUMN sales.customers.score: already dropped in the live database: its data is lost
+  A COLUMN sales.customers.cli_note: new column text
+  D CONSTRAINT sales.customers.customers_score_check: CHECK dropped: CHECK ((score >= (0)::numeric))
+
+DDL captured since the last commit:
+  2026-11-06T02:18:46.754Z  postgres  ALTER TABLE sales.customers
+  2026-11-06T02:18:46.756407Z  postgres  ALTER TABLE sales.customers.score
+  2026-11-06T02:18:46.756407Z  postgres  ALTER TABLE sales.customers
+
+SQL that records the current state (UP):
+-- WARNING: Running this script drops column sales.customers.score together with all its data (24 kB).
+
+ALTER TABLE sales.customers DROP CONSTRAINT customers_score_check;
+ALTER TABLE sales.customers DROP COLUMN score;
+ALTER TABLE sales.customers ADD COLUMN cli_note text;
+exit=2

@@ -1,0 +1,2 @@
+ERROR: unknown environment 'nope'. Known environments: dev, stage, prod, qa, customer
+exit=1
