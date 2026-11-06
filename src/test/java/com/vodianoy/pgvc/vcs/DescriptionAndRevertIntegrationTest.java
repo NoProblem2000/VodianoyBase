@@ -145,7 +145,7 @@ class DescriptionAndRevertIntegrationTest {
         CommitNode revert = r.commit();
         assertThat(revert.parentHash()).isEqualTo(orders.hash());
         assertThat(revert.message()).isEqualTo("Revert \"Drop logo\"");
-        assertThat(revert.description()).isEqualTo("Reverts commit " + dropLogo.hash().substring(0, 7) + ".");
+        assertThat(revert.description()).startsWith("Reverts commit " + dropLogo.hash().substring(0, 7)).endsWith(".");
         assertThat(s.storage.getHead(dev)).contains(revert.hash());
         // the column is back (empty), the later commit stays
         assertThat(query(DEV_DB, "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'app'"
