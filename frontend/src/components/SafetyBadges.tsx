@@ -1,4 +1,4 @@
-import { AlertOctagon, HardDrive, Lock, RefreshCcw, Skull, Timer, Unplug, Zap } from 'lucide-react';
+import { AlertOctagon, HardDrive, Lock, RefreshCcw, Timer, Unplug, Zap } from 'lucide-react';
 import type { ChangeItem, RiskLevel, SafetyReport } from '../api/types';
 import { useI18n } from '../i18n';
 
@@ -36,7 +36,6 @@ export function DataLossBadge({ change }: { change: ChangeItem }) {
       title={hint}
       data-data-loss={change.dataLoss}
     >
-      {already ? <Skull size={10} /> : <AlertOctagon size={10} />}
       {already ? t('dataLoss.already') : t('dataLoss.willBe')}
       {size && <span className="font-normal opacity-80">· {size}</span>}
     </span>

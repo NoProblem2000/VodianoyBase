@@ -103,6 +103,8 @@ interface Props {
   onSelect: (id: string) => void;
   /** right click on a commit (viewport coordinates); the browser menu is suppressed on the whole graph */
   onCommitContextMenu?: (hash: string, x: number, y: number) => void;
+  /** no hover tooltip (e.g. while a context menu is open) */
+  tooltipsDisabled?: boolean;
 }
 
 interface Hover {
@@ -122,14 +124,23 @@ export function CommitGraph({
   selectedId,
   onSelect,
   onCommitContextMenu,
+  tooltipsDisabled,
 }: Props) {
   const [hover, setHover] = useState<Hover | null>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
 
+  useEffect(() => {
+    if (tooltipsDisabled) {
+      window.clearTimeout(hoverTimer.current);
+      setHover(null);
+    }
+  }, [tooltipsDisabled]);
+
   function hoverAt(id: string, event: ReactMouseEvent) {
     const { clientX, clientY } = event;
     window.clearTimeout(hoverTimer.current);
+    if (tooltipsDisabled) return;
     if (hover && hover.id === id) {
       setHover({ id, x: clientX, y: clientY });
       return;
@@ -278,7 +289,7 @@ export function CommitGraph({
         onNodeMouseLeave={hoverEnd}
         onMoveStart={hoverEnd}
       />
-      {hovered && hover && <CommitTooltip data={hovered.data} x={hover.x} y={hover.y} />}
+      {hovered && hover && !tooltipsDisabled && <CommitTooltip data={hovered.data} x={hover.x} y={hover.y} />}
     </div>
   );
 }

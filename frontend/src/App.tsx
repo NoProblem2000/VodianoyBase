@@ -248,6 +248,7 @@ function Workspace() {
               workingTreeChanges={workingTree?.diff.changes.length ?? 0}
               selectedId={selected}
               onSelect={setSelected}
+              tooltipsDisabled={menu !== null}
               onCommitContextMenu={(hash, x, y) => {
                 if (commitsByHash.has(hash)) {
                   setSelected(hash);
