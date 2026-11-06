@@ -1,5 +1,5 @@
-import { AlertOctagon, HardDrive, Lock, RefreshCcw, Timer, Unplug, Zap } from 'lucide-react';
-import type { RiskLevel, SafetyReport } from '../api/types';
+import { AlertOctagon, HardDrive, Lock, RefreshCcw, Skull, Timer, Unplug, Zap } from 'lucide-react';
+import type { ChangeItem, RiskLevel, SafetyReport } from '../api/types';
 import { useI18n } from '../i18n';
 
 const RISK_CLASSES: Record<RiskLevel, string> = {
@@ -16,8 +16,35 @@ export function formatRows(rows: number | undefined): string {
   return String(rows);
 }
 
+/**
+ * Data of a dropped table / partition / column: "💀 already lost" when the drop already happened in the live database
+ * (working tree — discarding only recreates an empty structure), "⚠️ will be lost on apply" for a script to run.
+ */
+export function DataLossBadge({ change }: { change: ChangeItem }) {
+  const { t } = useI18n();
+  if (!change.dataLoss) return null;
+  const already = change.dataLoss === 'ALREADY_LOST';
+  const size = [change.lostPrettySize, change.lostRows ? t('dataLoss.rows', { rows: formatRows(change.lostRows) }) : null]
+    .filter(Boolean)
+    .join(' / ');
+  const hint = change.warnings?.length ? change.warnings.join('\n') : already ? t('dataLoss.alreadyHint') : t('dataLoss.willBeHint');
+  return (
+    <span
+      className={`inline-flex h-[18px] items-center gap-1 rounded px-1.5 text-[10px] font-semibold ${
+        already ? 'border border-red-700 bg-black/60 text-red-200' : 'bg-red-900/70 text-red-100'
+      }`}
+      title={hint}
+      data-data-loss={change.dataLoss}
+    >
+      {already ? <Skull size={10} /> : <AlertOctagon size={10} />}
+      {already ? t('dataLoss.already') : t('dataLoss.willBe')}
+      {size && <span className="font-normal opacity-80">· {size}</span>}
+    </span>
+  );
+}
+
 /** Risk level, lock, table size and Data Loss / Table Rewrite markers of one change or statement. */
-export function SafetyBadges({ report, compact }: { report: SafetyReport; compact?: boolean }) {
+export function SafetyBadges({ report, compact, hideDataLoss }: { report: SafetyReport; compact?: boolean; hideDataLoss?: boolean }) {
   const { t } = useI18n();
   const details = [report.estimatedDurationHint, ...(report.notes ?? [])].filter(Boolean).join('\n');
   return (
@@ -52,7 +79,7 @@ export function SafetyBadges({ report, compact }: { report: SafetyReport; compac
           {t('safety.size', { size: report.prettySize, rows: formatRows(report.estimatedRows) })}
         </span>
       )}
-      {report.causesDataLoss && (
+      {report.causesDataLoss && !hideDataLoss && (
         <span className="inline-flex h-[18px] items-center gap-1 rounded bg-red-900/70 px-1.5 text-[10px] font-semibold text-red-100">
           <AlertOctagon size={10} />
           {t('safety.dataLoss')}

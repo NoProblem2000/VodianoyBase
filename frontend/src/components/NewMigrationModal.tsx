@@ -4,6 +4,7 @@ import { api, type MigrationBody } from '../api/client';
 import type { CommitResult, DryRunResult, EnvironmentView, ExecutionOptions, SqlSafetyReport } from '../api/types';
 import { useI18n } from '../i18n';
 import { DEFAULT_EXECUTION, DryRunPanel, SqlSafetyPanel, TimeoutFields } from './ExecutionPanels';
+import { CommitMessageFields } from './CommitMessageFields';
 import { Modal } from './Modal';
 import { applyAlternatives } from './SafetyBadges';
 import { SqlEditor } from './SqlEditor';
@@ -34,6 +35,7 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
   const [down, setDown] = useState('');
   const [options, setOptions] = useState<ExecutionOptions>(DEFAULT_EXECUTION);
   const [message, setMessage] = useState('');
+  const [description, setDescription] = useState('');
   const [allowDirty, setAllowDirty] = useState(false);
   const [busy, setBusy] = useState<'execute' | 'dry' | null>(null);
   const [analysis, setAnalysis] = useState<SqlSafetyReport | null>(null);
@@ -59,7 +61,8 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
 
   function body(): MigrationBody {
     return {
-      message,
+      message: message.trim(),
+      description: description.trim() || undefined,
       author,
       upSql: up,
       downSql: down,
@@ -182,7 +185,7 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-[200px_1fr_auto] items-end gap-3">
+        <div className="grid grid-cols-[200px_minmax(0,1fr)_auto] items-start gap-3">
           <label>
             <span className="label">{t('common.author')}</span>
             <input
@@ -192,16 +195,16 @@ export function NewMigrationModal({ env, author, onAuthorChange, onDone, onClose
               placeholder={t('common.authorPlaceholder')}
             />
           </label>
-          <label>
-            <span className="label">{t('common.commitMessage')}</span>
-            <input
-              className="input"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder={t('migration.messagePlaceholder')}
-            />
-          </label>
-          <TimeoutFields value={options} onChange={setOptions} />
+          <CommitMessageFields
+            message={message}
+            onMessageChange={setMessage}
+            description={description}
+            onDescriptionChange={setDescription}
+            messagePlaceholder={t('migration.messagePlaceholder')}
+          />
+          <div className="pt-[18px]">
+            <TimeoutFields value={options} onChange={setOptions} />
+          </div>
         </div>
         {analysis?.multiStep && (
           <p className="text-xs text-sky-300">{tn('plural.steps', analysis.steps)} · {t('safety.stepHint')}</p>

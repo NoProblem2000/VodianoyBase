@@ -29,7 +29,7 @@ class CommitDeletionPlanTest {
     private int minute;
 
     private void commit(String hash, String parent) {
-        commits.add(new GlobalGraph.Commit(hash, parent, "t", "msg " + hash,
+        commits.add(new GlobalGraph.Commit(hash, parent, "t", "msg " + hash, null,
                 OffsetDateTime.of(2026, 1, 1, 0, minute++, 0, 0, ZoneOffset.UTC), List.of("dev")));
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   BaseEdge,
   Handle,
@@ -27,6 +27,9 @@ type CommitNodeData = {
   labelLeft: number;
   labelWidth: number;
   message: string;
+  /** full message and description for the hover tooltip */
+  fullMessage: string;
+  description: string;
   author: string;
   date: string;
   hash: string;
@@ -98,9 +101,47 @@ interface Props {
   workingTreeChanges: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** right click on a commit (viewport coordinates); the browser menu is suppressed on the whole graph */
+  onCommitContextMenu?: (hash: string, x: number, y: number) => void;
 }
 
-export function CommitGraph({ commits, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, onSelect }: Props) {
+interface Hover {
+  id: string;
+  x: number;
+  y: number;
+}
+
+const TOOLTIP_DELAY = 450;
+
+export function CommitGraph({
+  commits,
+  environments,
+  activeEnvId,
+  showWorkingTree,
+  workingTreeChanges,
+  selectedId,
+  onSelect,
+  onCommitContextMenu,
+}: Props) {
+  const [hover, setHover] = useState<Hover | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+
+  function hoverAt(id: string, event: ReactMouseEvent) {
+    const { clientX, clientY } = event;
+    window.clearTimeout(hoverTimer.current);
+    if (hover && hover.id === id) {
+      setHover({ id, x: clientX, y: clientY });
+      return;
+    }
+    setHover(null);
+    hoverTimer.current = window.setTimeout(() => setHover({ id, x: clientX, y: clientY }), TOOLTIP_DELAY);
+  }
+
+  function hoverEnd() {
+    window.clearTimeout(hoverTimer.current);
+    setHover(null);
+  }
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
 
@@ -137,6 +178,8 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           labelLeft: labelLeft(lane),
           labelWidth: labelWidth(lane),
           message: `${t('graph.workingTree')} · ${tn('plural.changes', workingTreeChanges)}`,
+          fullMessage: '',
+          description: '',
           author: '',
           date: '',
           hash: '',
@@ -169,6 +212,8 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
           labelLeft: labelLeft(r.lane),
           labelWidth: labelWidth(r.lane),
           message: firstLine(c.message),
+          fullMessage: c.message,
+          description: c.description ?? '',
           author: c.author,
           date: relativeTime(c.createdAt, locale, t('time.justNow')),
           hash: shortHash(c.hash),
@@ -191,8 +236,17 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
     return { nodes, edges };
   }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale]);
 
+  const hovered = hover ? nodes.find((n) => n.id === hover.id && n.data.kind === 'commit') : undefined;
+
   return (
-    <div ref={wrapRef} className="absolute inset-0">
+    <div
+      ref={wrapRef}
+      className="absolute inset-0"
+      onContextMenu={(e) => {
+        // no browser menu on the graph (inputs and editors elsewhere keep theirs)
+        e.preventDefault();
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -208,8 +262,53 @@ export function CommitGraph({ commits, environments, activeEnvId, showWorkingTre
         minZoom={0.6}
         maxZoom={1.5}
         defaultViewport={{ x: 20, y: 24, zoom: 1 }}
-        onNodeClick={(_event, node) => onSelect(node.id)}
+        onNodeClick={(_event, node) => {
+          hoverEnd();
+          onSelect(node.id);
+        }}
+        onNodeContextMenu={(event, node) => {
+          event.preventDefault();
+          event.stopPropagation();
+          hoverEnd();
+          if (node.id !== WORKING_TREE_ID) onCommitContextMenu?.(node.id, event.clientX, event.clientY);
+        }}
+        onPaneContextMenu={(event) => event.preventDefault()}
+        onNodeMouseEnter={(event, node) => hoverAt(node.id, event)}
+        onNodeMouseMove={(event, node) => hoverAt(node.id, event)}
+        onNodeMouseLeave={hoverEnd}
+        onMoveStart={hoverEnd}
       />
+      {hovered && hover && <CommitTooltip data={hovered.data} x={hover.x} y={hover.y} />}
+    </div>
+  );
+}
+
+/** Hover card of a commit: full message, description (line breaks kept), author, date and hash. */
+function CommitTooltip({ data, x, y }: { data: CommitNodeData; x: number; y: number }) {
+  const lines = data.fullMessage.split('\n');
+  const extra = lines.slice(1).join('\n').trim();
+  const description = [extra, data.description.trim()].filter(Boolean).join('\n\n');
+  const width = 380;
+  const left = Math.min(x + 14, window.innerWidth - width - 8);
+  const top = Math.min(y + 18, window.innerHeight - 200);
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none fixed z-50 rounded-md border border-[#374151] bg-[#111827] px-3 py-2 text-[12px] shadow-[0_10px_28px_rgba(0,0,0,0.5)]"
+      style={{ left, top, width }}
+    >
+      <div className="break-words font-semibold text-gray-100">{lines[0]}</div>
+      {description && (
+        <div className="mt-1 line-clamp-[8] whitespace-pre-wrap break-words leading-snug text-gray-300" data-testid="commit-tooltip-description">
+          {description}
+        </div>
+      )}
+      <div className="mt-1.5 flex gap-2 text-[11px] text-gray-500">
+        <span className="truncate">{data.author}</span>
+        <span>·</span>
+        <span>{data.date}</span>
+        <span className="ml-auto font-mono">{data.hash}</span>
+      </div>
     </div>
   );
 }

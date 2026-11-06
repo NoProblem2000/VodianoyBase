@@ -6,6 +6,11 @@ package com.vodianoy.pgvc.vcs;
  * @param upSql        UP SQL as shown (and possibly edited) in the UI; blank = use the generated one
  * @param downSql      DOWN SQL as shown (and possibly edited) in the UI; blank = use the generated one
  * @param expectedHead HEAD the UI was looking at; when set and HEAD has moved since, the commit is rejected
+ * @param description  optional longer description under the one-line {@code message}
  */
-public record CommitRequest(String message, String author, String upSql, String downSql, String expectedHead) {
+public record CommitRequest(String message, String author, String upSql, String downSql, String expectedHead,
+                            String description) {
+    public CommitRequest(String message, String author, String upSql, String downSql, String expectedHead) {
+        this(message, author, upSql, downSql, expectedHead, null);
+    }
 }

@@ -12,12 +12,20 @@ package com.vodianoy.pgvc.vcs;
  * @param preScript        runs before {@code upSql} (same transaction unless separated by a step marker)
  * @param postScript       runs after {@code upSql}
  * @param dryRun           run everything in a transaction that is rolled back at the end and report what happened
+ * @param description      optional longer description of the commit under the one-line {@code message}
  */
 public record ExecuteMigrationRequest(String message, String author, String upSql, String downSql, boolean allowDirty,
                                       String lockTimeout, String statementTimeout, String preScript, String postScript,
-                                      boolean dryRun) {
+                                      boolean dryRun, String description) {
 
     public ExecuteMigrationRequest(String message, String author, String upSql, String downSql, boolean allowDirty) {
-        this(message, author, upSql, downSql, allowDirty, null, null, null, null, false);
+        this(message, author, upSql, downSql, allowDirty, null, null, null, null, false, null);
+    }
+
+    public ExecuteMigrationRequest(String message, String author, String upSql, String downSql, boolean allowDirty,
+                                   String lockTimeout, String statementTimeout, String preScript, String postScript,
+                                   boolean dryRun) {
+        this(message, author, upSql, downSql, allowDirty, lockTimeout, statementTimeout, preScript, postScript, dryRun,
+                null);
     }
 }

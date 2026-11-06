@@ -184,6 +184,18 @@ public class VcController {
         return deletion.delete(hash, mode);
     }
 
+    /** What reverting one commit (git revert) would execute on {@code envId}. */
+    @GetMapping("/environments/{envId}/vc/revert-plan")
+    public RevertPlan revertPlan(@PathVariable String envId, @RequestParam("target") String targetHash) {
+        return versionControl.getRevertPlan(envId, targetHash);
+    }
+
+    /** Reverts one commit of the history with a new commit on top of HEAD. */
+    @PostMapping("/vc/revert")
+    public CommitResult revert(@RequestBody RevertRequest request) {
+        return versionControl.revertCommit(request);
+    }
+
     /** Differences that linking would leave as uncommitted changes of the target (UP = target -> commit). */
     @GetMapping("/vc/link-preview")
     public LinkPreview linkPreview(@RequestParam("source") String source, @RequestParam("target") String target,

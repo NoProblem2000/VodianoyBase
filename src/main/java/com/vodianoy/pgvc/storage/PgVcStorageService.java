@@ -18,6 +18,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Access to the version-control metadata (schema _pgvc) inside a target database: installation of the schema and
@@ -33,6 +35,7 @@ public class PgVcStorageService {
 
     private static final RowMapper<CommitNode> COMMIT_NODE = (rs, n) -> new CommitNode(
             rs.getString("hash"), rs.getString("parent_hash"), rs.getString("author"), rs.getString("message"),
+            rs.getString("description"),
             rs.getObject("created_at", OffsetDateTime.class));
 
     private static final RowMapper<AuditLogEntry> AUDIT_ENTRY = (rs, n) -> new AuditLogEntry(
@@ -41,6 +44,19 @@ public class PgVcStorageService {
             rs.getObject("executed_at", OffsetDateTime.class));
 
     private final EnvironmentManagerService environments;
+
+    /** Upgrade of installations older than v1.9.0 (the same block as in the install script). */
+    static final String DESCRIPTION_DDL = """
+            DO $pgvc_upgrade$
+            BEGIN
+                ALTER TABLE _pgvc.commits ADD COLUMN IF NOT EXISTS description TEXT NULL;
+            EXCEPTION WHEN insufficient_privilege THEN
+                RAISE NOTICE 'pgvc: column _pgvc.commits.description not added: %', SQLERRM;
+            END
+            $pgvc_upgrade$""";
+
+    /** Databases (environment + JDBC URL) whose _pgvc.commits has the description column. */
+    private final Set<String> withDescription = ConcurrentHashMap.newKeySet();
 
     /**
      * Creates schema _pgvc with its tables, the PL/pgSQL functions {@code _pgvc.fn_log_ddl_end()} /
@@ -102,8 +118,9 @@ public class PgVcStorageService {
     /** All commits (newest first) and the current HEAD. */
     public CommitGraph getCommitGraph(String envId) {
         JdbcTemplate jdbc = requireInitialized(envId);
-        List<CommitNode> commits = jdbc.query("SELECT hash, parent_hash, author, message, created_at"
-                + " FROM _pgvc.commits ORDER BY created_at DESC, hash", COMMIT_NODE);
+        List<CommitNode> commits = jdbc.query("SELECT hash, parent_hash, author, message, "
+                + descriptionColumn(envId, jdbc) + ", created_at FROM _pgvc.commits ORDER BY created_at DESC, hash",
+                COMMIT_NODE);
         return new CommitGraph(envId, readHead(jdbc).orElse(null), commits);
     }
 
@@ -145,6 +162,7 @@ public class PgVcStorageService {
             .parentHash(rs.getString("parent_hash"))
             .author(rs.getString("author"))
             .message(rs.getString("message"))
+            .description(rs.getString("description"))
             .createdAt(rs.getObject("created_at", OffsetDateTime.class))
             .upSql(rs.getString("up_sql"))
             .downSql(rs.getString("down_sql"))
@@ -161,9 +179,10 @@ public class PgVcStorageService {
     }
 
     public Optional<CommitRecord> findCommit(String envId, String hash) {
-        List<CommitRecord> rows = requireInitialized(envId).query("SELECT hash, parent_hash, author, message, created_at,"
-                + " up_sql, down_sql, schema_snapshot::text AS schema_snapshot, ddl_log_history::text AS ddl_log_history"
-                + " FROM _pgvc.commits WHERE hash = ?", COMMIT_RECORD, hash);
+        JdbcTemplate jdbc = requireInitialized(envId);
+        List<CommitRecord> rows = jdbc.query("SELECT hash, parent_hash, author, message, " + descriptionColumn(envId, jdbc)
+                + ", created_at, up_sql, down_sql, schema_snapshot::text AS schema_snapshot,"
+                + " ddl_log_history::text AS ddl_log_history FROM _pgvc.commits WHERE hash = ?", COMMIT_RECORD, hash);
         return rows.stream().findFirst();
     }
 
@@ -172,13 +191,53 @@ public class PgVcStorageService {
                 ApiException.notFound("commit.notFound", hash, envId));
     }
 
-    /** Inserts a commit; returns false when a commit with this hash already exists. */
+    /**
+     * Inserts a commit; returns false when a commit with this hash already exists. A commit with a description on an
+     * installation older than v1.9.0 first adds the column; when the role may not (it does not own _pgvc.commits),
+     * the commit is refused with a hint to initialize version control again as a superuser.
+     */
     public boolean insertCommit(String envId, CommitRecord c) {
-        return requireInitialized(envId).update("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, created_at,"
+        JdbcTemplate jdbc = requireInitialized(envId);
+        boolean described = c.getDescription() != null && !c.getDescription().isBlank();
+        if (described && !hasDescription(envId, jdbc)) {
+            jdbc.execute(DESCRIPTION_DDL);
+            if (!hasDescription(envId, jdbc)) {
+                throw ApiException.conflict("pgvc.descriptionUpgrade", envId);
+            }
+        }
+        if (described) {
+            return jdbc.update("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, description, created_at,"
+                            + " up_sql, down_sql, schema_snapshot, ddl_log_history)"
+                            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb) ON CONFLICT (hash) DO NOTHING",
+                    c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getDescription(), c.getCreatedAt(),
+                    c.getUpSql(), c.getDownSql(), c.getSchemaSnapshotJson(), c.getDdlLogHistoryJson()) == 1;
+        }
+        return jdbc.update("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, created_at,"
                         + " up_sql, down_sql, schema_snapshot, ddl_log_history)"
                         + " VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb) ON CONFLICT (hash) DO NOTHING",
                 c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getCreatedAt(), c.getUpSql(),
                 c.getDownSql(), c.getSchemaSnapshotJson(), c.getDdlLogHistoryJson()) == 1;
+    }
+
+    /** _pgvc.commits has the description column (v1.9.0+; positive answers are remembered per database). */
+    private boolean hasDescription(String envId, JdbcTemplate jdbc) {
+        String key = envId + "|" + environments.getEnvironment(envId).getJdbcUrl();
+        if (withDescription.contains(key)) {
+            return true;
+        }
+        Boolean has = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute"
+                + " WHERE attrelid = to_regclass('_pgvc.commits') AND attname = 'description' AND NOT attisdropped)",
+                Boolean.class);
+        if (Boolean.TRUE.equals(has)) {
+            withDescription.add(key);
+            return true;
+        }
+        return false;
+    }
+
+    /** {@code description}, or NULL on installations older than v1.9.0. */
+    private String descriptionColumn(String envId, JdbcTemplate jdbc) {
+        return hasDescription(envId, jdbc) ? "description" : "NULL::text AS description";
     }
 
     /**

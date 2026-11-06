@@ -3,7 +3,7 @@ import { ChevronRight, Undo2 } from 'lucide-react';
 import type { ChangeItem } from '../api/types';
 import { useI18n } from '../i18n';
 import { ChangeBadge } from './Badges';
-import { SafetyBadges, SafetyNotes, ZeroDowntimeButton } from './SafetyBadges';
+import { DataLossBadge, SafetyBadges, SafetyNotes, ZeroDowntimeButton } from './SafetyBadges';
 
 interface Props {
   changes: ChangeItem[];
@@ -73,10 +73,16 @@ export function ChangeList({
                   <span className="truncate font-mono text-[12.5px] text-gray-100">{c.objectName}</span>
                   <span className="shrink-0 text-[10.5px] uppercase text-gray-500">{t(`objectType.${c.objectType}`)}</span>
                 </span>
-                <span className="block truncate text-xs text-gray-400">{c.details}</span>
+                <span className="block truncate text-xs text-gray-400" title={c.details}>{c.details}</span>
+                {c.dataLoss && !c.safety && (
+                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <DataLossBadge change={c} />
+                  </span>
+                )}
                 {c.safety && (
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <SafetyBadges report={c.safety} />
+                    <DataLossBadge change={c} />
+                    <SafetyBadges report={c.safety} hideDataLoss={!!c.dataLoss} />
                     {pattern && (
                       <ZeroDowntimeButton used={patternUsed?.has(i)} onClick={() => onUsePattern!(c)} />
                     )}
@@ -101,6 +107,17 @@ export function ChangeList({
             </div>
             {expandable && open === i && (
               <div className="mb-2 ml-7 space-y-1.5 text-xs">
+                {!!c.warnings?.length && (
+                  <ul
+                    className={`space-y-0.5 rounded border px-2 py-1.5 ${
+                      c.dataLoss === 'ALREADY_LOST' ? 'border-red-800 bg-red-950/40 text-red-100' : 'border-amber-800/70 bg-amber-950/25 text-amber-100'
+                    }`}
+                  >
+                    {c.warnings.map((w, k) => (
+                      <li key={k}>{w}</li>
+                    ))}
+                  </ul>
+                )}
                 {c.safety && <SafetyNotes report={c.safety} />}
                 <div>
                   <div className="mb-0.5 text-gray-500">{t('common.up')}</div>

@@ -18,6 +18,8 @@ public class CommitRecord {
     private String parentHash;
     private String author;
     private String message;
+    /** Longer description under the one-line message (null: none; column added in v1.9.0). */
+    private String description;
     private OffsetDateTime createdAt;
     private String upSql;
     private String downSql;
@@ -27,6 +29,6 @@ public class CommitRecord {
     private String ddlLogHistoryJson;
 
     public CommitNode toNode() {
-        return new CommitNode(hash, parentHash, author, message, createdAt);
+        return new CommitNode(hash, parentHash, author, message, description, createdAt);
     }
 }

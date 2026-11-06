@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vodianoy.pgvc.common.ApiException;
 import com.vodianoy.pgvc.diff.ChangeItem;
+import com.vodianoy.pgvc.diff.ChangeType;
+import com.vodianoy.pgvc.diff.DiffMode;
+import com.vodianoy.pgvc.diff.ObjectType;
 import com.vodianoy.pgvc.diff.SchemaDiffEngine;
 import com.vodianoy.pgvc.diff.SchemaDiffResult;
 import com.vodianoy.pgvc.diff.SnapshotFilter;
@@ -39,12 +42,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -110,7 +115,7 @@ public class VersionControlService {
         DatabaseSnapshot base = headSnapshot(envId, head);
         // compare() numbers the changes and keeps the DOWN script statement by statement; same order as the
         // working tree (diff) shows
-        SchemaDiffResult diff = diffEngine.compare(base, live, false);
+        SchemaDiffResult diff = diffEngine.compare(base, live, false, null, DiffMode.APPLIED);
         List<ChangeItem> all = diff.getChanges();
         List<Integer> ids = new ArrayList<>();
         if (changeIndexes == null || changeIndexes.isEmpty()) {
@@ -212,7 +217,7 @@ public class VersionControlService {
                 throw ApiException.badRequest("commit.nothing");
             }
             List<AuditLogEntry> audit = storage.readAuditLog(envId);
-            CommitRecord commit = newCommit(head, author, message,
+            CommitRecord commit = newCommit(head, author, message, request.description(),
                     isBlank(request.upSql()) ? diff.getUpSql() : request.upSql(),
                     isBlank(request.downSql()) ? diff.getDownSql() : request.downSql(),
                     live, audit);
@@ -263,10 +268,10 @@ public class VersionControlService {
             long elapsed = runner.execute(envId, script, timeouts);
 
             DatabaseSnapshot after = introspector.introspect(envId);
-            SchemaDiffResult change = diffEngine.diff(before, after);
+            SchemaDiffResult change = diffEngine.diff(before, after, null, DiffMode.RECORDED);
             String downSql = isBlank(request.downSql()) ? change.getDownSql() : request.downSql();
             List<AuditLogEntry> audit = storage.readAuditLog(envId);
-            CommitRecord commit = newCommit(head, author, message, script, downSql, after, audit);
+            CommitRecord commit = newCommit(head, author, message, request.description(), script, downSql, after, audit);
             storage.insertCommit(envId, commit);
             storage.setHead(envId, commit.getHash());
             storage.clearAuditLog(envId);
@@ -319,10 +324,10 @@ public class VersionControlService {
                 throw ApiException.conflict("migration.headMovedAfterSteps", envId, shortHash(head));
             }
             DatabaseSnapshot after = introspector.introspect(envId);
-            SchemaDiffResult change = diffEngine.diff(start.before(), after);
+            SchemaDiffResult change = diffEngine.diff(start.before(), after, null, DiffMode.RECORDED);
             String downSql = isBlank(request.downSql()) ? change.getDownSql() : request.downSql();
             List<AuditLogEntry> audit = storage.readAuditLog(envId);
-            CommitRecord commit = newCommit(head, author, message, script, downSql, after, audit);
+            CommitRecord commit = newCommit(head, author, message, request.description(), script, downSql, after, audit);
             storage.insertCommit(envId, commit);
             storage.setHead(envId, commit.getHash());
             storage.clearAuditLog(envId);
@@ -373,7 +378,7 @@ public class VersionControlService {
                         step.statements().size(), ms));
             }
             DatabaseSnapshot after = introspector.introspect(envId);
-            SchemaDiffResult change = diffEngine.diff(before, after);
+            SchemaDiffResult change = diffEngine.diff(before, after, null, DiffMode.PLANNED);
             log.info("Dry-run on {}: {} step(s) in {} ms, {} change(s), rolled back", envId, steps.size(), elapsed,
                     change.getChanges().size());
             return new DryRunResult(true, elapsed, reports, steps.size(), null, null, change.getChanges(),
@@ -482,6 +487,107 @@ public class VersionControlService {
                 ApiException.conflict("rollback.noCommits", envId));
         List<CommitRecord> chain = chainToAncestor(envId, head, targetHash);
         return new RollbackPlan(head, targetHash, chain.stream().map(CommitRecord::toNode).toList(), rollbackSql(chain));
+    }
+
+    // ------------------------------------------------------------------ revert of one commit (git revert)
+
+    /**
+     * What reverting {@code targetHash} would execute: its DOWN SQL on top of the current HEAD. Lists the tables /
+     * columns whose structure comes back without the rows deleted then, the ones that are dropped again with their
+     * data, and objects that later commits changed as well (the SQL may need editing).
+     */
+    public RevertPlan getRevertPlan(String envId, String targetHash) {
+        String head = storage.getHead(envId).orElseThrow(() -> ApiException.conflict("revert.noCommits", envId));
+        CommitRecord target = requireInHistory(envId, head, targetHash);
+        List<CommitRecord> later = history.range(envId, target.getHash(), head);
+        SchemaDiffResult changes = getCommitChanges(envId, target.getHash());
+        Set<String> touched = touchedObjects(changes);
+        Set<String> conflicts = new TreeSet<>();
+        for (CommitRecord c : later) {
+            Set<String> again = touchedObjects(getCommitChanges(envId, c.getHash()));
+            again.retainAll(touched);
+            conflicts.addAll(again);
+        }
+        List<String> restored = new ArrayList<>();
+        List<String> dropped = new ArrayList<>();
+        for (ChangeItem c : changes.getChanges()) {
+            boolean holdsData = c.getObjectType() == ObjectType.TABLE || c.getObjectType() == ObjectType.PARTITION
+                    || c.getObjectType() == ObjectType.COLUMN;
+            if (holdsData && c.getChangeType() == ChangeType.DELETED) {
+                restored.add(c.getObjectName());
+            } else if (holdsData && c.getChangeType() == ChangeType.ADDED) {
+                dropped.add(c.getObjectName());
+            }
+        }
+        DatabaseSnapshot live = introspector.introspect(envId);
+        boolean dirty = diffEngine.diff(headSnapshot(envId, head), live).isHasChanges();
+        String sql = target.getDownSql();
+        return new RevertPlan(envId, head, target.toNode(), head.equals(target.getHash()), later.size(), sql,
+                target.getUpSql(), revertMessage(target), changes.getChanges(), restored, dropped,
+                new ArrayList<>(conflicts), target.getParentHash() == null, safety.analyzeSql(sql, live), dirty);
+    }
+
+    /**
+     * Reverts one commit: runs its DOWN SQL (or the reviewed {@code customRevertSql}) with the migration timeouts,
+     * reads the new schema and records a new commit on top of HEAD whose DOWN SQL is the UP SQL of the reverted
+     * commit - all in one transaction (see {@link #executeAndCommitSql}); the DDL log is cleared.
+     */
+    public CommitResult revertCommit(RevertRequest request) {
+        if (request == null || isBlank(request.envId())) {
+            throw ApiException.badRequest("env.idRequired");
+        }
+        String envId = request.envId();
+        String head = storage.getHead(envId).orElseThrow(() -> ApiException.conflict("revert.noCommits", envId));
+        if (!isBlank(request.expectedHead()) && !request.expectedHead().equals(head)) {
+            throw ApiException.conflict("commit.headMoved", envId, shortHash(head));
+        }
+        CommitRecord target = requireInHistory(envId, head, request.targetCommitHash());
+        String original = target.getDownSql() == null ? "" : target.getDownSql();
+        boolean edited = !isBlank(request.customRevertSql()) && !request.customRevertSql().strip().equals(original.strip());
+        String sql = edited ? request.customRevertSql() : original;
+        if (!hasStatements(sql)) {
+            throw ApiException.badRequest("revert.nothing", shortHash(target.getHash()));
+        }
+        String message = isBlank(request.message()) ? revertMessage(target) : request.message().strip();
+        String description = request.description() == null
+                ? "Reverts commit " + shortHash(target.getHash()) + "." : request.description();
+        // an edited script is not the exact inverse of the target any more: its DOWN SQL comes from the schema diff
+        ExecuteMigrationRequest migration = new ExecuteMigrationRequest(message, request.author(), sql,
+                edited ? null : target.getUpSql(), request.allowDirty(), request.lockTimeout(), request.statementTimeout(),
+                null, null, false, description);
+        CommitResult result = executeAndCommitSql(envId, migration);
+        log.info("Reverted {} on {} with commit {}", shortHash(target.getHash()), envId, shortHash(result.commit().hash()));
+        return result;
+    }
+
+    private CommitRecord requireInHistory(String envId, String head, String targetHash) {
+        if (isBlank(targetHash)) {
+            throw ApiException.badRequest("revert.targetRequired");
+        }
+        CommitRecord target = storage.requireCommit(envId, targetHash.strip());
+        if (!history.ancestors(envId, head).contains(target.getHash())) {
+            throw ApiException.conflict("revert.notInHistory", shortHash(target.getHash()), envId, shortHash(head));
+        }
+        return target;
+    }
+
+    private static String revertMessage(CommitRecord target) {
+        String first = target.getMessage() == null ? "" : target.getMessage().strip().split("\\R", 2)[0];
+        return "Revert \"" + first + "\"";
+    }
+
+    /** Objects (tables, views, functions ...) a change list touches: the root object of every change. */
+    private static Set<String> touchedObjects(SchemaDiffResult diff) {
+        Set<String> names = new HashSet<>();
+        for (ChangeItem c : diff.getChanges()) {
+            names.add(c.getRootName() != null ? c.getRootName() : c.getObjectName());
+        }
+        return names;
+    }
+
+    /** The script contains something other than comments and blank lines. */
+    private static boolean hasStatements(String sql) {
+        return sql != null && sql.lines().map(String::strip).anyMatch(l -> !l.isEmpty() && !l.startsWith("--"));
     }
 
     // ------------------------------------------------------------------ multi-environment sync
@@ -845,7 +951,7 @@ public class VersionControlService {
             }
             List<GlobalGraph.Commit> commits = byHash.values().stream()
                     .sorted(Comparator.comparing(CommitNode::createdAt, Comparator.nullsLast(Comparator.<OffsetDateTime>reverseOrder())))
-                    .map(c -> new GlobalGraph.Commit(c.hash(), c.parentHash(), c.author(), c.message(), c.createdAt(),
+                    .map(c -> new GlobalGraph.Commit(c.hash(), c.parentHash(), c.author(), c.message(), c.description(), c.createdAt(),
                             presence.getOrDefault(c.hash(), List.of())))
                     .toList();
             return new GlobalGraph(commits, heads);
@@ -880,12 +986,13 @@ public class VersionControlService {
                 : storage.findCommit(envId, c.getParentHash())
                         .map(p -> parseSnapshot(p.getSchemaSnapshotJson()))
                         .orElseGet(() -> DatabaseSnapshot.builder().build());
-        return diffEngine.diff(before, parseSnapshot(c.getSchemaSnapshotJson()));
+        return diffEngine.diff(before, parseSnapshot(c.getSchemaSnapshotJson()), null, DiffMode.RECORDED);
     }
 
     public CommitDetails getCommit(String envId, String hash) {
         CommitRecord c = storage.requireCommit(envId, hash);
-        return new CommitDetails(c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getCreatedAt(),
+        return new CommitDetails(c.getHash(), c.getParentHash(), c.getAuthor(), c.getMessage(), c.getDescription(),
+                c.getCreatedAt(),
                 c.getUpSql(), c.getDownSql(), parseSnapshot(c.getSchemaSnapshotJson()), parseJson(c.getDdlLogHistoryJson()));
     }
 
@@ -927,13 +1034,15 @@ public class VersionControlService {
         return parseSnapshot(storage.requireCommit(envId, head).getSchemaSnapshotJson());
     }
 
-    private CommitRecord newCommit(String parent, String author, String message, String upSql, String downSql,
-                                   DatabaseSnapshot snapshot, List<AuditLogEntry> audit) {
+    private CommitRecord newCommit(String parent, String author, String message, String description, String upSql,
+                                   String downSql, DatabaseSnapshot snapshot, List<AuditLogEntry> audit) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         String snapshotJson = toJson(snapshot);
         String auditJson = audit.isEmpty() ? null : toJson(audit);
-        String hash = CommitHasher.hash(parent, author, message, now.toString(), upSql, downSql, snapshotJson);
-        return CommitRecord.builder().hash(hash).parentHash(parent).author(author).message(message).createdAt(now)
+        String text = isBlank(description) ? null : description.strip();
+        String hash = CommitHasher.hash(parent, author, message, text, now.toString(), upSql, downSql, snapshotJson);
+        return CommitRecord.builder().hash(hash).parentHash(parent).author(author).message(message).description(text)
+                .createdAt(now)
                 .upSql(upSql).downSql(downSql).schemaSnapshotJson(snapshotJson).ddlLogHistoryJson(auditJson).build();
     }
 

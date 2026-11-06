@@ -1,6 +1,7 @@
 // Takes screenshots of the main UI states with Playwright and records browser console errors.
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const out = process.argv[2] ?? 'screenshots';
 mkdirSync(out, { recursive: true });
@@ -158,8 +159,11 @@ await step('11-commit-working-tree', async () => {
   await page.getByRole('button', { name: 'Commit Changes…' }).click();
   await page.getByPlaceholder('your name').fill('alice');
   await page.getByPlaceholder('What changed and why').fill('Customer phone, rename note to remark');
+  await page.getByPlaceholder('Details of the change').fill('CRM sync needs a phone number.\nTicket: CRM-142');
   await page.getByRole('button', { name: 'Commit Changes', exact: true }).click();
   await toast(/Committed/);
+  // the inspector of the new commit shows the summary and the description with its line breaks
+  await page.getByTestId('commit-description').filter({ hasText: 'Ticket: CRM-142' }).waitFor({ timeout: 10000 });
   await shot('11-commit-working-tree');
 });
 await step('12-push-to-stage', async () => {
@@ -422,6 +426,90 @@ await step('17c-docs-search', async () => {
   await shot('17c-docs-search');
   await page.keyboard.press('Escape');
 });
+// ---------------------------------------------------------------- v1.9.0: data loss wording, description, menu, revert
+const API = 'http://127.0.0.1:18766/api';
+const psql = (db, sql) =>
+  execFileSync('psql', ['-h', 'localhost', '-U', process.env.PGVC_TEST_USER ?? 'postgres', '-d', db, '-v', 'ON_ERROR_STOP=1', '-qXc', sql], {
+    env: { ...process.env, PGPASSWORD: process.env.PGVC_TEST_PASSWORD ?? '' },
+  });
+const devId = async () => {
+  const envs = await (await page.request.get(`${API}/environments`)).json();
+  return envs.find((e) => e.name === 'Dev').id;
+};
+const execute = async (envId, message, upSql, description) => {
+  const r = await page.request.post(`${API}/environments/${envId}/vc/execute`, {
+    data: { message, description, author: 'carol', upSql, downSql: '', allowDirty: true, dryRun: false },
+  });
+  if (!r.ok()) throw new Error(`execute ${r.status()}: ${await r.text()}`);
+  return (await r.json()).commit;
+};
+await step('17d-already-lost', async () => {
+  const dev = await devId();
+  await execute(dev, 'Lost demo table', 'CREATE TABLE sales.lost_demo AS SELECT g AS id, md5(g::text) AS payload FROM generate_series(1, 5000) g;\nANALYZE sales.lost_demo;', null);
+  // dropped outside the application: the rows are already gone, Discard could only recreate an empty table
+  psql('demo_dev', 'DROP TABLE sales.lost_demo');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click({ timeout: 15000 });
+  await page.getByRole('tab', { name: /Changes/ }).click();
+  await page.getByText('💀 Data ALREADY lost in DB').first().waitFor({ timeout: 10000 });
+  await page.getByText('already dropped in the live database: its data is lost').first().waitFor({ timeout: 5000 });
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.getByText('sales.lost_demo', { exact: true }).first().click();
+  await inspector.getByText(/was already dropped in the live database\. Its data \(.*5k rows\) is permanently lost/).first().waitFor({ timeout: 5000 });
+  await shot('17d-already-lost');
+  // the discard plan describes the same change as a script to run
+  await page.getByRole('button', { name: 'Discard / Revert Item: sales.lost_demo' }).click();
+  await page.getByRole('button', { name: 'Revert This Change' }).waitFor({ timeout: 10000 });
+  await shot('17d-discard-lost');
+  await page.keyboard.press('Escape');
+  // leave Dev clean for the next steps: recreate the (empty) table via the discard API
+  const plan = await (await page.request.post(`${API}/vc/working-tree/discard-plan`, { data: { envId: dev } })).json();
+  const r = await page.request.post(`${API}/vc/working-tree/discard`, { data: { envId: dev, expectedTotalChanges: plan.totalChanges } });
+  if (!r.ok()) throw new Error(`discard ${r.status()}: ${await r.text()}`);
+});
+await step('17e-description-tooltip', async () => {
+  const dev = await devId();
+  await execute(dev, 'Revert demo: notes archive', 'CREATE TABLE sales.revert_demo (id int PRIMARY KEY, note text)',
+    'Archive for old customer notes.\nTicket: CRM-200\n\nCreated by the UI demo to show Revert Commit.');
+  await page.reload({ waitUntil: 'networkidle' });
+  const row = page.getByText('Revert demo: notes archive', { exact: true }).first();
+  await row.hover();
+  await page.getByTestId('commit-tooltip-description').filter({ hasText: 'Ticket: CRM-200' }).waitFor({ timeout: 5000 });
+  await shot('17e-description-tooltip');
+  await page.mouse.move(5, 500);
+});
+await step('17f-context-menu', async () => {
+  await page.getByText('Revert demo: notes archive', { exact: true }).first().click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await menu.waitFor({ timeout: 5000 });
+  for (const item of ['Revert Commit…', 'Rollback DB to here…', 'Create branch here…', 'Export snapshot (.pgsnap.json)',
+    'Export .SQL of this commit', 'Copy Commit Hash', 'Copy Message', 'Delete Commit…']) {
+    await menu.getByRole('menuitem', { name: item }).waitFor({ timeout: 2000 });
+  }
+  await shot('17f-context-menu');
+  await page.keyboard.press('Escape');
+  if (await menu.count()) throw new Error('the menu did not close on Escape');
+  // the browser menu stays suppressed on the empty graph as well
+  await page.getByText('Revert demo: notes archive', { exact: true }).first().click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Create branch here…' }).click();
+  await page.getByText('There are no named branches').waitFor({ timeout: 5000 });
+  await shot('17f-create-branch');
+  await page.keyboard.press('Escape');
+});
+await step('17g-revert-commit', async () => {
+  await page.getByText('Revert demo: notes archive', { exact: true }).first().click({ button: 'right' });
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Revert Commit…' }).click();
+  await page.getByText(/The commit created sales\.revert_demo/).waitFor({ timeout: 10000 });
+  await page.locator('.monaco-editor').filter({ hasText: /DROP\s+TABLE\s+sales\.revert_demo/ }).first().waitFor({ timeout: 10000 });
+  await shot('17g-revert-commit');
+  const allow = page.getByLabel('Allow uncommitted changes');
+  if (await allow.count()) await allow.check();
+  await page.getByRole('button', { name: 'Revert & Commit' }).click();
+  await toast(/reverted on Dev/);
+  await page.getByText('Revert "Revert demo: notes archive"').first().waitFor({ timeout: 10000 });
+  await page.getByTestId('commit-description').filter({ hasText: 'Reverts commit' }).waitFor({ timeout: 10000 });
+  await shot('17g-reverted');
+});
 await step('18-ru-main', async () => {
   await page.getByRole('button', { name: 'RU', exact: true }).click();
   await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
@@ -468,6 +556,14 @@ await step('20c-ru-docs', async () => {
   await page.getByText('Отменить все изменения (сброс к HEAD)').first().waitFor({ timeout: 5000 });
   await page.getByRole('note').first().waitFor({ timeout: 5000 });
   await shot('20c-ru-docs');
+  await page.keyboard.press('Escape');
+});
+await step('20d-ru-context-menu', async () => {
+  await page.getByText('Revert demo: notes archive', { exact: true }).first().click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await menu.getByRole('menuitem', { name: 'Обратить этот коммит…' }).waitFor({ timeout: 5000 });
+  await menu.getByRole('menuitem', { name: 'Удалить коммит…' }).waitFor({ timeout: 2000 });
+  await shot('20d-ru-context-menu');
   await page.keyboard.press('Escape');
 });
 await step('21-ru-reload-keeps-language', async () => {

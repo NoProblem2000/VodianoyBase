@@ -7,8 +7,8 @@ import java.util.List;
 public record GlobalGraph(List<Commit> commits, List<EnvironmentHead> environments) {
 
     /** A commit and the environments whose history contains it. */
-    public record Commit(String hash, String parentHash, String author, String message, OffsetDateTime createdAt,
-                         List<String> environments) {
+    public record Commit(String hash, String parentHash, String author, String message, String description,
+                         OffsetDateTime createdAt, List<String> environments) {
     }
 
     public record EnvironmentHead(String id, String name, String colorBadge, boolean active, boolean reachable,

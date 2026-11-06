@@ -5,7 +5,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-/** SHA-256 commit id over parent, metadata, SQL and schema snapshot (length-prefixed fields, like a git object id). */
+/**
+ * SHA-256 commit id over parent, metadata, SQL and schema snapshot (length-prefixed fields, like a git object id).
+ * A description is hashed as an extra field only when there is one, so commits without it keep their ids.
+ */
 final class CommitHasher {
 
     private CommitHasher() {
@@ -13,10 +16,19 @@ final class CommitHasher {
 
     static String hash(String parentHash, String author, String message, String createdAt, String upSql,
                        String downSql, String snapshotJson) {
+        return hash(parentHash, author, message, null, createdAt, upSql, downSql, snapshotJson);
+    }
+
+    static String hash(String parentHash, String author, String message, String description, String createdAt,
+                       String upSql, String downSql, String snapshotJson) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            for (String part : new String[]{"pgvc-commit-v1", parentHash, author, message, createdAt, upSql, downSql,
-                    snapshotJson}) {
+            boolean described = description != null && !description.isBlank();
+            String[] parts = described
+                    ? new String[]{"pgvc-commit-v1", parentHash, author, message, createdAt, upSql, downSql, snapshotJson,
+                    "description", description}
+                    : new String[]{"pgvc-commit-v1", parentHash, author, message, createdAt, upSql, downSql, snapshotJson};
+            for (String part : parts) {
                 byte[] bytes = (part == null ? "" : part).getBytes(StandardCharsets.UTF_8);
                 md.update((bytes.length + ":").getBytes(StandardCharsets.US_ASCII));
                 md.update(bytes);

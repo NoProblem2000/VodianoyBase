@@ -125,12 +125,16 @@ public class OfflineMigrationService {
 
         section(sb, "4. Commit metadata and HEAD");
         for (CommitRecord c : commits) {
-            sb.append("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, created_at, up_sql, down_sql,"
-                    + " schema_snapshot, ddl_log_history)\nVALUES (")
+            // the description column exists from v1.9.0 on: written only when there is a description
+            boolean described = c.getDescription() != null && !c.getDescription().isBlank();
+            sb.append("INSERT INTO _pgvc.commits (hash, parent_hash, author, message, ")
+                    .append(described ? "description, " : "")
+                    .append("created_at, up_sql, down_sql, schema_snapshot, ddl_log_history)\nVALUES (")
                     .append(literal(c.getHash())).append(", ")
                     .append(literal(c.getParentHash())).append(", ")
                     .append(literal(c.getAuthor())).append(",\n        ")
                     .append(dollarQuote(c.getMessage())).append(",\n        ")
+                    .append(described ? dollarQuote(c.getDescription()) + ",\n        " : "")
                     .append(literal(c.getCreatedAt().toString())).append("::timestamptz,\n        ")
                     .append(dollarQuote(c.getUpSql())).append(",\n        ")
                     .append(dollarQuote(c.getDownSql())).append(",\n        ")

@@ -9,8 +9,10 @@ import { loadSetting, saveSetting } from './lib/storage';
 import { I18nProvider, useI18n } from './i18n';
 import { AboutModal } from './components/AboutModal';
 import { AuditLogPanel } from './components/AuditLogPanel';
+import { CommitContextMenu } from './components/CommitContextMenu';
 import { CommitGraph, WORKING_TREE_ID } from './components/CommitGraph';
 import { CommitInspector } from './components/CommitInspector';
+import { CreateBranchModal } from './components/CreateBranchModal';
 import { DeleteCommitModal } from './components/DeleteCommitModal';
 import { EnvironmentsModal } from './components/EnvironmentsModal';
 import { ExportModal } from './components/ExportModal';
@@ -20,6 +22,7 @@ import { DocumentationModal } from './components/DocumentationModal';
 import { IgnoreRulesModal } from './components/IgnoreRulesModal';
 import { MatrixModal } from './components/MatrixModal';
 import { NewMigrationModal } from './components/NewMigrationModal';
+import { RevertModal } from './components/RevertModal';
 import { RollbackModal } from './components/RollbackModal';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { SnapshotSyncModal } from './components/SnapshotSyncModal';
@@ -33,8 +36,10 @@ type ModalState =
   | { kind: 'environments' }
   | { kind: 'new-migration' }
   | { kind: 'export'; source?: string; from?: string | null; to?: string }
-  | { kind: 'sync' }
+  | { kind: 'sync'; source?: string; tip?: string }
   | { kind: 'rollback'; target: string }
+  | { kind: 'revert'; target: string }
+  | { kind: 'branch'; target: string }
   | { kind: 'about' }
   | { kind: 'delete'; target: string }
   | { kind: 'snapshot-sync' }
@@ -62,6 +67,8 @@ function Workspace() {
   const [selected, setSelected] = useState<string | null>(null);
   const inspector = useResizablePanel('pgvc.inspectorWidth');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const [menu, setMenu] = useState<{ hash: string; x: number; y: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const [author, setAuthorState] = useState(() => loadSetting('pgvc.author', ''));
   const [initializing, setInitializing] = useState(false);
 
@@ -89,6 +96,26 @@ function Workspace() {
     if (commit.hash === activeHead) return t('app.rollbackAlreadyHere', { name: activeEnv.name });
     if (!activeAncestors.has(commit.hash)) return t('app.rollbackNotAncestor', { name: activeEnv.name });
     return null;
+  }
+
+  function revertBlockedReason(commit: GraphCommit): string | null {
+    if (!activeEnv || !ready || !activeHead) return t('app.revertUnavailable');
+    if (!activeAncestors.has(commit.hash)) return t('app.revertNotInHistory', { name: activeEnv.name });
+    return null;
+  }
+
+  /** Environment to read a commit from: the active one when its history has the commit. */
+  function sourceOf(commit: GraphCommit): string {
+    return activeEnv && commit.environments.includes(activeEnv.id) ? activeEnv.id : commit.environments[0];
+  }
+
+  async function copy(text: string, what: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t('ctx.copied', { what }));
+    } catch {
+      toast.error(t('ctx.copyFailed'));
+    }
   }
 
   // environments whose current history (HEAD and its ancestors) contains each commit
@@ -221,6 +248,12 @@ function Workspace() {
               workingTreeChanges={workingTree?.diff.changes.length ?? 0}
               selectedId={selected}
               onSelect={setSelected}
+              onCommitContextMenu={(hash, x, y) => {
+                if (commitsByHash.has(hash)) {
+                  setSelected(hash);
+                  setMenu({ hash, x, y });
+                }
+              }}
             />
           )}
         </section>
@@ -258,6 +291,8 @@ function Workspace() {
               onRollback={() => setModal({ kind: 'rollback', target: selectedCommit.hash })}
               deleteBlockedReason={deleteBlockedReason(selectedCommit)}
               onDelete={() => setModal({ kind: 'delete', target: selectedCommit.hash })}
+              revertBlockedReason={revertBlockedReason(selectedCommit)}
+              onRevert={() => setModal({ kind: 'revert', target: selectedCommit.hash })}
               onExportSnapshot={() => void exportSnapshot(inspectorSource, selectedCommit.hash)}
             />
           ) : (
@@ -298,7 +333,8 @@ function Workspace() {
       {modal.kind === 'sync' && graph && activeEnv && (
         <SyncModal
           graph={graph}
-          defaultSource={activeEnv.id}
+          defaultSource={modal.source ?? activeEnv.id}
+          defaultTip={modal.tip}
           onDone={() => void afterChange()}
           onLinked={() => void data.refresh()}
           onClose={closeModal}
@@ -345,6 +381,53 @@ function Workspace() {
           onClose={closeModal}
         />
       )}
+      {modal.kind === 'revert' && activeEnv && (
+        <RevertModal
+          env={activeEnv}
+          targetHash={modal.target}
+          author={author}
+          onAuthorChange={setAuthor}
+          onDone={(r) => void afterChange(r.commit.hash)}
+          onClose={closeModal}
+        />
+      )}
+      {modal.kind === 'branch' && commitsByHash.has(modal.target) && (
+        <CreateBranchModal
+          commit={commitsByHash.get(modal.target)!}
+          activeEnvName={activeEnv?.name ?? null}
+          rollbackBlockedReason={rollbackBlockedReason(commitsByHash.get(modal.target)!)}
+          hasOtherEnvironments={environments.length > 1}
+          onRollbackHere={() => setModal({ kind: 'rollback', target: modal.target })}
+          onPushElsewhere={() =>
+            setModal({ kind: 'sync', source: sourceOf(commitsByHash.get(modal.target)!), tip: modal.target })
+          }
+          onClose={closeModal}
+        />
+      )}
+      {menu && commitsByHash.has(menu.hash) && (() => {
+        const c = commitsByHash.get(menu.hash)!;
+        return (
+          <CommitContextMenu
+            commit={c}
+            x={menu.x}
+            y={menu.y}
+            onClose={closeMenu}
+            actions={{
+              revertBlocked: revertBlockedReason(c),
+              rollbackBlocked: rollbackBlockedReason(c),
+              deleteBlocked: deleteBlockedReason(c),
+              onRevert: () => setModal({ kind: 'revert', target: c.hash }),
+              onRollback: () => setModal({ kind: 'rollback', target: c.hash }),
+              onCreateBranch: () => setModal({ kind: 'branch', target: c.hash }),
+              onExportSnapshot: () => void exportSnapshot(sourceOf(c), c.hash),
+              onExportSql: () => setModal({ kind: 'export', source: sourceOf(c), from: c.parentHash, to: c.hash }),
+              onCopyHash: () => void copy(c.hash, t('ctx.hashWord')),
+              onCopyMessage: () => void copy([c.message, c.description].filter(Boolean).join('\n\n'), t('ctx.messageWord')),
+              onDelete: () => setModal({ kind: 'delete', target: c.hash }),
+            }}
+          />
+        );
+      })()}
       {modal.kind === 'rollback' && activeEnv && (
         <RollbackModal env={activeEnv} targetHash={modal.target} onDone={(r) => void afterChange(r.newHead)} onClose={closeModal} />
       )}

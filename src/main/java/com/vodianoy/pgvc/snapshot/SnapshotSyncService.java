@@ -134,7 +134,7 @@ public class SnapshotSyncService {
 
     private static ExecuteMigrationRequest migration(SnapshotApplyRequest r, String message, boolean dryRun) {
         return new ExecuteMigrationRequest(message, r.author(), r.upSql(), r.downSql(), true, r.lockTimeout(),
-                r.statementTimeout(), r.preScript(), r.postScript(), dryRun);
+                r.statementTimeout(), r.preScript(), r.postScript(), dryRun, r.description());
     }
 
     // ------------------------------------------------------------------ helpers
