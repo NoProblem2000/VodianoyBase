@@ -352,7 +352,7 @@ nextval('A.seq'::regclass)`. `POST /api/environments/{envId}/vc/quick-fix` (`obj
 отслеживаемая схема не ошибка), снимок HEAD ограничивается теми же схемами (`SnapshotFilter.onlySchemas`), чтобы
 схема, которую перестали отслеживать, не выглядела удалённой. Обзор сервера: `POST /api/environments/discover-databases`
 (`DiscoveryRequest`: `host`, `port`, `username`, `password`, `id` — сохранённый пароль, если не передан, `jdbcUrl`)
-подключается к `postgres` (затем `template1`) и возвращает `pg_database` без шаблонов с комментарием, размером и правом
+подключается к `postgres` (затем `template1`) и возвращает `pg_database` без шаблонов с комментарием и правом
 CONNECT; `POST /api/environments/discover-schemas` (+ `databaseName`) — `pg_namespace` без `pg_catalog`,
 `information_schema`, `pg_toast*`, `pg_temp*`, `_pgvc`, с комментарием, владельцем, числом объектов и признаком схемы
 расширения. Интерфейс: режимы «Сервер» / «JDBC URL», двухпанельный выбор базы и схем, быстрый выбор схем в верхней

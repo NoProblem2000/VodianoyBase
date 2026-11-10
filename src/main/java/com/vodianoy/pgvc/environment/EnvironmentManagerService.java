@@ -51,9 +51,8 @@ public class EnvironmentManagerService implements DisposableBean {
     /** Maintenance database used to list the databases of a server (falls back to template1). */
     static final String MAINTENANCE_DATABASE = "postgres";
 
+    // no pg_database_size(): it walks every file of every database, which takes seconds on big production servers
     static final String DATABASES_SQL = "SELECT d.datname, pg_catalog.shobj_description(d.oid, 'pg_database') AS comment,"
-            + " CASE WHEN pg_catalog.has_database_privilege(d.oid, 'CONNECT')"
-            + " THEN pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(d.oid)) END AS pretty_size,"
             + " pg_catalog.has_database_privilege(d.oid, 'CONNECT') AS can_connect"
             + " FROM pg_catalog.pg_database d WHERE d.datistemplate = false ORDER BY d.datname";
 
@@ -309,7 +308,7 @@ public class EnvironmentManagerService implements DisposableBean {
                 List<DiscoveredDatabase> out = new ArrayList<>();
                 while (rs.next()) {
                     out.add(new DiscoveredDatabase(rs.getString("datname"), rs.getString("comment"),
-                            rs.getString("pretty_size"), rs.getBoolean("can_connect")));
+                            rs.getBoolean("can_connect")));
                 }
                 return out;
             } catch (SQLException e) {

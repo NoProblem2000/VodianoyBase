@@ -112,7 +112,6 @@ class FieldFeedbackIntegrationTest {
         assertThat(dbs).filteredOn(d -> d.name().equals(DB)).singleElement().satisfies(d -> {
             assertThat(d.comment()).isEqualTo("SCADA field test");
             assertThat(d.canConnect()).isTrue();
-            assertThat(d.prettySize()).isNotBlank();
         });
 
         // the stored password of the environment is used when none is sent

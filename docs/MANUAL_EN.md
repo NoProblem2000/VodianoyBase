@@ -160,7 +160,7 @@ same hash** in every database — that is how the graph knows where each environ
 
 1. **Start the application:** `java -jar pg-git-vc-1.9.1.jar` and open http://localhost:8765.
 2. **Add an environment:** **Environments → Add environment**: name, badge color, **Host**, **Port**, user, password
-   → **Load databases**. The databases of the server (with comments and sizes) appear on the left, the schemas of the
+   → **Load databases**. The databases of the server (with comments) appear on the left, the schemas of the
    picked database on the right: tick the ones to track or keep **All schemas** (schemas created later are tracked
    too) → **Test connection** → **Save**. A multi-host connection or special parameters use the **JDBC URL** mode
    (`jdbc:postgresql://host:5432/db?sslmode=require`).

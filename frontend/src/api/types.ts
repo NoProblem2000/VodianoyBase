@@ -51,7 +51,6 @@ export interface DiscoveryRequest {
 export interface DiscoveredDatabase {
   name: string;
   comment: string | null;
-  prettySize: string | null;
   canConnect: boolean;
 }
 

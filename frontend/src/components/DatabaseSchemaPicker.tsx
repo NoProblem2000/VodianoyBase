@@ -192,10 +192,7 @@ export function DatabaseSchemaPicker({ connection, databaseName, onDatabaseChang
                 disabled={!d.canConnect}
                 title={d.canConnect ? d.comment ?? undefined : t('discovery.noConnect')}
               >
-                <span className="flex w-full items-baseline gap-2">
-                  <span className="truncate font-mono text-[12.5px]">{d.name}</span>
-                  {d.prettySize && <span className="ml-auto shrink-0 text-[10.5px] text-gray-500">{d.prettySize}</span>}
-                </span>
+                <span className="w-full truncate font-mono text-[12.5px]">{d.name}</span>
                 {d.comment && <span className="w-full truncate text-[11px] text-gray-500">{d.comment}</span>}
               </button>
             ))}
