@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   BaseEdge,
   Handle,
@@ -19,6 +19,8 @@ import { EnvBadge } from './Badges';
 
 const ROW_H = 38;
 const LANE_W = 22;
+/** the commit dot is 14 x 14 px (the label is positioned outside of the node) */
+const NODE_SIZE = 14;
 export const WORKING_TREE_ID = '__working_tree__';
 
 type CommitNodeData = {
@@ -35,8 +37,8 @@ type CommitNodeData = {
   hash: string;
   selected: boolean;
   badges: { id: string; name: string; color: string; active: boolean }[];
-  /** switches the active environment (double click on a badge), absent when switching is not offered */
-  activate?: (envId: string) => void;
+  /** a double click on a badge of another environment switches to it */
+  switchable: boolean;
 };
 type CommitFlowNode = Node<CommitNodeData, 'commit'>;
 
@@ -62,13 +64,7 @@ function CommitNodeView({ data }: NodeProps<CommitFlowNode>) {
         style={{ left: data.labelLeft, width: data.labelWidth, boxShadow: data.selected ? `inset 2px 0 0 ${data.color}` : undefined }}
       >
         {data.badges.map((b) => (
-          <EnvBadge
-            key={b.id}
-            name={b.name}
-            color={b.color}
-            active={b.active}
-            onActivate={data.activate ? () => data.activate!(b.id) : undefined}
-          />
+          <EnvBadge key={b.id} envId={b.id} name={b.name} color={b.color} active={b.active} switchable={data.switchable} />
         ))}
         <span className={`min-w-0 flex-1 truncate ${wip ? 'font-medium italic text-amber-200' : 'text-gray-100'}`}>
           {data.message}
@@ -140,11 +136,24 @@ export function CommitGraph({
   tooltipsDisabled,
   onActivateEnvironment,
 }: Props) {
-  // the node data keeps one stable callback; the latest handler is read when it runs
-  const activateRef = useRef(onActivateEnvironment);
-  activateRef.current = onActivateEnvironment;
   const canActivate = !!onActivateEnvironment;
-  const activate = useCallback((envId: string) => activateRef.current?.(envId), []);
+  // the first click of a double click: a fast second click may land on the pane (React Flow starts panning on the
+  // first press), so the double click is recognised from the click count and remembered target
+  const lastClick = useRef<{ nodeId: string; envId: string | null; at: number } | null>(null);
+
+  /** Double click on a commit row: the badge clicked, or the first badge of another environment on the row. */
+  function activateFrom(nodeId: string, envId: string | null) {
+    if (!onActivateEnvironment) return false;
+    const node = nodes.find((n) => n.id === nodeId);
+    const target = envId
+      ? node?.data.badges.find((b) => b.id === envId && !b.active)
+      : node?.data.badges.find((b) => !b.active);
+    if (!target) return false;
+    lastClick.current = null;
+    hoverEnd();
+    onActivateEnvironment(target.id);
+    return true;
+  }
   const [hover, setHover] = useState<Hover | null>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
@@ -201,6 +210,10 @@ export function CommitGraph({
         id: WORKING_TREE_ID,
         type: 'commit',
         position: { x: lane * LANE_W, y: 0 },
+        // known size: React Flow hides a node it has not measured yet, and every render creates new node objects -
+        // without it the row under the cursor vanishes for a frame after a click (a double click then hits the pane)
+        width: NODE_SIZE,
+        height: NODE_SIZE,
         draggable: false,
         data: {
           kind: 'wip',
@@ -215,6 +228,7 @@ export function CommitGraph({
           hash: '',
           selected: selectedId === WORKING_TREE_ID,
           badges: [],
+          switchable: false,
         },
       });
       if (activeHead && layout.byHash.has(activeHead)) {
@@ -235,6 +249,8 @@ export function CommitGraph({
         id: c.hash,
         type: 'commit',
         position: { x: r.lane * LANE_W, y: (r.row + offset) * ROW_H },
+        width: NODE_SIZE,
+        height: NODE_SIZE,
         draggable: false,
         data: {
           kind: 'commit',
@@ -251,7 +267,7 @@ export function CommitGraph({
           badges: environments
             .filter((e) => e.head === c.hash)
             .map((e) => ({ id: e.id, name: e.name, color: e.colorBadge, active: e.id === activeEnvId })),
-          activate: canActivate ? activate : undefined,
+          switchable: canActivate,
         },
       });
       if (c.parentHash && layout.byHash.has(c.parentHash)) {
@@ -265,7 +281,7 @@ export function CommitGraph({
       }
     }
     return { nodes, edges };
-  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale, canActivate, activate]);
+  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale, canActivate]);
 
   const hovered = hover ? nodes.find((n) => n.id === hover.id && n.data.kind === 'commit') : undefined;
 
@@ -295,15 +311,15 @@ export function CommitGraph({
         defaultViewport={{ x: 20, y: 24, zoom: 1 }}
         onNodeClick={(event, node) => {
           hoverEnd();
-          if (event.detail >= 2) {
-            // double click on the row of a commit that is the HEAD of another environment: switch to it
-            const other = (node.data as CommitNodeData).badges?.find((b) => !b.active);
-            if (other && onActivateEnvironment) {
-              onActivateEnvironment(other.id);
-              return;
-            }
-          }
+          const badge = (event.target as HTMLElement).closest<HTMLElement>('[data-env-id]');
+          const envId = badge?.dataset.envId ?? null;
+          if (event.detail >= 2 && activateFrom(node.id, envId)) return;
+          lastClick.current = { nodeId: node.id, envId, at: Date.now() };
           onSelect(node.id);
+        }}
+        onPaneClick={(event) => {
+          const last = lastClick.current;
+          if (event.detail >= 2 && last && Date.now() - last.at < 600) activateFrom(last.nodeId, last.envId);
         }}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();

@@ -4,25 +4,28 @@ import { CHANGE_CLASSES, CHANGE_LETTER } from '../lib/changes';
 
 /**
  * Environment HEAD badge (like a branch label in GitKraken). The active environment is filled and marked "● NAME";
- * with {@code onActivate}, a double click on another environment's badge switches to it.
+ * a {@code switchable} badge (in the commit graph) tells that a double click switches to its environment - the graph
+ * handles the double click itself ({@code data-env-id} names the environment).
  */
 export function EnvBadge({
   name,
   color,
   active,
-  onActivate,
+  envId,
+  switchable,
 }: {
   name: string;
   color: string;
   active?: boolean;
-  onActivate?: () => void;
+  envId?: string;
+  switchable?: boolean;
 }) {
   const { t } = useI18n();
-  const switchable = !!onActivate && !active;
+  const canSwitch = !!switchable && !active;
   return (
     <span
       className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] font-bold uppercase tracking-wide ${
-        switchable ? 'cursor-pointer select-none transition-shadow hover:brightness-125' : ''
+        canSwitch ? 'cursor-pointer select-none hover:brightness-125' : ''
       }`}
       style={
         active
@@ -32,24 +35,13 @@ export function EnvBadge({
       title={
         active
           ? t('graph.badgeActive', { name })
-          : switchable
+          : canSwitch
             ? `${t('graph.badge', { name })}\n${t('graph.badgeSwitch', { name: name.toUpperCase() })}`
             : t('graph.badge', { name })
       }
       data-env-badge={name}
+      data-env-id={envId}
       data-active={active || undefined}
-      onClick={
-        switchable
-          ? (e) => {
-              // the second click of a double click (e.detail = click count): more reliable inside the graph than a
-              // dblclick listener, which the first click's re-render (selection) can miss
-              if (e.detail < 2) return;
-              e.stopPropagation();
-              e.preventDefault();
-              onActivate!();
-            }
-          : undefined
-      }
     >
       {active && <span aria-hidden="true">●</span>}
       {name}

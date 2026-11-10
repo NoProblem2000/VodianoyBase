@@ -236,7 +236,9 @@ await step('16c-delete-commit', async () => {
   await shot('16c-delete-commit');
   await page.getByRole('button', { name: 'Delete 1 commit', exact: true }).click();
   await toast(/Deleted 1 commit/);
-  if (await page.getByText('Add coupons').count()) throw new Error('"Add coupons" is still in the graph');
+  // the graph reloads after the toast
+  await page.getByText('Add coupons').first().waitFor({ state: 'detached', timeout: 15000 })
+    .catch(() => { throw new Error('"Add coupons" is still in the graph'); });
   await shot('16d-deleted');
 });
 
