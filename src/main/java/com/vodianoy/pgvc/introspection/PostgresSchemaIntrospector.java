@@ -77,7 +77,10 @@ public class PostgresSchemaIntrospector {
 
     private final EnvironmentManagerService environments;
 
-    /** Snapshot of all user schemas of the environment. */
+    /**
+     * Snapshot of the schemas the environment tracks ({@code trackedSchemas} of its settings; all user schemas by
+     * default).
+     */
     public DatabaseSnapshot introspect(String envId) {
         return introspect(envId, null);
     }
@@ -85,7 +88,7 @@ public class PostgresSchemaIntrospector {
     /**
      * Snapshot of the given schemas of the environment.
      *
-     * @param schemaFilter schemas to include; null or empty means all user schemas
+     * @param schemaFilter schemas to include; null or empty means the schemas tracked by the environment
      */
     public DatabaseSnapshot introspect(String envId, Collection<String> schemaFilter) {
         return introspect(envId, schemaFilter, Set.of());
@@ -98,10 +101,14 @@ public class PostgresSchemaIntrospector {
      */
     public DatabaseSnapshot introspect(String envId, Collection<String> schemaFilter, Collection<String> extraDataTables) {
         JdbcTemplate jdbc = environments.getJdbcTemplate(envId);
+        boolean explicit = schemaFilter != null && !schemaFilter.isEmpty();
+        // the schemas picked in the environment editor; a tracked schema that no longer exists is simply absent
+        // (its objects show up as deleted), so it is not an error like an unknown schema asked for explicitly
+        Collection<String> schemas = explicit ? schemaFilter : environments.getEnvironment(envId).explicitSchemas();
         TransactionTemplate tx = new TransactionTemplate(environments.getTransactionTemplate(envId).getTransactionManager());
         tx.setReadOnly(true);
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        DatabaseSnapshot snapshot = tx.execute(status -> read(jdbc, schemaFilter,
+        DatabaseSnapshot snapshot = tx.execute(status -> read(jdbc, schemas, explicit,
                 extraDataTables == null ? Set.of() : new LinkedHashSet<>(extraDataTables)));
         if (snapshot != null && snapshot.getSourceDatabaseId() != null) {
             // "system_identifier:database_oid@environment": physical copies of a cluster (pg_basebackup, one Docker
@@ -137,8 +144,9 @@ public class PostgresSchemaIntrospector {
 
     // ------------------------------------------------------------------ assembly
 
-    private DatabaseSnapshot read(JdbcTemplate jdbc, Collection<String> schemaFilter, Set<String> extraDataTables) {
-        List<String> schemas = resolveSchemas(jdbc, schemaFilter);
+    private DatabaseSnapshot read(JdbcTemplate jdbc, Collection<String> schemaFilter, boolean strict,
+                                  Set<String> extraDataTables) {
+        List<String> schemas = resolveSchemas(jdbc, schemaFilter, strict);
         Map<String, Object> identity = jdbc.queryForMap(IDENTITY);
         int serverVersion = ((Number) identity.get("server_version")).intValue();
 
@@ -155,6 +163,7 @@ public class PostgresSchemaIntrospector {
 
         Map<Long, TableModel> tablesByOid = new HashMap<>();
         query(jdbc, TABLES, schemaArray, rs -> {
+            long sizeBytes = rs.getLong("total_size_bytes");
             TableModel t = TableModel.builder()
                     .oid(rs.getLong("table_oid"))
                     .schemaName(rs.getString("schema_name"))
@@ -164,8 +173,8 @@ public class PostgresSchemaIntrospector {
                     .parentTable(qualified(rs.getString("parent_schema"), rs.getString("parent_table")))
                     .partitionBoundExpr(rs.getString("partition_bound_expr"))
                     .estimatedRows(rs.getLong("estimated_rows"))
-                    .totalSizeBytes(rs.getLong("total_size_bytes"))
-                    .prettySize(rs.getString("pretty_size"))
+                    .totalSizeBytes(sizeBytes)
+                    .prettySize(prettySize(sizeBytes))
                     .comment(rs.getString("comment"))
                     .owner(rs.getString("owner"))
                     .acl(stringList(rs.getArray("acl")))
@@ -457,14 +466,14 @@ public class PostgresSchemaIntrospector {
         return bytes + " bytes";
     }
 
-    private List<String> resolveSchemas(JdbcTemplate jdbc, Collection<String> filter) {
+    private List<String> resolveSchemas(JdbcTemplate jdbc, Collection<String> filter, boolean strict) {
         List<String> available = jdbc.queryForList(SCHEMAS, String.class);
         if (filter == null || filter.isEmpty()) {
             return available;
         }
         Set<String> wanted = new LinkedHashSet<>(filter);
         List<String> unknown = wanted.stream().filter(s -> !available.contains(s)).toList();
-        if (!unknown.isEmpty()) {
+        if (strict && !unknown.isEmpty()) {
             throw ApiException.badRequest("schema.unknown", String.join(", ", unknown), String.join(", ", available));
         }
         return available.stream().filter(wanted::contains).toList();

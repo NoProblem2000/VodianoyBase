@@ -1549,8 +1549,11 @@ public class SchemaDiffEngine {
                             && !to.getSchemas().contains(schema)) {
                         emit(CREATE_EXTENSION, item, "CREATE SCHEMA IF NOT EXISTS " + ident(schema) + ";");
                     }
+                    // the default location (public, or pg_catalog for plpgsql & co.) is left to the extension itself:
+                    // WITH SCHEMA would fail for extensions whose control file fixes another schema
+                    boolean defaultSchema = schema == null || "public".equals(schema) || "pg_catalog".equals(schema);
                     emit(CREATE_EXTENSION, item, "CREATE EXTENSION IF NOT EXISTS " + extensionIdent(e.getName())
-                            + (schema == null ? "" : " WITH SCHEMA " + ident(schema)) + ";");
+                            + (defaultSchema ? "" : " WITH SCHEMA " + ident(schema)) + ";");
                     continue;
                 }
                 List<String> details = new ArrayList<>();
@@ -1559,10 +1562,10 @@ public class SchemaDiffEngine {
                     details.add(tx.t("extension.schema", f.getSchemaName(), e.getSchemaName()));
                     sql.add("ALTER EXTENSION " + extensionIdent(e.getName()) + " SET SCHEMA " + ident(e.getSchemaName()) + ";");
                 }
-                if (!Objects.equals(f.getVersion(), e.getVersion()) && e.getVersion() != null) {
-                    details.add(tx.t("extension.version", f.getVersion(), e.getVersion()));
-                    sql.add("ALTER EXTENSION " + extensionIdent(e.getName()) + " UPDATE TO " + literal(e.getVersion()) + ";");
-                }
+                // v1.9.1: the version of an extension installed on both sides is not a schema change. It depends on
+                // the packages of the server (an extension is updated together with PostgreSQL / the OS), and
+                // ALTER EXTENSION ... UPDATE TO an older version - what the DOWN script would contain - fails: the
+                // server ships no downgrade scripts. So neither UP nor DOWN ever contains UPDATE TO.
                 if (!sql.isEmpty()) {
                     ChangeItem item = item(ChangeType.MODIFIED, ObjectType.EXTENSION, e.getName(),
                             String.join(", ", details), pairKey("extension", f.getName(), e.getName()));

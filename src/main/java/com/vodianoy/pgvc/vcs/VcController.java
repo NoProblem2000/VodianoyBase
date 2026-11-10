@@ -91,12 +91,28 @@ public class VcController {
 
     // ------------------------------------------------------------------ working tree, commits, rollback
 
+    /**
+     * Uncommitted changes. With {@code includeSnapshot=true} the response also carries the live snapshot the diff was
+     * computed from, so the UI reads the catalog once per Refresh instead of twice (working tree + schema explorer).
+     */
     @GetMapping("/environments/{envId}/vc/working-tree")
-    public WorkingTreeStatus workingTree(@PathVariable String envId) {
-        return versionControl.getWorkingTreeStatus(envId);
+    public WorkingTreeStatus workingTree(@PathVariable String envId,
+                                         @RequestParam(defaultValue = "false") boolean includeSnapshot) {
+        return versionControl.getWorkingTreeStatus(envId, includeSnapshot);
     }
 
     /** Mode A: record the working tree as a commit. */
+    /**
+     * Runs a quick fix of the live schema (v1.9.1: a default that uses the sequence of another schema). Not committed:
+     * the result shows up in the working tree.
+     */
+    @PostMapping("/environments/{envId}/vc/quick-fix")
+    public QuickFixResult quickFix(@PathVariable String envId, @RequestBody QuickFixRequest request) {
+        QuickFixRequest r = request == null ? new QuickFixRequest(envId, null, null, null, null)
+                : new QuickFixRequest(envId, request.objectName(), request.kind(), request.lockTimeout(), request.statementTimeout());
+        return versionControl.applyQuickFix(r);
+    }
+
     @PostMapping("/environments/{envId}/vc/commit")
     public CommitResult commit(@PathVariable String envId, @RequestBody CommitRequest request) {
         return versionControl.commitWorkingTree(envId, request);

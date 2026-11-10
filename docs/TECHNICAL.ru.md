@@ -308,6 +308,62 @@ view, последовательности (и последовательнос�
 загрузка слепков, выбор эталона, разовые правила (с кнопкой «Сохранить по умолчанию»), фильтр «Только различия»,
 поиск; клик по отличающейся ячейке открывает различия, предупреждения и SQL (UP / обратный).
 
+## Исправления v1.9.1
+
+**Zero-downtime для DOWN.** `MigrationSafetyAnalyzer.annotate(diff, upSchema, downSchema)` (для Working Tree
+`downSchema` — живая база) заполняет `ChangeItem.zeroDowntimeDownSql` и `downAlternatives` (`SqlAlternative`:
+точный текст оператора DOWN → замена). Правила независимо от статистики размеров: `ALTER TABLE t ADD CONSTRAINT c
+FOREIGN KEY / CHECK …` (одно действие, с именем, без `NOT VALID`) → `… NOT VALID;` + `-- pgvc:step` + `ALTER TABLE t
+VALIDATE CONSTRAINT c;`; `CREATE [UNIQUE] INDEX` (без `CONCURRENTLY` и `ON ONLY`) → `CONCURRENTLY` отдельным шагом.
+Не применяются к таблицам, которые создаёт тот же DOWN, и к партиционированным (PostgreSQL < 18 не поддерживает
+`NOT VALID` FK на них, `CONCURRENTLY` — тоже); остальные шаблоны анализатора (например, `DROP INDEX CONCURRENTLY`)
+сохраняются. Тот же запрет на партиционированные таблицы добавлен для UP-шаблонов FK / CHECK. В интерфейсе «⚡ Применить
+в редактор» подставляет `safety.alternatives` в UP и `downAlternatives` в DOWN; кнопка «📋 Скопировать» убирает строки
+`-- pgvc:step`.
+
+**Интроспекция.** `tables.sql` считает размер по каталогу: `(relpages + relpages TOAST + Σ relpages индексов) ×
+current_setting('block_size')`, строка — `PostgresSchemaIntrospector.prettySize` (как `pg_size_pretty`). Это оценка
+(обновляется VACUUM / ANALYZE / CREATE INDEX), зато без `stat()` каждого файла. Запросы по-прежнему по одному на
+категорию для всех схем (`n.nspname = ANY (?::text[])`), сборка — через `Map<Long, TableModel>`. `VersionControlService`
+кэширует JSON снимков HEAD (LRU на 16, ключ `envId|jdbcUrl|hash` — содержимое коммита неизменно). `GET
+…/vc/working-tree?includeSnapshot=true` возвращает и живой снимок (обозреватель схемы больше не читает каталог второй
+раз); `WorkingTreeStatus.introspectionMs` / `durationMs` — время на сервере, интерфейс показывает «Обновлено за N мс».
+
+**Расширения.** Разная `extversion` у расширения, которое есть с обеих сторон, — не изменение (раньше `MODIFIED` с
+`ALTER EXTENSION … UPDATE TO`, а в DOWN — понижение версии, которого нет). Новое расширение — `CREATE EXTENSION IF NOT
+EXISTS "ext";`, `WITH SCHEMA` — только вне public / pg_catalog. Смена схемы расширения по-прежнему `ALTER EXTENSION …
+SET SCHEMA`.
+
+**Последовательность другой схемы.** `CrossSchemaSequenceCheck` (после diff Working Tree) ищет `DEFAULT
+nextval('B.seq')` у таблиц схемы A ≠ B (партиции и унаследованные колонки пропускаются; неквалифицированное имя —
+схема public), если: `B.seq` нет; в A есть последовательность с тем же именем; `B.seq` `OWNED BY` одноимённой таблицы
+другой схемы (след `CREATE TABLE … LIKE … INCLUDING ALL`). Глобальный генератор без владельца не отмечается.
+`QuickFix(kind=CROSS_SCHEMA_SEQUENCE, objectName=схема.таблица.колонка, message, sql)` попадает в предупреждения и
+`quickFixes` изменения этой таблицы / колонки (или удалённой последовательности), иначе — в `SchemaDiffResult.quickFixes`.
+SQL исправления: при отсутствии своей последовательности `CREATE SEQUENCE IF NOT EXISTS A.seq AS <тип>`, `ALTER
+SEQUENCE … OWNED BY`, для целых — `setval(…, max(col)+1, false)`, затем `ALTER TABLE … ALTER COLUMN … SET DEFAULT
+nextval('A.seq'::regclass)`. `POST /api/environments/{envId}/vc/quick-fix` (`objectName`, `kind`, таймауты) заново
+находит исправление в живой схеме и выполняет его одной транзакцией без коммита — SQL клиента не принимается.
+
+**Окружения.** `Environment`: `host`, `port`, `databaseName`, `jdbcUrl` (строится из них, параметры старого URL
+сохраняются; многохостовый URL не разбирается), `trackedSchemas` (`["ALL_USER_SCHEMAS"]` — все пользовательские
+схемы, по умолчанию). Файлы старых версий читаются как есть: host / port / database разбираются из `jdbcUrl`
+(`JdbcUrls`), схемы — все. `PostgresSchemaIntrospector.introspect(envId)` читает только `trackedSchemas` (несуществующая
+отслеживаемая схема не ошибка), снимок HEAD ограничивается теми же схемами (`SnapshotFilter.onlySchemas`), чтобы
+схема, которую перестали отслеживать, не выглядела удалённой. Обзор сервера: `POST /api/environments/discover-databases`
+(`DiscoveryRequest`: `host`, `port`, `username`, `password`, `id` — сохранённый пароль, если не передан, `jdbcUrl`)
+подключается к `postgres` (затем `template1`) и возвращает `pg_database` без шаблонов с комментарием и правом
+CONNECT; `POST /api/environments/discover-schemas` (+ `databaseName`) — `pg_namespace` без `pg_catalog`,
+`information_schema`, `pg_toast*`, `pg_temp*`, `_pgvc`, с комментарием, владельцем, числом объектов и признаком схемы
+расширения. Интерфейс: режимы «Сервер» / «JDBC URL», двухпанельный выбор базы и схем, быстрый выбор схем в верхней
+панели.
+
+**Граф и список изменений.** Двойной клик по бейджу другого окружения (или по строке коммита, на котором стоит его
+HEAD) вызывает `setActive` и обновление; активный бейдж — «● NAME». `lib/changeGroups.ts` группирует изменения по
+базовому имени таблицы: таблицы и партиции (по `PARTITION OF`), их колонки / индексы / ограничения / триггеры /
+комментарии (`rootName`), последовательности, содержащие имя таблицы, внешние ключи других таблиц (`REFERENCES`) и
+view с тем же именем или читающие таблицу (`FROM` / `JOIN`). Режим хранится в `localStorage` (`pgvc.changeGrouping`).
+
 ## Версия 1.9.0 (Шаг 14)
 
 **Описание коммита.** `_pgvc.commits.description TEXT NULL` рядом с однострочным `message`. Колонку добавляет скрипт

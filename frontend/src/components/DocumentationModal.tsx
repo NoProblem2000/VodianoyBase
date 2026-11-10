@@ -46,7 +46,7 @@ const RU: Section[] = [
       {
         k: 'ul',
         items: [
-          '**Один jar без Docker.** `java -jar pg-git-vc-1.9.0.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
+          '**Один jar без Docker.** `java -jar pg-git-vc-1.9.1.jar`, затем http://localhost:8765. Интерфейс встроен, на серверы ничего не ставится.',
           '**История в базе.** Каждая база хранит свои коммиты в служебной схеме `_pgvc`. Один и тот же коммит имеет одинаковый хеш на Dev, Stage и Prod — поэтому общий граф знает, где какая база.',
           '**Окружение** — подключение к одной базе (Dev, Test, Stage, Prod, заказчик). Цветные бейджи на графе показывают `HEAD` каждого окружения.',
           '**Working Tree** — то, что изменилось в базе после последнего коммита (как незакоммиченные файлы в Git).',
@@ -67,20 +67,22 @@ const RU: Section[] = [
       {
         k: 'steps',
         items: [
-          ['Добавьте окружение', '**Окружения → Добавить окружение**: имя, цвет, JDBC URL `jdbc:postgresql://host:5432/db`, пользователь, пароль. Нажмите **Проверить подключение**, затем **Сохранить**.'],
+          ['Добавьте окружение', '**Окружения → Добавить окружение**: имя, цвет, **Хост**, **Порт**, пользователь, пароль → **Загрузить список БД**. Слева — базы сервера, справа — схемы выбранной базы: отметьте нужные или оставьте **Все схемы**. Нажмите **Проверить подключение**, затем **Сохранить**. Многохостовое подключение — режим **JDBC URL**.'],
           ['Подключите контроль версий', 'На жёлтой полосе нажмите **Подключить контроль версий**. Создаётся схема `_pgvc` и два event trigger, которые записывают DDL.'],
           ['Сделайте baseline', 'Существующая схема появится как узел **Незакоммиченные изменения (Working Tree)**. Выберите его, напишите сообщение «Baseline» и нажмите **Закоммитить изменения**.'],
           ['Работайте как обычно', 'Меняйте схему в любой IDE или через **Новая SQL-миграция**, коммитьте, переносите изменения на другие окружения через **Синхронизация / Push**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.9.0.jar\njava -jar target/pg-git-vc-1.9.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.0.jar --server.port=9000   # другой порт' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # сборка: target/pg-git-vc-1.9.1.jar\njava -jar target/pg-git-vc-1.9.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.1.jar --server.port=9000   # другой порт' },
       { k: 'note', tone: 'warning', text: 'Подключения хранятся в `pgvc-environments.json` рядом с jar, **пароли — открытым текстом**. Не публикуйте файл и не добавляйте его в Git. По умолчанию приложение слушает только `127.0.0.1`.' },
       { k: 'h', text: 'Верхняя панель' },
       {
         k: 'table',
         head: ['Кнопка', 'Что делает'],
         rows: [
-          ['Выбор окружения', 'активная база: её Working Tree, обозреватель схемы и журнал DDL'],
+          ['Выбор окружения', 'активная база: её Working Tree, обозреватель схемы и журнал DDL (или двойной клик по бейджу в графе)'],
+          ['Схемы (рядом с выбором окружения)', 'какие схемы активной базы под контролем версий: «Все схемы» или выбранные'],
+          ['🔄 Обновить', 'перечитать базу; рядом — «Обновлено за 120 мс»'],
           ['Окружения', 'добавить, изменить, проверить подключения'],
           ['Новая SQL-миграция (Mode B)', 'выполнить SQL и сразу закоммитить'],
           ['Экспорт офлайн .SQL', 'саморегистрирующийся пакет для `psql`'],
@@ -111,6 +113,16 @@ const RU: Section[] = [
         ],
       },
       { k: 'note', tone: 'tip', text: 'Переименования распознаются по внутренним идентификаторам (`oid`, `attnum`): `RENAME COLUMN` останется переименованием, а не «удалить и создать» с потерей данных.' },
+      { k: 'h', text: 'Группы, копирование и безопасный откат' },
+      {
+        k: 'ul',
+        items: [
+          '**🗂️ Группировать по таблицам и связям** (по умолчанию, рядом с поиском): «📦 mnemo_schemes (6 связанных изменений: scada, mdc, public)» — одноимённые таблицы всех схем, их колонки, индексы, ограничения, последовательности, внешние ключи на них и view. Чекбокс группы выбирает всё, щелчок по заголовку сворачивает. **📄 Плоский список** — без групп.',
+          'В раскрытом изменении — **UP**, **⚡ Безопасный шаблон без простоя (UP)**, **DOWN** и **⚡ Безопасный шаблон отката (DOWN)**: в DOWN внешние ключи и CHECK возвращаются как `NOT VALID` + `VALIDATE CONSTRAINT`, индексы — `CONCURRENTLY`.',
+          '**📋 Скопировать** у каждого блока SQL (строки `-- pgvc:step` не копируются), **⚡ Применить в редактор** — оба шаблона во вкладки UP SQL и DOWN SQL.',
+        ],
+      },
+      { k: 'note', tone: 'warning', text: 'После `CREATE TABLE mdc.t (LIKE scada.t INCLUDING ALL)` колонка `id` берёт номера из `scada.t_id_seq`. Working Tree предупредит «⚠️ Колонка id таблицы mdc.t ссылается на последовательность из другой схемы … возможно после CREATE TABLE LIKE!» и предложит **Быстрое исправление** (своя последовательность, `setval`, `SET DEFAULT`) — **📋 Скопировать** или **▶ Применить в БД**.' },
       { k: 'h', text: 'Workflow B: Новая SQL-миграция' },
       {
         k: 'steps',
@@ -133,7 +145,7 @@ const RU: Section[] = [
           '**при расхождении окружений:** на Prod сделали хотфикс в базе, а Dev ушёл вперёд другими коммитами.',
         ],
       },
-      { k: 'p', text: '**Переключить окружение** — список слева в верхней панели. **Перевести базу на другую линию:** откатите её к общему предку, затем сделайте **Синхронизация / Push** из окружения, где нужные коммиты.' },
+      { k: 'p', text: '**Переключить окружение** — список слева в верхней панели или **двойной клик по бейджу** окружения в графе (активный бейдж — «● DEV»). **Перевести базу на другую линию:** откатите её к общему предку, затем сделайте **Синхронизация / Push** из окружения, где нужные коммиты.' },
       { k: 'h', text: 'Удаление коммитов и веток' },
       { k: 'p', text: 'Кнопка **Удалить…** в панели коммита. Удалить можно только коммиты, которые не входят в текущую историю ни одного окружения. Режимы: **Только этот коммит** (с коммитами поверх него) и **Всю ветку**. Схема баз не меняется — удаляется только история.' },
     ],
@@ -271,7 +283,7 @@ const RU: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'Event triggers пакет устанавливает, только если его выполняет SUPERUSER. На PostgreSQL 11 пакет с `ALTER TYPE … ADD VALUE` не пройдёт — используйте Push или слепок.' },
       { k: 'h', text: 'CI/CD и Git' },
-      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.9.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.9.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# ночная проверка дрейфа: код 2 — схему меняли мимо контроля версий\njava -jar pg-git-vc-1.9.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown-отчёт для Merge Request; код 2 при опасных изменениях\njava -jar pg-git-vc-1.9.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Экспорт в Git-папку** раскладывает схему по файлу на объект (`schema/tables`, `views`, `functions` …, `migrations/`) — для код-ревью в GitLab / GitHub.' },
     ],
   },
@@ -399,7 +411,7 @@ const EN: Section[] = [
       {
         k: 'ul',
         items: [
-          '**One jar, no Docker.** `java -jar pg-git-vc-1.9.0.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
+          '**One jar, no Docker.** `java -jar pg-git-vc-1.9.1.jar`, then http://localhost:8765. The UI is built in; nothing is installed on the servers.',
           '**History in the database.** Every database keeps its commits in the `_pgvc` schema. A commit has the same hash on Dev, Stage and Prod — that is how the shared graph knows where each database is.',
           '**Environment** — a connection to one database (Dev, Test, Stage, Prod, a customer). Colored badges in the graph show the `HEAD` of every environment.',
           '**Working Tree** — what changed in the database since the last commit (like uncommitted files in Git).',
@@ -420,20 +432,22 @@ const EN: Section[] = [
       {
         k: 'steps',
         items: [
-          ['Add an environment', '**Environments → Add environment**: name, color, JDBC URL `jdbc:postgresql://host:5432/db`, user, password. Press **Test connection**, then **Save**.'],
+          ['Add an environment', '**Environments → Add environment**: name, color, **Host**, **Port**, user, password → **Load databases**. The databases of the server are on the left, the schemas of the picked database on the right: tick the ones to track or keep **All schemas**. Press **Test connection**, then **Save**. A multi-host connection uses the **JDBC URL** mode.'],
           ['Initialize version control', 'Press **Initialize version control** on the yellow bar. The `_pgvc` schema and two event triggers that record DDL are created.'],
           ['Make a baseline', 'The existing schema shows up as the **Working Tree (Uncommitted Changes)** node. Select it, write "Baseline" and press **Commit Changes**.'],
           ['Work as usual', 'Change the schema in any IDE or with **New SQL Migration**, commit, and move changes to other environments with **Sync / Push to Env**.'],
         ],
       },
-      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.9.0.jar\njava -jar target/pg-git-vc-1.9.0.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.0.jar --server.port=9000   # another port' },
+      { k: 'code', lang: 'bash', code: 'mvn clean package                        # build: target/pg-git-vc-1.9.1.jar\njava -jar target/pg-git-vc-1.9.1.jar     # http://localhost:8765\njava -jar pg-git-vc-1.9.1.jar --server.port=9000   # another port' },
       { k: 'note', tone: 'warning', text: 'Connections are stored in `pgvc-environments.json` next to the jar, **passwords in plain text**. Do not publish the file or add it to Git. By default the application listens on `127.0.0.1` only.' },
       { k: 'h', text: 'Top bar' },
       {
         k: 'table',
         head: ['Button', 'What it does'],
         rows: [
-          ['Environment selector', 'the active database: its Working Tree, Schema Explorer and DDL log'],
+          ['Environment selector', 'the active database: its Working Tree, Schema Explorer and DDL log (or double click a badge in the graph)'],
+          ['Schemas (next to the selector)', 'which schemas of the active database are version controlled: "All schemas" or the picked ones'],
+          ['🔄 Refresh', 're-read the database; next to it — "Refreshed in 120 ms"'],
           ['Environments', 'add, edit and test connections'],
           ['New SQL Migration (Mode B)', 'execute SQL and commit it at once'],
           ['Export Offline .SQL', 'a self-registering bundle for `psql`'],
@@ -464,6 +478,16 @@ const EN: Section[] = [
         ],
       },
       { k: 'note', tone: 'tip', text: 'Renames are recognised by internal identities (`oid`, `attnum`): a `RENAME COLUMN` stays a rename instead of "drop and create" with data loss.' },
+      { k: 'h', text: 'Groups, copying and safe rollback' },
+      {
+        k: 'ul',
+        items: [
+          '**🗂️ Group by Entity / Dependencies** (default, next to the search): "📦 mnemo_schemes (6 related changes: scada, mdc, public)" — the tables of one name in every schema, their columns, indexes, constraints, sequences, the foreign keys referencing them and views. The group checkbox selects everything, a click on the header collapses it. **📄 Flat List** shows no groups.',
+          'An expanded change shows **UP**, **⚡ Zero-downtime pattern (UP)**, **DOWN** and **⚡ Zero-downtime rollback pattern (DOWN)**: the DOWN re-adds foreign keys and CHECKs as `NOT VALID` + `VALIDATE CONSTRAINT` and indexes `CONCURRENTLY`.',
+          '**📋 Copy SQL** on every SQL block (the `-- pgvc:step` lines are not copied), **⚡ Use in Editor** puts both patterns into the UP SQL and DOWN SQL tabs.',
+        ],
+      },
+      { k: 'note', tone: 'warning', text: 'After `CREATE TABLE mdc.t (LIKE scada.t INCLUDING ALL)` the `id` column takes numbers from `scada.t_id_seq`. The Working Tree warns "⚠️ Column id of mdc.t uses the sequence of another schema … possibly copied by CREATE TABLE LIKE!" and offers a **Quick fix** (own sequence, `setval`, `SET DEFAULT`) — **📋 Copy SQL** or **▶ Apply to database**.' },
       { k: 'h', text: 'Workflow B: New SQL Migration' },
       {
         k: 'steps',
@@ -486,7 +510,7 @@ const EN: Section[] = [
           '**when environments diverge:** a hotfix was made directly on Prod while Dev moved on with other commits.',
         ],
       },
-      { k: 'p', text: '**Switch the environment** with the selector on the left of the top bar. **Move a database to another line:** roll it back to the common ancestor, then **Sync / Push to Env** from the environment that has the wanted commits.' },
+      { k: 'p', text: '**Switch the environment** with the selector on the left of the top bar or by **double clicking its badge** in the graph (the active badge reads "● DEV"). **Move a database to another line:** roll it back to the common ancestor, then **Sync / Push to Env** from the environment that has the wanted commits.' },
       { k: 'h', text: 'Deleting commits and branches' },
       { k: 'p', text: '**Delete…** in the commit panel. Only commits that are not in the current history of any environment can be deleted. Modes: **This commit** (with the commits on top of it) and **The whole branch**. The database schemas do not change — only the history.' },
     ],
@@ -624,7 +648,7 @@ const EN: Section[] = [
       },
       { k: 'note', tone: 'warning', text: 'The bundle installs the event triggers only when a SUPERUSER runs it. On PostgreSQL 11 a bundle with `ALTER TYPE … ADD VALUE` fails — use Push or a snapshot.' },
       { k: 'h', text: 'CI/CD and Git' },
-      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.9.0.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.9.0.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
+      { k: 'code', lang: 'bash', code: '# nightly drift check: exit code 2 = the schema was changed outside of version control\njava -jar pg-git-vc-1.9.1.jar --cli --action=check-drift --env=prod --output=drift.md\n# Markdown report for a Merge Request; exit code 2 on dangerous changes\njava -jar pg-git-vc-1.9.1.jar --cli --action=diff-report --env=stage --snapshot=release.pgsnap.json --output=pr-comment.md --fail-on=dangerous' },
       { k: 'p', text: '**📁 Export Git Folder** writes the schema as one file per object (`schema/tables`, `views`, `functions` …, `migrations/`) — for code review in GitLab / GitHub.' },
     ],
   },

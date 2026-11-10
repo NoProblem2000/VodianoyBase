@@ -90,6 +90,18 @@
       "few": "⚠️ {{count}} warnings",
       "many": "⚠️ {{count}} warnings",
       "other": "⚠️ {{count}} warnings"
+    },
+    "relatedChanges": {
+      "one": "{{count}} related change",
+      "few": "{{count}} related changes",
+      "many": "{{count}} related changes",
+      "other": "{{count}} related changes"
+    },
+    "objects": {
+      "one": "{{count}} object",
+      "few": "{{count}} objects",
+      "many": "{{count}} objects",
+      "other": "{{count}} objects"
     }
   },
   "changeType": {
@@ -139,7 +151,13 @@
     "ignoreRules": "Ignore rules",
     "referenceData": "📌 Reference Data Tables",
     "gitExport": "📁 Export Git Folder (.zip / Local Path)",
-    "docs": "📖 Docs"
+    "docs": "📖 Docs",
+    "ms": "{{ms}} ms",
+    "seconds": "{{s}} s",
+    "refreshedIn": "Refreshed in {{time}}",
+    "timingTotal": "Whole refresh: {{time}}",
+    "timingCatalog": "Reading the catalog of the database: {{time}}",
+    "timingServer": "Working tree on the server (catalog, diff, safety): {{time}}"
   },
   "app": {
     "cannotConnect": "Cannot connect to {{name}}: {{error}}",
@@ -191,7 +209,9 @@
   "graph": {
     "workingTree": "Working Tree (Uncommitted Changes)",
     "badgeActive": "{{name}} (active environment) is at this commit",
-    "badge": "{{name}} is at this commit"
+    "badge": "{{name}} is at this commit",
+    "badgeSwitch": "Double click — switch to environment {{name}}",
+    "switched": "Switched to environment {{name}}"
   },
   "workingTree": {
     "title": "Working Tree",
@@ -227,7 +247,10 @@
     "openCommit": "Commit Changes…",
     "hideCommit": "Hide the commit form",
     "shown": "{{shown}} of {{total}} shown",
-    "noneMatch": "No change matches the filter"
+    "noneMatch": "No change matches the filter",
+    "grouping": "Show changes as",
+    "flatList": "📄 Flat List",
+    "groupByEntity": "🗂️ Group by Entity / Dependencies"
   },
   "commit": {
     "commit": "Commit",
@@ -266,14 +289,20 @@
     "password": "Password",
     "passwordUnchanged": "unchanged",
     "defaultSchema": "Default schema",
-    "hint": "Version control tracks every user schema of the database; the default schema is only the search_path of the connection. Initializing version control needs a SUPERUSER (it installs DDL event triggers).",
+    "hint": "Version control tracks the schemas picked above (all user schemas by default, also ones created later); the default schema is only the search_path of the connection. Initializing version control needs a SUPERUSER (DDL event triggers are installed).",
     "notInitialized": "Version control is not initialized in this database yet.",
     "remove": "Remove",
     "removeConfirm": "Remove {{name}} from the list? The database itself is not changed.",
     "test": "Test connection",
     "initialize": "Initialize version control",
     "initialized": "Version control initialized: schema _pgvc and DDL event triggers installed",
-    "saved": "Saved {{name}}"
+    "saved": "Saved {{name}}",
+    "connectionMode": "Connection",
+    "modeServer": "Server",
+    "modeJdbc": "JDBC URL",
+    "host": "Host",
+    "port": "Port",
+    "databaseAndSchemas": "Database and schemas"
   },
   "migration": {
     "title": "New SQL Migration (Mode B)",
@@ -460,7 +489,12 @@
     "noStatements": "No statements to analyze.",
     "overall": "Overall: {{risk}}",
     "statement": "#{{index}} · step {{step}}",
-    "stepHint": "A line -- pgvc:step splits the script into steps: each step runs in its own transaction, CREATE INDEX CONCURRENTLY runs outside of one."
+    "stepHint": "A line -- pgvc:step splits the script into steps: each step runs in its own transaction, CREATE INDEX CONCURRENTLY runs outside of one.",
+    "patternUp": "⚡ Zero-downtime pattern (UP)",
+    "patternDown": "⚡ Zero-downtime rollback pattern (DOWN)",
+    "useInEditor": "⚡ Use in Editor",
+    "patternAppliedBoth": "Zero-downtime patterns inserted into the UP and the DOWN SQL",
+    "patternAppliedDown": "Zero-downtime pattern inserted into the DOWN SQL"
   },
   "exec": {
     "lockTimeout": "lock_timeout",
@@ -686,5 +720,51 @@
     "inOtherText": "Push the history up to {{hash}} into an empty or behind environment (for example a database for an experiment); it then goes on with its own commits.",
     "inOtherButton": "Open Sync / Push…",
     "noOther": "Add another environment first (Environments)."
+  },
+  "copy": {
+    "sql": "📋 Copy SQL",
+    "done": "Copied!",
+    "hint": "Copy to the clipboard (without the -- pgvc:step lines)"
+  },
+  "quickFix": {
+    "badge": "Sequence of another schema",
+    "title": "Quick fix",
+    "apply": "▶ Apply to database",
+    "applying": "Applying…",
+    "applyHint": "Runs the fix on the database in one transaction, without a commit: the fixed object then appears in the working tree",
+    "applied": "Quick fix applied to {{object}} in {{env}}: commit it together with the other changes"
+  },
+  "group": {
+    "select": "Select all changes of {{name}}",
+    "expand": "Expand the group",
+    "collapse": "Collapse the group",
+    "count": {
+      "ADDED": "{{count}} Added",
+      "MODIFIED": "{{count}} Modified",
+      "RENAMED": "{{count}} Renamed",
+      "DELETED": "{{count}} Deleted"
+    }
+  },
+  "discovery": {
+    "schemasOf": "Schemas of {{db}}",
+    "schemas": "Schemas",
+    "pickDatabase": "Load the databases and pick one",
+    "allSchemas": "All schemas",
+    "allSchemasHint": "Every user schema, also schemas created later",
+    "noSchemas": "The database has no user schemas.",
+    "extensionSchema": "Created by an extension: not version controlled",
+    "schemaCheckbox": "Track schema {{name}}",
+    "reload": "Reload",
+    "load": "Load databases",
+    "hint": "Connects to the database \"postgres\" of the server with the user and password above.",
+    "databases": "Databases",
+    "currentDatabase": "Current database: {{db}}. Load the list to pick another one.",
+    "notLoaded": "Not loaded yet.",
+    "noConnect": "The user has no CONNECT privilege on this database",
+    "noneSelected": "no schema picked",
+    "saved": "{{name}} now tracks: {{schemas}}",
+    "quickTitle": "Schemas under version control",
+    "quickHint": "Only these schemas appear in the working tree and in new commits.",
+    "apply": "Apply"
   }
 }

@@ -1,5 +1,8 @@
 -- Ordinary and partitioned tables (relkind r / p) of the given schemas.
--- Size statistics: estimated rows (reltuples) and total size with indexes and TOAST.
+-- Size statistics: estimated rows (reltuples) and an estimate of the total size with indexes and TOAST, read from
+-- the catalog only (relpages, updated by VACUUM / ANALYZE / CREATE INDEX). pg_total_relation_size() would stat() every
+-- file of every relation - on a database with thousands of partitions that alone took most of the introspection time.
+-- The size is formatted in Java (PostgresSchemaIntrospector.prettySize, same output as pg_size_pretty).
 -- Also comment, owner, privileges (aclexplode) and tablespace.
 -- Partitions get their parent through pg_inherits and their bound through pg_get_expr(relpartbound).
 SELECT c.oid                                                    AS table_oid,
@@ -12,8 +15,14 @@ SELECT c.oid                                                    AS table_oid,
        CASE WHEN c.relispartition THEN pg_catalog.pg_get_expr(c.relpartbound, c.oid) END AS partition_bound_expr,
        -- size statistics (planner estimate of the row count; -1 / 0 when the table was never analyzed)
        GREATEST(c.reltuples, 0)::bigint                         AS estimated_rows,
-       pg_catalog.pg_total_relation_size(c.oid)                 AS total_size_bytes,
-       pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) AS pretty_size,
+       (GREATEST(c.relpages, 0)::bigint
+        + COALESCE((SELECT GREATEST(tc.relpages, 0)::bigint
+                    FROM pg_catalog.pg_class tc WHERE tc.oid = c.reltoastrelid), 0)
+        + COALESCE((SELECT sum(GREATEST(ic.relpages, 0))::bigint
+                    FROM pg_catalog.pg_index i
+                    JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+                    WHERE i.indrelid = c.oid), 0))
+       * pg_catalog.current_setting('block_size')::bigint      AS total_size_bytes,
        pg_catalog.obj_description(c.oid, 'pg_class')            AS comment,
        pg_catalog.pg_get_userbyid(c.relowner)                   AS owner,
        -- privileges of other roles than the owner (NULL relacl = default privileges of the owner only)

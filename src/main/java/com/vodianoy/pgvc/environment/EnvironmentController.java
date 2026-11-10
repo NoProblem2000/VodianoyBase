@@ -63,6 +63,21 @@ public class EnvironmentController {
         return environments.testConnection(id);
     }
 
+    /**
+     * Databases of a server (DataGrip-like picker of the environment editor): connects to the maintenance database
+     * {@code postgres} with the given host / port / user / password.
+     */
+    @PostMapping("/discover-databases")
+    public List<DiscoveredDatabase> discoverDatabases(@RequestBody DiscoveryRequest request) {
+        return environments.discoverDatabases(request);
+    }
+
+    /** User schemas of one database of a server, with their comments. */
+    @PostMapping("/discover-schemas")
+    public List<DiscoveredSchema> discoverSchemas(@RequestBody DiscoveryRequest request) {
+        return environments.discoverSchemas(request);
+    }
+
     @GetMapping("/active")
     public ResponseEntity<EnvironmentView> active() {
         return environments.getActiveEnvironment()

@@ -137,6 +137,53 @@ public final class SnapshotFilter {
     }
 
     /**
+     * Only the objects of the given schemas (a shallow copy; extensions are database-wide and stay). Used for the HEAD
+     * snapshot of an environment that tracks a subset of its schemas: a commit taken while it tracked more schemas
+     * must not make the schemas no longer tracked look dropped. {@code schemas} null = no restriction.
+     */
+    public static DatabaseSnapshot onlySchemas(DatabaseSnapshot s, java.util.Collection<String> schemas) {
+        if (s == null || schemas == null) {
+            return s;
+        }
+        java.util.Set<String> keep = new java.util.HashSet<>(schemas);
+        DatabaseSnapshot out = s.toBuilder()
+                .schemas(new java.util.ArrayList<>(s.getSchemas().stream().filter(keep::contains).toList()))
+                .tables(new LinkedHashMap<>())
+                .views(new LinkedHashMap<>())
+                .sequences(new LinkedHashMap<>())
+                .functions(new LinkedHashMap<>())
+                .enumTypes(new LinkedHashMap<>())
+                .extensions(new LinkedHashMap<>(s.getExtensions()))
+                .build();
+        s.getTables().forEach((k, v) -> {
+            if (keep.contains(v.getSchemaName())) {
+                out.getTables().put(k, v);
+            }
+        });
+        s.getViews().forEach((k, v) -> {
+            if (keep.contains(v.getSchemaName())) {
+                out.getViews().put(k, v);
+            }
+        });
+        s.getSequences().forEach((k, v) -> {
+            if (keep.contains(v.getSchemaName())) {
+                out.getSequences().put(k, v);
+            }
+        });
+        s.getFunctions().forEach((k, v) -> {
+            if (keep.contains(v.getSchemaName())) {
+                out.getFunctions().put(k, v);
+            }
+        });
+        s.getEnumTypes().forEach((k, v) -> {
+            if (keep.contains(v.getSchemaName())) {
+                out.getEnumTypes().put(k, v);
+            }
+        });
+        return out;
+    }
+
+    /**
      * {@code live} without the rows of tables that {@code reference} has but does not track as reference data. Used
      * by the checks "the database now equals that commit" (after a rollback / push, when linking): a dictionary that
      * started being tracked after the commit must not make the check fail.

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vodianoy.pgvc.common.ApiException;
 import com.vodianoy.pgvc.diff.ChangeItem;
 import com.vodianoy.pgvc.diff.ChangeType;
+import com.vodianoy.pgvc.diff.CrossSchemaSequenceCheck;
+import com.vodianoy.pgvc.diff.QuickFix;
 import com.vodianoy.pgvc.diff.DiffMode;
 import com.vodianoy.pgvc.diff.ObjectType;
 import com.vodianoy.pgvc.diff.SchemaDiffEngine;
@@ -74,6 +76,15 @@ public class VersionControlService {
     private static final Pattern TRANSACTION_CONTROL = Pattern.compile(
             "(?im)^\\s*(BEGIN|COMMIT|ROLLBACK|END|ABORT|START\\s+TRANSACTION)\\s*(WORK|TRANSACTION)?\\s*;");
     private static final int MAX_AUTHOR_LENGTH = 100;
+    private static final int SNAPSHOT_CACHE_SIZE = 16;
+
+    /** JSON of recently used HEAD snapshots by {@code envId|jdbcUrl|hash} (least recently used evicted). */
+    private final Map<String, String> snapshotJsonCache = new LinkedHashMap<>(SNAPSHOT_CACHE_SIZE, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > SNAPSHOT_CACHE_SIZE;
+        }
+    };
 
     private final EnvironmentManagerService environments;
     private final PgVcStorageService storage;
@@ -88,13 +99,60 @@ public class VersionControlService {
 
     /** HEAD snapshot vs live schema, plus the DDL captured since the last commit. */
     public WorkingTreeStatus getWorkingTreeStatus(String envId) {
+        return getWorkingTreeStatus(envId, false);
+    }
+
+    /**
+     * HEAD snapshot vs live schema, plus the DDL captured since the last commit.
+     *
+     * @param includeSnapshot also return the live snapshot (the schema explorer of the UI needs it anyway)
+     */
+    public WorkingTreeStatus getWorkingTreeStatus(String envId, boolean includeSnapshot) {
+        long started = System.nanoTime();
         Optional<String> head = storage.getHead(envId);
         DatabaseSnapshot base = headSnapshot(envId, head.orElse(null));
+        long introspectionStarted = System.nanoTime();
         DatabaseSnapshot live = introspector.introspect(envId);
+        long introspectionMs = (System.nanoTime() - introspectionStarted) / 1_000_000;
         SchemaDiffResult diff = diffEngine.diff(base, live);
-        // how the UP SQL would behave on a database still at HEAD (structure of HEAD, current table sizes)
-        safety.annotate(diff, MigrationSafetyAnalyzer.withSizes(base, live));
-        return new WorkingTreeStatus(envId, head.orElse(null), diff, storage.readAuditLog(envId));
+        // how the UP SQL would behave on a database still at HEAD (structure of HEAD, current table sizes); the DOWN
+        // SQL (discard / rollback of the commit) runs on the live database
+        safety.annotate(diff, MigrationSafetyAnalyzer.withSizes(base, live), live);
+        // defaults still using the sequence of another schema (CREATE TABLE ... LIKE ... INCLUDING ALL)
+        CrossSchemaSequenceCheck.apply(diff, live);
+        List<AuditLogEntry> audit = storage.readAuditLog(envId);
+        long totalMs = (System.nanoTime() - started) / 1_000_000;
+        log.debug("Working tree of {}: {} ms (introspection {} ms, {} relations)", envId, totalMs, introspectionMs,
+                live.getTables().size() + live.getViews().size() + live.getSequences().size());
+        return new WorkingTreeStatus(envId, head.orElse(null), diff, audit, introspectionMs, totalMs,
+                includeSnapshot ? live : null);
+    }
+
+    // ------------------------------------------------------------------ quick fixes
+
+    /**
+     * Runs one quick fix of the live schema (e.g. points a default to the sequence of its own schema) in one
+     * transaction, without a commit: the change then appears in the working tree like any other DDL. The SQL is the one
+     * the server finds for {@code objectName} now - never SQL sent by the client.
+     */
+    public QuickFixResult applyQuickFix(QuickFixRequest request) {
+        String envId = requireEnvId(request == null ? null : request.envId());
+        if (request.objectName() == null || request.objectName().isBlank()) {
+            throw ApiException.badRequest("quickFix.objectRequired");
+        }
+        DatabaseSnapshot live = introspector.introspect(envId);
+        QuickFix fix = CrossSchemaSequenceCheck.quickFixes(live).stream()
+                .filter(f -> f.objectName().equals(request.objectName().strip())
+                        && (request.kind() == null || request.kind().equals(f.kind())))
+                .findFirst()
+                .orElseThrow(() -> ApiException.conflict("quickFix.notFound", request.objectName().strip()));
+        Timeouts timeouts = runner.timeouts(request.lockTimeout(), request.statementTimeout());
+        environments.getTransactionTemplate(envId).executeWithoutResult(status -> {
+            runner.applyLocal(envId, timeouts);
+            runner.execute(envId, fix.sql(), timeouts);
+        });
+        log.info("Quick fix {} applied to {} in {}", fix.kind(), fix.objectName(), envId);
+        return new QuickFixResult(envId, fix.objectName(), fix.sql());
     }
 
     // ------------------------------------------------------------------ discard (reset to HEAD)
@@ -1027,11 +1085,28 @@ public class VersionControlService {
         return sb.toString();
     }
 
+    /**
+     * Snapshot of the commit {@code head}, restricted to the schemas the environment tracks. The JSON of a commit never
+     * changes (the hash covers it), so it is cached: a Refresh of the working tree no longer reads the - possibly
+     * megabytes large - snapshot of HEAD from the database every time. The parsed snapshot is not cached, since
+     * callers may modify it.
+     */
     private DatabaseSnapshot headSnapshot(String envId, String head) {
         if (head == null) {
             return DatabaseSnapshot.builder().build();
         }
-        return parseSnapshot(storage.requireCommit(envId, head).getSchemaSnapshotJson());
+        String key = envId + "|" + environments.getEnvironment(envId).getJdbcUrl() + "|" + head;
+        String json;
+        synchronized (snapshotJsonCache) {
+            json = snapshotJsonCache.get(key);
+        }
+        if (json == null) {
+            json = storage.requireCommit(envId, head).getSchemaSnapshotJson();
+            synchronized (snapshotJsonCache) {
+                snapshotJsonCache.put(key, json);
+            }
+        }
+        return SnapshotFilter.onlySchemas(parseSnapshot(json), environments.getEnvironment(envId).explicitSchemas());
     }
 
     private CommitRecord newCommit(String parent, String author, String message, String description, String upSql,

@@ -1,6 +1,6 @@
 # PgGitVisualizer — User and Architecture Manual
 
-Version 1.9.0. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
+Version 1.9.1. Русская версия: [MANUAL_RU.md](MANUAL_RU.md). REST API, formats and internal algorithms (in
 Russian): [TECHNICAL.ru.md](TECHNICAL.ru.md).
 
 The same manual is built into the UI: the **📖 Docs** button in the top bar (works offline — on an isolated site the
@@ -158,9 +158,12 @@ same hash** in every database — that is how the graph knows where each environ
 
 ### 2.1. First start
 
-1. **Start the application:** `java -jar pg-git-vc-1.9.0.jar` and open http://localhost:8765.
-2. **Add an environment:** **Environments → Add environment**: name, badge color, JDBC URL
-   (`jdbc:postgresql://host:5432/db`), user, password → **Test connection** → **Save**.
+1. **Start the application:** `java -jar pg-git-vc-1.9.1.jar` and open http://localhost:8765.
+2. **Add an environment:** **Environments → Add environment**: name, badge color, **Host**, **Port**, user, password
+   → **Load databases**. The databases of the server (with comments) appear on the left, the schemas of the
+   picked database on the right: tick the ones to track or keep **All schemas** (schemas created later are tracked
+   too) → **Test connection** → **Save**. A multi-host connection or special parameters use the **JDBC URL** mode
+   (`jdbc:postgresql://host:5432/db?sslmode=require`).
 3. **Initialize:** on the yellow bar "Version control is not set up in … yet" press **Initialize version control**
    (needs a SUPERUSER).
 4. **First commit (baseline):** an existing schema shows up as the **Working Tree (Uncommitted Changes)** node with
@@ -209,6 +212,21 @@ graph TD
 
 > **Tip.** Renames are recognised by OID / attnum: `ALTER TABLE … RENAME` becomes a `RENAME`, not "drop and create
 > again" with data loss.
+
+**Grouping and the SQL of a change.** By default the list is grouped by table (**🗂️ Group by Entity / Dependencies**
+next to the search; **📄 Flat List** shows no groups): "📦 mnemo_schemes (6 related changes: scada, mdc, public)"
+collects the tables of that name in every schema, their columns, indexes, constraints and sequences, the foreign keys
+of other tables that reference them and views. The group checkbox selects all its changes, the counters show what was
+added, modified and deleted, a click on the header collapses the group. An expanded change shows **UP**, **⚡
+Zero-downtime pattern (UP)**, **DOWN** and **⚡ Zero-downtime rollback pattern (DOWN)** (foreign keys and CHECKs are
+re-added as `NOT VALID` + `VALIDATE CONSTRAINT`, indexes `CONCURRENTLY`), each with **📋 Copy SQL** (the
+`-- pgvc:step` lines are not copied). **⚡ Use in Editor** puts both patterns into the UP SQL and DOWN SQL tabs.
+
+> **Warning.** After `CREATE TABLE mdc.t (LIKE scada.t INCLUDING ALL)` the `id` column of the new table keeps taking
+> numbers from `scada.t_id_seq`. The Working Tree shows "⚠️ Column id of mdc.t uses the sequence of another schema
+> (scada.t_id_seq), possibly copied by CREATE TABLE LIKE!" and a **Quick fix**: SQL that creates `mdc.t_id_seq` (when
+> it is missing), continues after the existing rows and changes the `DEFAULT`. Copy it or run it with **▶ Apply to
+> database** (no commit: the fix then shows up in the Working Tree).
 
 ### 2.3. Workflow B: a migration through New SQL Migration
 
@@ -305,8 +323,10 @@ all environments are merged by hash.
 
 ### 3.2. Switching between environments and branches
 
-- **Switch the environment** with the selector on the left of the top bar. The Working Tree, Schema Explorer and DDL
-  log show the selected database.
+- **Switch the environment** with the selector on the left of the top bar or by **double clicking an environment
+  badge** in the graph (tooltip "Double click — switch to environment …"). The Working Tree, Schema Explorer and DDL
+  log show the selected database; the badge of the active one reads "● DEV". Next to the selector — the quick picker
+  of the tracked schemas of the active database; next to Refresh — how long it took ("Refreshed in 120 ms").
 - **Moving a database to another line** is not one button (it would set the schema to an arbitrary commit). The
   sequence is:
   1. **Rollback** to the common ancestor (the commit where the lines fork);
@@ -562,7 +582,7 @@ applied.
 | Initialize: "needs a SUPERUSER" | a superuser initializes once; afterwards an ordinary role is enough |
 | DDL does not appear in the log | check the triggers: `SELECT evtname, evtenabled FROM pg_event_trigger WHERE evtname LIKE 'pgvc%';` (`D` = disabled: `ALTER EVENT TRIGGER pgvc_ddl_trigger ENABLE;`) |
 | "Cannot connect" | JDBC URL, network, `pg_hba.conf`; **Test connection** shows the driver error |
-| Port 8765 is busy | `java -jar pg-git-vc-1.9.0.jar --server.port=9000` |
+| Port 8765 is busy | `java -jar pg-git-vc-1.9.1.jar --server.port=9000` |
 | The UI must be opened from another machine | `--server.address=0.0.0.0` (the UI has no authentication — internal networks only) |
 
 ### 5.4. Manual changes to the `_pgvc` schema
@@ -596,6 +616,8 @@ applied.
 ## 6. More
 
 - **🌐 N-Database Matrix** — many environments and snapshots against one baseline.
+- **Extension versions** are not compared: an extension installed on both sides in another version (the server
+  packages were updated) is not a change, and no script contains `ALTER EXTENSION … UPDATE TO`.
 - **Ignore rules** (slider button) — do not compare comments, owners and grants, tablespaces, partitions, objects by
   pattern.
 - **📌 Reference Data Tables** — rows of small tables under version control (`INSERT … ON CONFLICT` / `DELETE`).

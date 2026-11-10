@@ -127,8 +127,8 @@ export function SafetyNotes({ report }: { report: SafetyReport }) {
   );
 }
 
-/** "⚡ Use Zero-Downtime Pattern" for a report with alternatives. */
-export function ZeroDowntimeButton({ onClick, used }: { onClick: () => void; used?: boolean }) {
+/** "⚡ Use Zero-Downtime Pattern" for a report with alternatives ({@code label} replaces the text). */
+export function ZeroDowntimeButton({ onClick, used, label }: { onClick: () => void; used?: boolean; label?: string }) {
   const { t } = useI18n();
   if (used) {
     return (
@@ -147,7 +147,7 @@ export function ZeroDowntimeButton({ onClick, used }: { onClick: () => void; use
         onClick();
       }}
     >
-      {t('safety.usePattern')}
+      {label ?? t('safety.usePattern')}
     </button>
   );
 }

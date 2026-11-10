@@ -191,6 +191,8 @@ function Workspace() {
         onReferenceData={() => setModal({ kind: 'reference-data' })}
         onGitExport={() => setModal({ kind: 'git-export' })}
         onDocs={() => setModal({ kind: 'docs' })}
+        timing={data.timing}
+        onSchemasChanged={() => void data.refresh()}
       />
 
       {activeEnv && status && !status.reachable && (
@@ -249,6 +251,12 @@ function Workspace() {
               selectedId={selected}
               onSelect={setSelected}
               tooltipsDisabled={menu !== null}
+              onActivateEnvironment={(id) => {
+                const env = environments.find((e) => e.id === id);
+                if (!env || env.id === activeEnv?.id) return;
+                toast.success(t('graph.switched', { name: env.name.toUpperCase() }));
+                void data.setActive(id);
+              }}
               onCommitContextMenu={(hash, x, y) => {
                 if (commitsByHash.has(hash)) {
                   setSelected(hash);
@@ -277,6 +285,7 @@ function Workspace() {
                 setSelected(null);
                 void data.refresh();
               }}
+              onQuickFixApplied={() => void data.refresh()}
             />
           ) : selectedCommit && inspectorSource ? (
             <CommitInspector

@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Plug, Plus, ShieldAlert, Trash2, XCircle } from 'lucide-react';
 import { api } from '../api/client';
-import type { ConnectionTestResult, EnvironmentInput, EnvironmentView, PgVcStatus } from '../api/types';
+import {
+  ALL_USER_SCHEMAS,
+  type ConnectionTestResult,
+  type DiscoveryRequest,
+  type EnvironmentInput,
+  type EnvironmentView,
+  type PgVcStatus,
+} from '../api/types';
+import { DatabaseSchemaPicker } from './DatabaseSchemaPicker';
 import { Modal } from './Modal';
 import { useI18n } from '../i18n';
 import { useToast } from './Toasts';
@@ -14,13 +22,20 @@ interface Props {
 
 const PALETTE = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#a855f7', '#14b8a6', '#ec4899'];
 
+/** Server (host / port / database + browser) or a hand-written JDBC URL (multi-host, special parameters). */
+type ConnectionMode = 'server' | 'jdbc';
+
 function emptyForm(index: number): EnvironmentInput {
   return {
     name: '',
+    host: 'localhost',
+    port: 5432,
+    databaseName: '',
     jdbcUrl: 'jdbc:postgresql://localhost:5432/postgres',
     username: 'postgres',
     password: '',
     schemaName: 'public',
+    trackedSchemas: [ALL_USER_SCHEMAS],
     colorBadge: PALETTE[index % PALETTE.length],
   };
 }
@@ -29,12 +44,23 @@ function toForm(env: EnvironmentView): EnvironmentInput {
   return {
     id: env.id,
     name: env.name,
+    host: env.host ?? '',
+    port: env.port ?? 5432,
+    databaseName: env.databaseName ?? '',
     jdbcUrl: env.jdbcUrl,
     username: env.username,
     password: undefined,
     schemaName: env.schemaName,
+    trackedSchemas: env.trackedSchemas?.length ? env.trackedSchemas : [ALL_USER_SCHEMAS],
     colorBadge: env.colorBadge,
   };
+}
+
+/** A multi-host (failover) URL cannot be shown as one host: such environments open in JDBC mode. */
+function modeOf(env: EnvironmentView | null): ConnectionMode {
+  if (!env) return 'server';
+  const hosts = /^jdbc:postgresql:\/\/([^/?]*)/.exec(env.jdbcUrl)?.[1] ?? '';
+  return !env.host || hosts.includes(',') ? 'jdbc' : 'server';
 }
 
 export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
@@ -45,6 +71,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
   const [status, setStatus] = useState<PgVcStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<ConnectionMode>(modeOf(environments[0] ?? null));
 
   useEffect(() => {
     setStatus(null);
@@ -56,6 +83,7 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
   function select(env: EnvironmentView | null) {
     setSelectedId(env?.id ?? null);
     setForm(env ? toForm(env) : emptyForm(environments.length));
+    setMode(modeOf(env));
     setTest(null);
   }
 
@@ -75,8 +103,26 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
     onChange: (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value }),
   });
 
-  // an empty password field of a saved environment means "keep the stored password"
-  const payload = (): EnvironmentInput => ({ ...form, password: form.password ? form.password : selectedId ? undefined : '' });
+  // an empty password field of a saved environment means "keep the stored password"; in JDBC mode the host is
+  // left empty, so the server uses the URL as it is
+  const payload = (): EnvironmentInput => ({
+    ...form,
+    host: mode === 'server' ? (form.host ?? '').trim() : '',
+    port: mode === 'server' ? Number(form.port) || 5432 : undefined,
+    databaseName: mode === 'server' ? (form.databaseName ?? '').trim() : undefined,
+    password: form.password ? form.password : selectedId ? undefined : '',
+  });
+
+  // the connection the database / schema browser uses (stored password when the field is empty)
+  const connection: DiscoveryRequest = {
+    id: selectedId ?? undefined,
+    host: mode === 'server' ? (form.host ?? '').trim() || undefined : undefined,
+    port: mode === 'server' ? Number(form.port) || 5432 : undefined,
+    username: form.username,
+    password: form.password ? form.password : selectedId ? undefined : '',
+    jdbcUrl: form.jdbcUrl || undefined,
+  };
+  const pickedDatabase = mode === 'server' ? (form.databaseName ?? '').trim() || null : jdbcDatabase(form.jdbcUrl);
 
   const save = () =>
     run(async () => {
@@ -140,10 +186,45 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
               />
             </label>
           </div>
-          <label>
-            <span className="label">{t('environments.jdbcUrl')}</span>
-            <input className="input font-mono" spellCheck={false} required {...field('jdbcUrl')} />
-          </label>
+          <div className="flex items-center gap-1 text-[12px]" role="group" aria-label={t('environments.connectionMode')}>
+            {(['server', 'jdbc'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`rounded-md border px-2 py-0.5 ${
+                  mode === m ? 'border-teal-600 bg-teal-500/15 text-gray-100' : 'border-kraken-line text-gray-400 hover:text-gray-200'
+                }`}
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+              >
+                {m === 'server' ? t('environments.modeServer') : t('environments.modeJdbc')}
+              </button>
+            ))}
+          </div>
+          {mode === 'server' ? (
+            <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3">
+              <label>
+                <span className="label">{t('environments.host')}</span>
+                <input className="input font-mono" spellCheck={false} required {...field('host')} placeholder="db.example.com" />
+              </label>
+              <label>
+                <span className="label">{t('environments.port')}</span>
+                <input
+                  className="input font-mono"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={form.port ?? 5432}
+                  onChange={(e) => setForm({ ...form, port: e.target.value === '' ? undefined : Number(e.target.value) })}
+                />
+              </label>
+            </div>
+          ) : (
+            <label>
+              <span className="label">{t('environments.jdbcUrl')}</span>
+              <input className="input font-mono" spellCheck={false} required {...field('jdbcUrl')} />
+            </label>
+          )}
           <div className="grid grid-cols-3 gap-3">
             <label>
               <span className="label">{t('environments.user')}</span>
@@ -163,6 +244,34 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
               <span className="label">{t('environments.defaultSchema')}</span>
               <input className="input" {...field('schemaName')} />
             </label>
+          </div>
+          <div>
+            <div className="mb-1 flex items-baseline gap-2">
+              <span className="label mb-0">{t('environments.databaseAndSchemas')}</span>
+              <span className="text-[11.5px] text-gray-400">
+                {pickedDatabase ? (
+                  <>
+                    <span className="font-mono text-gray-200">{pickedDatabase}</span>
+                    {' · '}
+                    {form.trackedSchemas?.includes(ALL_USER_SCHEMAS)
+                      ? t('discovery.allSchemas')
+                      : (form.trackedSchemas ?? []).join(', ') || t('discovery.noneSelected')}
+                  </>
+                ) : (
+                  t('discovery.pickDatabase')
+                )}
+              </span>
+            </div>
+            <DatabaseSchemaPicker
+              connection={connection}
+              databaseName={pickedDatabase}
+              onDatabaseChange={(db) => {
+                if (mode === 'server') setForm({ ...form, databaseName: db, trackedSchemas: [ALL_USER_SCHEMAS] });
+                else setForm({ ...form, jdbcUrl: withJdbcDatabase(form.jdbcUrl ?? '', db), trackedSchemas: [ALL_USER_SCHEMAS] });
+              }}
+              tracked={form.trackedSchemas ?? [ALL_USER_SCHEMAS]}
+              onTrackedChange={(trackedSchemas) => setForm({ ...form, trackedSchemas })}
+            />
           </div>
           <p className="text-xs text-gray-500">
             {t('environments.hint')}
@@ -243,4 +352,17 @@ export function EnvironmentsModal({ environments, onChanged, onClose }: Props) {
       </div>
     </Modal>
   );
+}
+
+/** Database of a JDBC URL (jdbc:postgresql://host:port/db?params), null when it has none. */
+function jdbcDatabase(url: string | undefined): string | null {
+  const m = /^jdbc:postgresql:\/\/[^/?]*\/([^?]*)/.exec(url ?? '');
+  return m && m[1] ? decodeURIComponent(m[1]) : null;
+}
+
+/** The JDBC URL pointing to another database of the same server (parameters kept). */
+function withJdbcDatabase(url: string, database: string): string {
+  const m = /^(jdbc:postgresql:\/\/[^/?]*)(?:\/[^?]*)?(\?.*)?$/.exec(url);
+  if (!m) return url;
+  return `${m[1]}/${encodeURIComponent(database)}${m[2] ?? ''}`;
 }

@@ -14,6 +14,9 @@ import type {
   DiffIgnoreRules,
   DiscardPlan,
   DiscardResult,
+  DiscoveredDatabase,
+  DiscoveredSchema,
+  DiscoveryRequest,
   DryRunResult,
   EnvironmentComparison,
   EnvironmentInput,
@@ -26,6 +29,7 @@ import type {
   MatrixSnapshotUpload,
   OfflineBundle,
   PgVcStatus,
+  QuickFixResult,
   PushResult,
   ReferenceDataTable,
   RevertPlan,
@@ -122,6 +126,8 @@ export const api = {
     http.put<EnvironmentView>(`/environments/${e(id)}`, env).then((r) => r.data),
   deleteEnvironment: (id: string) => http.delete(`/environments/${e(id)}`).then(() => undefined),
   testConnection: (env: EnvironmentInput) => post<ConnectionTestResult>('/environments/test', env),
+  discoverDatabases: (body: DiscoveryRequest) => post<DiscoveredDatabase[]>('/environments/discover-databases', body),
+  discoverSchemas: (body: DiscoveryRequest) => post<DiscoveredSchema[]>('/environments/discover-schemas', body),
   activate: (id: string) => http.put<EnvironmentView>('/environments/active', { environmentId: id }).then((r) => r.data),
 
   // _pgvc
@@ -133,7 +139,10 @@ export const api = {
   snapshot: (id: string) => get<DatabaseSnapshot>(`/environments/${e(id)}/schema/snapshot`),
 
   // version control
-  workingTree: (id: string) => get<WorkingTreeStatus>(`/environments/${e(id)}/vc/working-tree`),
+  workingTree: (id: string, includeSnapshot = false) =>
+    get<WorkingTreeStatus>(`/environments/${e(id)}/vc/working-tree`, includeSnapshot ? { includeSnapshot: 'true' } : undefined),
+  quickFix: (id: string, objectName: string, kind?: string) =>
+    post<QuickFixResult>(`/environments/${e(id)}/vc/quick-fix`, { objectName, kind }),
   commit: (
     id: string,
     body: { message: string; description?: string; author: string; upSql: string; downSql: string; expectedHead: string },

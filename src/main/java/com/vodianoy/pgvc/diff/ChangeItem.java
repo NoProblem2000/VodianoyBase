@@ -63,6 +63,27 @@ public class ChangeItem {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private com.vodianoy.pgvc.safety.SafetyReport safety;
 
+    /**
+     * v1.9.1: zero-downtime form of {@link #downSql} - ADD CONSTRAINT FOREIGN KEY / CHECK as {@code NOT VALID} plus
+     * {@code VALIDATE CONSTRAINT} in a step of its own, CREATE INDEX {@code CONCURRENTLY}; null when the DOWN SQL
+     * contains nothing to rewrite. Set by the migration safety analyzer.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String zeroDowntimeDownSql;
+
+    /** The statements of {@link #downSql} that {@link #zeroDowntimeDownSql} replaces (exact text of the script). */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private java.util.List<com.vodianoy.pgvc.safety.SqlAlternative> downAlternatives = new java.util.ArrayList<>();
+
+    /**
+     * Ready-made fixes of a problem the change shows (e.g. a column default that still uses the sequence of another
+     * schema after {@code CREATE TABLE ... (LIKE ... INCLUDING ALL)}).
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private java.util.List<QuickFix> quickFixes = new java.util.ArrayList<>();
+
     /** {@link #dataLoss}: the object was already dropped in the live database, its rows are gone (working tree). */
     public static final String ALREADY_LOST = "ALREADY_LOST";
     /** {@link #dataLoss}: running the script drops the object with its rows. */
