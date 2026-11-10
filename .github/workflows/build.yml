@@ -78,6 +78,7 @@ jobs:
           cp $GITHUB_WORKSPACE/.github/scripts/ui-screenshots.mjs . && node ui-screenshots.mjs /tmp/ui-artifacts/screenshots
           cli_status=0; $GITHUB_WORKSPACE/.github/scripts/cli-demo.sh || cli_status=$?
           cp "$(cat /tmp/ui-demo-workdir)/app.log" /tmp/ui-artifacts/app.log
+          cp $GITHUB_WORKSPACE/target/pg-git-vc-*.jar /tmp/ui-artifacts/debug-app.jar  # TEMP: local UI debugging, removed before merge
           cp $GITHUB_WORKSPACE/frontend/package-lock.json /tmp/ui-artifacts/ 2>/dev/null || true
           cd /tmp/ui-artifacts && git init -q && git checkout -q -b ci-artifacts
           git -c user.name=ci -c user.email=ci@localhost add -A

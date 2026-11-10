@@ -23,10 +23,15 @@ interface SchemaListProps {
   databaseName: string | null;
   tracked: string[];
   onTrackedChange: (tracked: string[]) => void;
+  /**
+   * false: do not connect yet (a new environment before "Load databases" - its password may still be missing); the
+   * pane shows a hint instead
+   */
+  enabled?: boolean;
 }
 
 /** Right pane: "All schemas" plus one checkbox per user schema of the database, with comments and object counts. */
-export function SchemaList({ connection, databaseName, tracked, onTrackedChange }: SchemaListProps) {
+export function SchemaList({ connection, databaseName, tracked, onTrackedChange, enabled = true }: SchemaListProps) {
   const { t, tn } = useI18n();
   const [schemas, setSchemas] = useState<DiscoveredSchema[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,27 +39,32 @@ export function SchemaList({ connection, databaseName, tracked, onTrackedChange 
   const key = JSON.stringify({ ...connection, databaseName });
 
   useEffect(() => {
-    if (!databaseName) {
+    if (!databaseName || !enabled) {
       setSchemas(null);
+      setError(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    api
-      .discoverSchemas({ ...connection, databaseName })
-      .then((list) => !cancelled && setSchemas(list))
-      .catch((e: Error) => {
-        if (cancelled) return;
-        setSchemas(null);
-        setError(e.message);
-      })
-      .finally(() => !cancelled && setLoading(false));
+    // typing in the connection fields must not open a connection per key stroke
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      api
+        .discoverSchemas({ ...connection, databaseName })
+        .then((list) => !cancelled && setSchemas(list))
+        .catch((e: Error) => {
+          if (cancelled) return;
+          setSchemas(null);
+          setError(e.message);
+        })
+        .finally(() => !cancelled && setLoading(false));
+    }, 350);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
     // the request is described completely by the key
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const all = explicitSchemas(tracked) === null;
   const picked = new Set(explicitSchemas(tracked) ?? []);
@@ -76,7 +86,7 @@ export function SchemaList({ connection, databaseName, tracked, onTrackedChange 
         {loading && <Loader2 size={12} className="animate-spin" />}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {!databaseName && <p className="px-1.5 py-2 text-[12px] text-gray-500">{t('discovery.pickDatabase')}</p>}
+        {(!databaseName || !enabled) && <p className="px-1.5 py-2 text-[12px] text-gray-500">{t('discovery.pickDatabase')}</p>}
         {error && <p className="rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-[12px] text-red-200">{error}</p>}
         {databaseName && schemas && (
           <>
@@ -198,7 +208,13 @@ export function DatabaseSchemaPicker({ connection, databaseName, onDatabaseChang
             ))}
           </div>
         </div>
-        <SchemaList connection={connection} databaseName={databaseName} tracked={tracked} onTrackedChange={onTrackedChange} />
+        <SchemaList
+          connection={connection}
+          databaseName={databaseName}
+          tracked={tracked}
+          onTrackedChange={onTrackedChange}
+          enabled={databases !== null || !!connection.id}
+        />
       </div>
     </div>
   );
