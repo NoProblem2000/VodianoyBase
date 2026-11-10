@@ -1,0 +1,53 @@
+2026-11-10T18:06:57.374Z  INFO 4728 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : Starting PgGitVcApplication v1.9.1 using Java 17.0.21 with PID 4728 (/tmp/tmp.nXUbL8R60g/pg-git-vc.jar started by runner in /tmp/tmp.nXUbL8R60g)
+2026-11-10T18:06:57.377Z  INFO 4728 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : No active profile set, falling back to 1 default profile: "default"
+2026-11-10T18:06:58.303Z  INFO 4728 --- [pg-git-vc] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 18766 (http)
+2026-11-10T18:06:58.453Z  INFO 4728 --- [pg-git-vc] [           main] c.v.p.e.EnvironmentManagerService        : Environments file: /tmp/tmp.nXUbL8R60g/pgvc-environments.json (0 environment(s))
+2026-11-10T18:06:58.764Z  INFO 4728 --- [pg-git-vc] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 18766 (http) with context path '/'
+2026-11-10T18:06:58.777Z  INFO 4728 --- [pg-git-vc] [           main] com.vodianoy.pgvc.PgGitVcApplication     : Started PgGitVcApplication in 1.778 seconds (process running for 2.124)
+2026-11-10T18:06:59.869Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-2] c.v.p.e.EnvironmentManagerService        : Environment added: Dev (dev)
+2026-11-10T18:06:59.886Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.p.e.EnvironmentManagerService        : Environment added: Stage (stage)
+2026-11-10T18:06:59.895Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-5] c.v.p.e.EnvironmentManagerService        : Environment added: Prod (prod)
+2026-11-10T18:06:59.903Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.p.e.EnvironmentManagerService        : Environment added: QA (qa)
+2026-11-10T18:06:59.911Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.p.e.EnvironmentManagerService        : Environment added: Customer (customer)
+2026-11-10T18:07:00.112Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-8] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment dev
+2026-11-10T18:07:00.256Z  INFO 4728 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.vcs.VersionControlService       : Committed 730e329f30 on dev: Baseline: sales, billing and partitioned events
+2026-11-10T18:07:00.320Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment prod
+2026-11-10T18:07:00.459Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.vcs.VersionControlService       : Pushed 1 commit(s) dev -> prod: HEAD <none> -> 730e329f30
+2026-11-10T18:07:00.501Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment qa
+2026-11-10T18:07:00.563Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Committed dd4f5af6b2 on qa: QA baseline
+2026-11-10T18:07:00.647Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.pgvc.vcs.VersionControlService       : Executed and committed d55f0e5c4e on dev in 2 ms: Add customer notes
+2026-11-10T18:07:00.714Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.vcs.VersionControlService       : Executed and committed 5d51f06965 on dev in 1 ms: Index notes by customer
+2026-11-10T18:07:00.752Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-8] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment stage
+2026-11-10T18:07:00.857Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-8] c.v.pgvc.vcs.VersionControlService       : Pushed 3 commit(s) dev -> stage: HEAD <none> -> 5d51f06965
+2026-11-10T18:07:00.924Z  INFO 4728 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.vcs.VersionControlService       : Executed and committed 750949139d on dev in 2 ms: Add February partition
+2026-11-10T18:07:01.013Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.vcs.VersionControlService       : Executed and committed c121314e46 on prod in 2 ms: Prod hotfix: index orders by status
+2026-11-10T18:07:45.242Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.vcs.VersionControlService       : Discarded 1 of 3 uncommitted change(s) in dev (2 left, 1 audit entries removed)
+2026-11-10T18:07:46.614Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-8] c.v.pgvc.vcs.VersionControlService       : Committed 4a6abd794b on dev: Customer phone, rename note to remark
+2026-11-10T18:07:47.763Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Pushed 2 commit(s) dev -> stage: HEAD 5d51f06965 -> 4a6abd794b
+2026-11-10T18:07:50.449Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.pgvc.vcs.VersionControlService       : Executed and committed 144e491556 on dev in 2 ms: Add coupons
+2026-11-10T18:07:51.578Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.pgvc.vcs.VersionControlService       : Rolled back dev from 144e491556 to 5d51f06965
+2026-11-10T18:07:54.422Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Linked qa to the history of dev at 730e329f30 (previous HEAD dd4f5af6b2, 1 own commit(s) deleted)
+2026-11-10T18:07:55.378Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Pushed 2 commit(s) dev -> qa: HEAD 730e329f30 -> 5d51f06965
+2026-11-10T18:07:57.252Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.vcs.CommitDeletionService       : Deleted 1 commit(s) (BRANCH 144e491556) from {dev=1}
+2026-11-10T18:08:02.504Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.storage.PgVcStorageService      : Version control initialized in environment customer
+2026-11-10T18:08:02.562Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Executed and committed 1bc84890e6 on customer in 6 ms: Sync with external snapshot [5d51f06]
+2026-11-10T18:08:02.562Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.snapshot.SnapshotSyncService    : Applied external snapshot 5d51f06 to customer: commit 1bc8489
+2026-11-10T18:08:07.289Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.vcs.VersionControlService       : Dry-run on dev: 1 step(s) in 67 ms, 1 change(s), rolled back
+2026-11-10T18:08:08.381Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-5] c.v.pgvc.vcs.VersionControlService       : Executed 1 steps and committed 58f0b0bc5f on dev in 109 ms: Index ledger by account (zero-downtime)
+2026-11-10T18:08:09.361Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-3] c.v.pgvc.matrix.MatrixCompareService     : Matrix of 6 databases (baseline Dev): 22 objects, 6 differ
+2026-11-10T18:08:11.218Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.matrix.MatrixCompareService     : Matrix of 6 databases (baseline Dev): 21 objects, 5 differ
+2026-11-10T18:08:12.709Z  INFO 4728 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.settings.DiffSettingsService    : Default ignore rules saved: ignored: tablespaces; owners & grants; objects customer_only
+2026-11-10T18:08:14.423Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.settings.DiffSettingsService    : Default ignore rules saved: ignored: tablespaces; owners & grants
+2026-11-10T18:08:14.596Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.refdata.ReferenceDataService    : dev: sales.customers is tracked as reference data (0 rows)
+2026-11-10T18:08:16.385Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.p.g.GitDirectoryExporterService      : Git export of dev @ 58f0b0b: 28 files
+2026-11-10T18:08:17.901Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.p.g.GitDirectoryExporterService      : Git export of dev @ 58f0b0b: 28 files
+2026-11-10T18:08:17.906Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.p.g.GitDirectoryExporterService      : Git export of dev written to /tmp/ui-artifacts/git-export: 28 written, 0 unchanged, 0 deleted
+2026-11-10T18:08:21.373Z  INFO 4728 --- [pg-git-vc] [1-18766-exec-10] c.v.pgvc.vcs.VersionControlService       : Executed and committed 81176c7880 on dev in 14 ms: Lost demo table
+2026-11-10T18:08:24.032Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Discarded 1 of 1 uncommitted change(s) in dev (0 left, 2 audit entries removed)
+2026-11-10T18:08:24.086Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.pgvc.vcs.VersionControlService       : Executed and committed b7de485e56 on dev in 2 ms: Revert demo: notes archive
+2026-11-10T18:08:29.338Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.vcs.VersionControlService       : Executed and committed 7abc6abc21 on dev in 1 ms: Revert "Revert demo: notes archive"
+2026-11-10T18:08:29.339Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-4] c.v.pgvc.vcs.VersionControlService       : Reverted b7de485e56 on dev with commit 7abc6abc21
+2026-11-10T18:08:30.295Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-9] c.v.pgvc.vcs.VersionControlService       : Executed and committed 5bc35ff821 on dev in 42 ms: Zero-downtime demo table
+2026-11-10T18:08:34.330Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-6] c.v.pgvc.vcs.VersionControlService       : Discarded 1 of 1 uncommitted change(s) in dev (0 left, 2 audit entries removed)
+2026-11-10T18:08:37.926Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-7] c.v.pgvc.vcs.VersionControlService       : Quick fix CROSS_SCHEMA_SEQUENCE applied to mdc.mnemo_schemes.id in dev
+2026-11-10T18:08:48.464Z  INFO 4728 --- [pg-git-vc] [.1-18766-exec-1] c.v.pgvc.matrix.MatrixCompareService     : Matrix of 5 databases (baseline Dev): 24 objects, 8 differ

@@ -1,0 +1,3 @@
+3 change(s), highest risk DANGEROUS: report written to /tmp/ui-artifacts/cli/working-tree.md
+FAILED: a change is DANGEROUS (--fail-on=dangerous)
+exit=2

@@ -1,0 +1,2 @@
+OK: Stage (stage) matches HEAD 4a6abd7: no schema drift.
+exit=0

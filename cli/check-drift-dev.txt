@@ -1,0 +1,32 @@
+SCHEMA DRIFT: Dev (dev) has 3 uncommitted change(s) since HEAD 5bc35ff
+  D COLUMN sales.customers.score: already dropped in the live database: its data is lost
+  A COLUMN sales.customers.cli_note: new column text
+  D CONSTRAINT sales.customers.customers_score_check: CHECK dropped: CHECK ((score >= (0)::numeric))
+
+DDL captured since the last commit:
+  2026-11-10T18:08:34.362639Z  postgres  CREATE SCHEMA scada
+  2026-11-10T18:08:34.362639Z  postgres  CREATE SCHEMA mdc
+  2026-11-10T18:08:34.362639Z  postgres  CREATE SEQUENCE scada.mnemo_schemes_id_seq
+  2026-11-10T18:08:34.362639Z  postgres  CREATE TABLE scada.mnemo_schemes
+  2026-11-10T18:08:34.362639Z  postgres  CREATE INDEX scada.mnemo_schemes_pkey
+  2026-11-10T18:08:34.362639Z  postgres  ALTER SEQUENCE scada.mnemo_schemes_id_seq
+  2026-11-10T18:08:34.362639Z  postgres  CREATE TABLE mdc.mnemo_schemes
+  2026-11-10T18:08:34.362639Z  postgres  ALTER TABLE mdc.mnemo_schemes
+  2026-11-10T18:08:34.362639Z  postgres  CREATE INDEX mdc.mnemo_schemes_pkey
+  2026-11-10T18:08:34.362639Z  postgres  CREATE VIEW mdc.v_mnemo_schemes
+  2026-11-10T18:08:37.924495Z  postgres  CREATE SEQUENCE mdc.mnemo_schemes_id_seq
+  2026-11-10T18:08:37.924495Z  postgres  ALTER SEQUENCE mdc.mnemo_schemes_id_seq
+  2026-11-10T18:08:37.924495Z  postgres  ALTER TABLE mdc.mnemo_schemes
+  2026-11-10T18:08:40.280374Z  postgres  DROP SCHEMA mdc
+  2026-11-10T18:08:40.280374Z  postgres  DROP SCHEMA scada
+  2026-11-10T18:08:55.903341Z  postgres  ALTER TABLE sales.customers
+  2026-11-10T18:08:55.905273Z  postgres  ALTER TABLE sales.customers.score
+  2026-11-10T18:08:55.905273Z  postgres  ALTER TABLE sales.customers
+
+SQL that records the current state (UP):
+-- WARNING: Running this script drops column sales.customers.score together with all its data (16 kB).
+
+ALTER TABLE sales.customers DROP CONSTRAINT customers_score_check;
+ALTER TABLE sales.customers DROP COLUMN score;
+ALTER TABLE sales.customers ADD COLUMN cli_note text;
+exit=2
