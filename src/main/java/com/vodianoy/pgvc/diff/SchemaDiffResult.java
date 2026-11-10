@@ -35,6 +35,14 @@ public class SchemaDiffResult {
     @Builder.Default
     private List<String> warnings = new ArrayList<>();
 
+    /**
+     * Fixes of problems found in the live schema that no change of the list belongs to (e.g. a table committed long
+     * ago whose default uses a sequence of another schema).
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Builder.Default
+    private List<QuickFix> quickFixes = new ArrayList<>();
+
     /** {@link SchemaDiffEngine#compare} only: the UP migration statement by statement, in execution order. */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     @Builder.Default

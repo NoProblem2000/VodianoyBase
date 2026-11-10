@@ -510,6 +510,114 @@ await step('17g-revert-commit', async () => {
   await page.getByTestId('commit-description').filter({ hasText: 'Reverts commit' }).waitFor({ timeout: 10000 });
   await shot('17g-reverted');
 });
+// ---------------------------------------------------------------- v1.9.1: field feedback
+await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+const openWorkingTree = async () => {
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('Working Tree (Uncommitted Changes)').first().click({ timeout: 15000 });
+  await page.getByRole('tab', { name: /Changes/ }).click();
+};
+await step('17h-down-pattern-copy', async () => {
+  const dev = await devId();
+  await execute(dev, 'Zero-downtime demo table',
+    'CREATE TABLE sales.zd_demo (id int PRIMARY KEY, customer_id int);\nCREATE INDEX zd_demo_customer_idx ON sales.zd_demo (customer_id);', null);
+  // dropped in the IDE: the DOWN SQL re-creates the index - CONCURRENTLY in its zero-downtime form
+  psql('demo_dev', 'DROP INDEX sales.zd_demo_customer_idx');
+  await openWorkingTree();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.getByText('sales.zd_demo_customer_idx', { exact: true }).first().click();
+  const downPattern = inspector.getByTestId('sql-down-pattern');
+  await downPattern.getByText('⚡ Zero-downtime rollback pattern (DOWN)').waitFor({ timeout: 10000 });
+  await downPattern.getByText(/CREATE INDEX CONCURRENTLY zd_demo_customer_idx/).waitFor({ timeout: 5000 });
+  await downPattern.getByRole('button', { name: /Copy SQL/ }).click();
+  await downPattern.getByRole('button', { name: /Copied!/ }).waitFor({ timeout: 3000 });
+  const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
+  if (copied !== null && (copied.includes('pgvc:step') || !copied.includes('CONCURRENTLY'))) throw new Error(`copied: ${copied}`);
+  await shot('17h-down-pattern-copy');
+  // "Copied!" turns back after two seconds
+  await downPattern.getByRole('button', { name: /Copy SQL/ }).waitFor({ timeout: 5000 });
+  await inspector.getByRole('button', { name: '⚡ Use in Editor' }).first().click();
+  await toast(/inserted into the DOWN SQL/);
+  await page.locator('.monaco-editor').filter({ hasText: /CREATE\s+INDEX\s+CONCURRENTLY\s+zd_demo_customer_idx/ }).first().waitFor({ timeout: 10000 });
+  await shot('17h-down-pattern-editor');
+  // back to HEAD (the index is re-created by the discard script)
+  const plan = await (await page.request.post(`${API}/vc/working-tree/discard-plan`, { data: { envId: dev } })).json();
+  const r = await page.request.post(`${API}/vc/working-tree/discard`, { data: { envId: dev, expectedTotalChanges: plan.totalChanges } });
+  if (!r.ok()) throw new Error(`discard ${r.status()}: ${await r.text()}`);
+});
+await step('17i-group-by-entity', async () => {
+  psql('demo_dev', `CREATE SCHEMA scada; CREATE SCHEMA mdc;
+    CREATE TABLE scada.mnemo_schemes (id serial PRIMARY KEY, title text NOT NULL);
+    CREATE TABLE mdc.mnemo_schemes (LIKE scada.mnemo_schemes INCLUDING ALL);
+    CREATE VIEW mdc.v_mnemo_schemes AS SELECT id, title FROM mdc.mnemo_schemes;`);
+  await openWorkingTree();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  const group = inspector.locator('[data-group="mnemo_schemes"]');
+  await group.getByText(/related changes: (scada, mdc|mdc, scada)/).waitFor({ timeout: 10000 });
+  for (const name of ['scada.mnemo_schemes', 'scada.mnemo_schemes_id_seq', 'mdc.mnemo_schemes', 'mdc.v_mnemo_schemes']) {
+    await group.getByText(name, { exact: true }).first().waitFor({ timeout: 5000 });
+  }
+  await group.locator('[data-group-count="ADDED"]').waitFor({ timeout: 2000 });
+  await shot('17i-group-by-entity');
+  // the group checkbox selects every change of the group
+  await page.getByLabel('Select all changes of mnemo_schemes').check();
+  await page.getByRole('button', { name: /Discard selected \([4-9]\)/ }).waitFor({ timeout: 5000 });
+  await page.getByLabel('Select all changes of mnemo_schemes').uncheck();
+  // collapse / expand
+  await group.getByRole('button', { name: /mnemo_schemes/ }).first().click();
+  if (await group.getByText('mdc.v_mnemo_schemes', { exact: true }).count()) throw new Error('the group did not collapse');
+  await group.getByRole('button', { name: /mnemo_schemes/ }).first().click();
+  // flat list
+  await page.getByRole('button', { name: '📄 Flat List' }).click();
+  if (await inspector.locator('[data-group]').count()) throw new Error('still grouped');
+  await shot('17i-flat-list');
+  await page.getByRole('button', { name: '🗂️ Group by Entity / Dependencies' }).click();
+});
+await step('17j-cross-schema-sequence', async () => {
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.locator('[data-quick-fix="CROSS_SCHEMA_SEQUENCE"]').first().waitFor({ timeout: 10000 });
+  await inspector.getByText('mdc.mnemo_schemes', { exact: true }).first().click();
+  const fix = inspector.getByTestId('quick-fix').first();
+  await fix.getByText(/Column id of mdc\.mnemo_schemes uses the sequence of another schema \(scada\.mnemo_schemes_id_seq\)/).waitFor({ timeout: 5000 });
+  await fix.getByText(/SET DEFAULT nextval\('mdc\.mnemo_schemes_id_seq'::regclass\)/).waitFor({ timeout: 5000 });
+  await shot('17j-cross-schema-sequence');
+  await fix.getByRole('button', { name: '▶ Apply to database' }).click();
+  await toast(/Quick fix applied to mdc\.mnemo_schemes\.id/);
+  await page.waitForTimeout(1500);
+  if (await inspector.locator('[data-quick-fix="CROSS_SCHEMA_SEQUENCE"]').count()) throw new Error('the quick fix is still offered');
+  await shot('17j-quick-fix-applied');
+  psql('demo_dev', 'DROP SCHEMA mdc CASCADE; DROP SCHEMA scada CASCADE;');
+});
+await step('17k-refresh-timing', async () => {
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByTestId('refresh-timing').filter({ hasText: /Refreshed in \d+(\.\d)? (ms|s)/ }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Schemas under version control' }).click();
+  await page.getByTestId('schema-list').getByText('All schemas', { exact: true }).waitFor({ timeout: 10000 });
+  await page.getByLabel('Track schema sales').waitFor({ timeout: 10000 });
+  await shot('17k-schema-quick-picker');
+  await page.keyboard.press('Escape');
+});
+await step('17l-environment-browser', async () => {
+  await page.getByRole('button', { name: /Environments/ }).click();
+  await page.getByRole('button', { name: 'Load databases' }).click();
+  const databases = page.getByRole('listbox', { name: 'Databases' });
+  await databases.getByRole('option', { name: /demo_dev/ }).waitFor({ timeout: 10000 });
+  await databases.getByRole('option', { name: /demo_qa/ }).waitFor({ timeout: 5000 }).catch(() => {});
+  await page.getByLabel('Track schema sales').waitFor({ timeout: 10000 });
+  await shot('17l-environment-browser');
+  await page.keyboard.press('Escape');
+});
+await step('17m-badge-double-click', async () => {
+  await page.reload({ waitUntil: 'networkidle' });
+  const other = page.locator('[data-env-badge]:not([data-active])').first();
+  const name = await other.getAttribute('data-env-badge');
+  await other.dblclick();
+  await toast(new RegExp(`Switched to environment ${name.toUpperCase()}`));
+  await page.locator(`[data-env-badge="${name}"][data-active]`).first().waitFor({ timeout: 15000 });
+  await shot('17m-badge-double-click');
+  await page.getByLabel('Current environment').selectOption({ label: 'Dev' });
+  await page.locator('[data-env-badge="Dev"][data-active]').first().waitFor({ timeout: 15000 });
+});
 await step('18-ru-main', async () => {
   await page.getByRole('button', { name: 'RU', exact: true }).click();
   await page.getByText('Обозреватель схемы').waitFor({ timeout: 5000 });
@@ -531,6 +639,7 @@ await step('20-ru-server-error', async () => {
   await page.getByTitle('Управление окружениями').click();
   await page.getByRole('button', { name: 'Добавить окружение' }).click();
   await page.getByLabel('Имя', { exact: true }).fill('Broken');
+  await page.getByRole('button', { name: 'JDBC URL', exact: true }).click();
   await page.getByLabel('JDBC URL', { exact: true }).fill('jdbc:mysql://localhost/db');
   expectHttpError = true;
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();

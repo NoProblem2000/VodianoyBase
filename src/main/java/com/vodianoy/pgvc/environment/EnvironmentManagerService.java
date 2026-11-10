@@ -23,7 +23,9 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.PreparedStatement;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -44,7 +46,27 @@ public class EnvironmentManagerService implements DisposableBean {
     static final int MIN_SERVER_VERSION = 110000;
 
     private static final Set<String> RESERVED_IDS = Set.of("active", "test");
-    private static final Pattern COLOR =Pattern.compile("#[0-9a-fA-F]{6}");
+    private static final Pattern COLOR = Pattern.compile("#[0-9a-fA-F]{6}");
+
+    /** Maintenance database used to list the databases of a server (falls back to template1). */
+    static final String MAINTENANCE_DATABASE = "postgres";
+
+    static final String DATABASES_SQL = "SELECT d.datname, pg_catalog.shobj_description(d.oid, 'pg_database') AS comment,"
+            + " CASE WHEN pg_catalog.has_database_privilege(d.oid, 'CONNECT')"
+            + " THEN pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(d.oid)) END AS pretty_size,"
+            + " pg_catalog.has_database_privilege(d.oid, 'CONNECT') AS can_connect"
+            + " FROM pg_catalog.pg_database d WHERE d.datistemplate = false ORDER BY d.datname";
+
+    static final String SCHEMAS_SQL = "SELECT n.nspname, pg_catalog.obj_description(n.oid, 'pg_namespace') AS comment,"
+            + " pg_catalog.pg_get_userbyid(n.nspowner) AS owner,"
+            + " (SELECT count(*) FROM pg_catalog.pg_class c WHERE c.relnamespace = n.oid"
+            + "   AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')) AS table_count,"
+            + " EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_namespace'::regclass"
+            + "   AND d.objid = n.oid AND d.deptype = 'e') AS extension"
+            + " FROM pg_catalog.pg_namespace n"
+            + " WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', '_pgvc')"
+            + " AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp\\_%'"
+            + " ORDER BY n.nspname";
     private static final String[] PALETTE = {"#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899"};
 
     private final PgVcProperties properties;
@@ -226,10 +248,11 @@ public class EnvironmentManagerService implements DisposableBean {
      * a stored environment and no password, the stored password is used.
      */
     public ConnectionTestResult testConnection(Environment candidate) {
-        if (candidate.getJdbcUrl() == null || !candidate.getJdbcUrl().startsWith("jdbc:postgresql:")) {
-            throw ApiException.badRequest("env.jdbcUrlInvalid");
+        if (candidate == null) {
+            throw ApiException.badRequest("env.required");
         }
         Environment env = candidate.toBuilder().build();
+        env.setJdbcUrl(connectionUrl(env));
         if (env.getPassword() == null && env.getId() != null) {
             synchronized (lock) {
                 state.getEnvironments().stream().filter(e -> e.getId().equals(env.getId())).findFirst()
@@ -265,6 +288,177 @@ public class EnvironmentManagerService implements DisposableBean {
         }
     }
 
+    // ------------------------------------------------------------------ database / schema browser
+
+    /**
+     * Databases of the server (connects to the maintenance database {@code postgres}, then {@code template1}, then the
+     * database of the request).
+     */
+    public List<DiscoveredDatabase> discoverDatabases(DiscoveryRequest request) {
+        Environment env = discoveryEnvironment(request);
+        LinkedHashSet<String> candidates = new LinkedHashSet<>(List.of(MAINTENANCE_DATABASE, "template1"));
+        if (request.databaseName() != null && !request.databaseName().isBlank()) {
+            candidates.add(request.databaseName().trim());
+        }
+        SQLException last = null;
+        for (String database : candidates) {
+            String url = JdbcUrls.withDatabase(env.getJdbcUrl(), database);
+            try (Connection c = DriverManager.getConnection(url, connectionProperties(env));
+                 Statement st = c.createStatement();
+                 ResultSet rs = st.executeQuery(DATABASES_SQL)) {
+                List<DiscoveredDatabase> out = new ArrayList<>();
+                while (rs.next()) {
+                    out.add(new DiscoveredDatabase(rs.getString("datname"), rs.getString("comment"),
+                            rs.getString("pretty_size"), rs.getBoolean("can_connect")));
+                }
+                return out;
+            } catch (SQLException e) {
+                last = e;
+                // 3D000 = the database does not exist, 28000 / 42501 = no permission to connect: try the next one
+                String sqlState = e.getSQLState();
+                if (sqlState == null || !(sqlState.equals("3D000") || sqlState.equals("28000") || sqlState.equals("42501"))) {
+                    break;
+                }
+            }
+        }
+        throw ApiException.badRequest("env.discoverFailed", serverLabel(env), last == null ? "" : last.getMessage());
+    }
+
+    /** User schemas of one database of the server, with comments (extension schemas are flagged). */
+    public List<DiscoveredSchema> discoverSchemas(DiscoveryRequest request) {
+        if (request == null || request.databaseName() == null || request.databaseName().isBlank()) {
+            throw ApiException.badRequest("env.databaseRequired");
+        }
+        Environment env = discoveryEnvironment(request);
+        String url = JdbcUrls.withDatabase(env.getJdbcUrl(), request.databaseName().trim());
+        try (Connection c = DriverManager.getConnection(url, connectionProperties(env));
+             PreparedStatement st = c.prepareStatement(SCHEMAS_SQL);
+             ResultSet rs = st.executeQuery()) {
+            List<DiscoveredSchema> out = new ArrayList<>();
+            while (rs.next()) {
+                out.add(new DiscoveredSchema(rs.getString("nspname"), rs.getString("comment"), rs.getString("owner"),
+                        rs.getLong("table_count"), rs.getBoolean("extension")));
+            }
+            return out;
+        } catch (SQLException e) {
+            throw ApiException.badRequest("env.discoverFailed", serverLabel(env) + "/" + request.databaseName().trim(),
+                    e.getMessage());
+        }
+    }
+
+    private Environment discoveryEnvironment(DiscoveryRequest request) {
+        if (request == null) {
+            throw ApiException.badRequest("env.required");
+        }
+        Environment env = Environment.builder()
+                .id(request.id())
+                .host(trim(request.host()))
+                .port(request.port())
+                .databaseName(trim(request.databaseName()))
+                .jdbcUrl(trim(request.jdbcUrl()))
+                .username(trim(request.username()))
+                .password(request.password())
+                .build();
+        if (env.getPassword() == null && env.getId() != null) {
+            synchronized (lock) {
+                state.getEnvironments().stream().filter(e -> e.getId().equals(env.getId())).findFirst()
+                        .ifPresent(stored -> env.setPassword(stored.getPassword()));
+            }
+        }
+        if (env.getDatabaseName() == null || env.getDatabaseName().isEmpty()) {
+            env.setDatabaseName(MAINTENANCE_DATABASE);
+        }
+        env.setJdbcUrl(connectionUrl(env));
+        return env;
+    }
+
+    /** Properties of a one-off connection (test / browse): timeouts, application name, user and password. */
+    private Properties connectionProperties(Environment env) {
+        Properties props = new Properties();
+        props.setProperty("connectTimeout", Integer.toString(properties.getConnectTimeoutSeconds()));
+        props.setProperty("loginTimeout", Integer.toString(properties.getConnectTimeoutSeconds()));
+        props.setProperty("ApplicationName", "pg-git-vc");
+        if (env.getUsername() != null && !env.getUsername().isEmpty()) {
+            props.setProperty("user", env.getUsername());
+        }
+        if (env.getPassword() != null && !env.getPassword().isEmpty()) {
+            props.setProperty("password", env.getPassword());
+        }
+        return props;
+    }
+
+    private static String serverLabel(Environment env) {
+        JdbcUrls.Parts p = JdbcUrls.parse(env.getJdbcUrl());
+        return p == null ? String.valueOf(env.getJdbcUrl()) : p.host() + ":" + p.port();
+    }
+
+    /**
+     * JDBC URL of the connection settings: built from host / port / database when a host is given (the parameters of
+     * the given JDBC URL are kept), otherwise the JDBC URL itself.
+     */
+    static String connectionUrl(Environment env) {
+        String host = trim(env.getHost());
+        String url = trim(env.getJdbcUrl());
+        if (host != null && !host.isEmpty()) {
+            Integer port = env.getPort();
+            if (port != null && (port < 1 || port > 65535)) {
+                throw ApiException.badRequest("env.portInvalid");
+            }
+            String database = trim(env.getDatabaseName());
+            if (database == null || database.isEmpty()) {
+                throw ApiException.badRequest("env.databaseRequired");
+            }
+            JdbcUrls.Parts old = JdbcUrls.parse(url);
+            if (old != null && old.multiHost() && host.equals(old.host())
+                    && java.util.Objects.equals(port == null ? Environment.DEFAULT_PORT : port, old.port())) {
+                // a multi-host URL (failover) cannot be described by one host: keep its host list, switch the database
+                return JdbcUrls.withDatabase(url, database);
+            }
+            return JdbcUrls.build(host, port, database, old == null ? null : old.params());
+        }
+        if (url == null || url.isEmpty()) {
+            throw ApiException.badRequest("env.hostRequired");
+        }
+        if (!url.startsWith(JdbcUrls.PREFIX)) {
+            throw ApiException.badRequest("env.jdbcUrlInvalid");
+        }
+        return url;
+    }
+
+    /** Fills host / port / database from the JDBC URL (environments of older versions have only the URL). */
+    private static void fillConnectionParts(Environment env) {
+        JdbcUrls.Parts p = JdbcUrls.parse(env.getJdbcUrl());
+        if (p != null) {
+            env.setHost(p.host());
+            env.setPort(p.port());
+            env.setDatabaseName(p.database());
+        }
+    }
+
+    /** Picked schemas without duplicates and blanks, or {@code [ALL_USER_SCHEMAS]}. */
+    static List<String> normalizeSchemas(List<String> schemas) {
+        if (schemas == null || schemas.isEmpty()) {
+            return new ArrayList<>(List.of(Environment.ALL_USER_SCHEMAS));
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (String s : schemas) {
+            if (s == null) {
+                continue;
+            }
+            String name = s.trim();
+            if (name.equals(Environment.ALL_USER_SCHEMAS)) {
+                return new ArrayList<>(List.of(Environment.ALL_USER_SCHEMAS));
+            }
+            if (!name.isEmpty()) {
+                out.add(name);
+            }
+        }
+        if (out.isEmpty()) {
+            throw ApiException.badRequest("env.schemasRequired");
+        }
+        return new ArrayList<>(out);
+    }
+
     // ------------------------------------------------------------------ validation & persistence
 
     private Environment find(String id) {
@@ -280,10 +474,7 @@ public class EnvironmentManagerService implements DisposableBean {
         if (name == null || name.isEmpty()) {
             throw ApiException.badRequest("env.nameRequired");
         }
-        String url = trim(input.getJdbcUrl());
-        if (url == null || !url.startsWith("jdbc:postgresql:")) {
-            throw ApiException.badRequest("env.jdbcUrlInvalid");
-        }
+        String url = connectionUrl(input);
         String schema = trim(input.getSchemaName());
         if (schema == null || schema.isEmpty()) {
             schema = Environment.DEFAULT_SCHEMA;
@@ -298,14 +489,19 @@ public class EnvironmentManagerService implements DisposableBean {
         if (password == null) {
             password = existing != null ? existing.getPassword() : "";
         }
-        return Environment.builder()
+        List<String> tracked = input.getTrackedSchemas() == null && existing != null
+                ? existing.getTrackedSchemas() : input.getTrackedSchemas();
+        Environment env = Environment.builder()
                 .name(name)
                 .jdbcUrl(url)
                 .username(trim(input.getUsername()) == null ? "" : trim(input.getUsername()))
                 .password(password)
                 .schemaName(schema)
+                .trackedSchemas(normalizeSchemas(tracked))
                 .colorBadge(color.toLowerCase(Locale.ROOT))
                 .build();
+        fillConnectionParts(env);
+        return env;
     }
 
     private String uniqueId(String name) {
@@ -358,6 +554,13 @@ public class EnvironmentManagerService implements DisposableBean {
                 if (e.getId() == null || e.getId().isBlank()) {
                     throw new IllegalStateException("Every environment in " + file + " needs an \"id\"");
                 }
+                if ((e.getJdbcUrl() == null || e.getJdbcUrl().isBlank()) && e.getHost() != null && !e.getHost().isBlank()
+                        && e.getDatabaseName() != null) {
+                    // hand-written file with host / port / database only
+                    e.setJdbcUrl(JdbcUrls.build(e.getHost(), e.getPort(), e.getDatabaseName(), null));
+                }
+                fillConnectionParts(e);
+                e.setTrackedSchemas(normalizeSchemas(e.getTrackedSchemas()));
             }
             String active = loaded.getActiveEnvironmentId();
             if (active == null || loaded.getEnvironments().stream().noneMatch(e -> e.getId().equals(active))) {

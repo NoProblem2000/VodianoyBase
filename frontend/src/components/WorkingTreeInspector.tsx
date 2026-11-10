@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, GitCommitHorizontal, Maximize2, Search, ShieldAlert, Trash2, TriangleAlert, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  FolderTree,
+  GitCommitHorizontal,
+  List,
+  Maximize2,
+  Search,
+  ShieldAlert,
+  Trash2,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import { api } from '../api/client';
-import type { ChangeItem, ChangeType, CommitResult, EnvironmentView, WorkingTreeStatus } from '../api/types';
+import type { ChangeItem, ChangeType, CommitResult, EnvironmentView, QuickFix, WorkingTreeStatus } from '../api/types';
 import { applyAlternatives, SafetyBadges, SafetyNotes, ZeroDowntimeButton } from './SafetyBadges';
 import { shortHash } from '../lib/format';
 import { loadSetting, saveSetting } from '../lib/storage';
 import { ChangeBadge } from './Badges';
-import { ChangeList } from './ChangeList';
+import { ChangeList, QuickFixBlock } from './ChangeList';
 import { CommitMessageFields } from './CommitMessageFields';
 import { DiscardModal } from './DiscardModal';
 import { Modal } from './Modal';
@@ -23,11 +35,14 @@ interface Props {
   onCommitted: (result: CommitResult) => void;
   /** uncommitted changes were discarded (or the DDL log cleared) */
   onDiscarded: () => void;
+  /** a quick fix ran on the database: reload the working tree */
+  onQuickFixApplied?: () => void;
 }
 
 type Tab = 'changes' | 'up' | 'down' | 'safety';
 
 const COMMIT_FORM_KEY = 'pgvc.commitFormOpen';
+const GROUPING_KEY = 'pgvc.changeGrouping';
 const CHANGE_TYPES: ChangeType[] = ['ADDED', 'MODIFIED', 'RENAMED', 'DELETED'];
 
 /** A change that needs attention: dangerous / warning risk, an exclusive lock, a rewrite or data loss. */
@@ -40,7 +55,7 @@ function isRisky(c: ChangeItem): boolean {
  * Right panel of the working tree: tabs over the whole height (changes with filter and checkboxes, UP SQL, DOWN SQL,
  * safety), a one-line collapsible safety summary on top and a compact commit bar that opens the commit form.
  */
-export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange, onCommitted, onDiscarded }: Props) {
+export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange, onCommitted, onDiscarded, onQuickFixApplied }: Props) {
   const toast = useToast();
   const { t, tn } = useI18n();
   const diff = workingTree.diff;
@@ -58,6 +73,13 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   const [query, setQuery] = useState('');
   const [types, setTypes] = useState<Set<ChangeType>>(new Set());
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // grouped by entity by default (tables of one name in every schema with their sequences, FKs, views)
+  const [grouped, setGrouped] = useState(() => loadSetting(GROUPING_KEY, 'grouped') !== 'flat');
+  const [fixing, setFixing] = useState<string | null>(null);
+
+  useEffect(() => {
+    saveSetting(GROUPING_KEY, grouped ? 'grouped' : 'flat');
+  }, [grouped]);
 
   // new DDL arrived: show the regenerated scripts, the old selection means other changes now
   useEffect(() => {
@@ -74,7 +96,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
   const [patternUsed, setPatternUsed] = useState<Set<number>>(new Set());
 
   // new DDL arrived: patterns have to be chosen again
-  useEffect(() => setPatternUsed(new Set()), [diff.upSql]);
+  useEffect(() => setPatternUsed(new Set()), [diff.upSql, diff.downSql]);
 
   const risky = useMemo(() => diff.changes.map((c, i) => [c, i] as const).filter(([c]) => isRisky(c)), [diff.changes]);
   const exclusive = risky.filter(([c]) => c.safety?.lockType === 'ACCESS EXCLUSIVE').length;
@@ -100,6 +122,12 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
     setSelected(next);
   }
 
+  function selectMany(indexes: number[], select: boolean) {
+    const next = new Set(selected);
+    indexes.forEach((i) => (select ? next.add(i) : next.delete(i)));
+    setSelected(next);
+  }
+
   function toggleShown() {
     const next = new Set(selected);
     if (allShownSelected) shownIndexes.forEach((i) => next.delete(i));
@@ -114,17 +142,44 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
     setTypes(next);
   }
 
+  /** "⚡ Use in Editor": the zero-downtime patterns of the change go into the UP and the DOWN SQL. */
   function usePattern(change: ChangeItem) {
-    const next = applyAlternatives(up, change.safety?.alternatives ?? []);
-    if (next === null) {
+    const upAlternatives = change.safety?.alternatives ?? [];
+    const downAlternatives = change.downAlternatives ?? [];
+    const nextUp = upAlternatives.length ? applyAlternatives(up, upAlternatives) : up;
+    const nextDown = downAlternatives.length ? applyAlternatives(down, downAlternatives) : down;
+    if (nextUp === null || nextDown === null) {
       toast.error(t('safety.patternNotFound'));
       return;
     }
-    setUp(next);
-    setTab('up');
+    setUp(nextUp);
+    setDown(nextDown);
+    setTab(upAlternatives.length ? 'up' : 'down');
     setPatternUsed(new Set([...patternUsed, diff.changes.indexOf(change)]));
-    toast.success(t('safety.patternApplied'));
+    toast.success(
+      upAlternatives.length && downAlternatives.length
+        ? t('safety.patternAppliedBoth')
+        : downAlternatives.length
+          ? t('safety.patternAppliedDown')
+          : t('safety.patternApplied'),
+    );
   }
+
+  /** Runs a quick fix on the database (not committed: the working tree then shows the fixed object). */
+  async function applyQuickFix(fix: QuickFix) {
+    setFixing(fix.objectName);
+    try {
+      await api.quickFix(env.id, fix.objectName, fix.kind);
+      toast.success(t('quickFix.applied', { object: fix.objectName, env: env.name }));
+      onQuickFixApplied?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setFixing(null);
+    }
+  }
+
+  const globalFixes = diff.quickFixes ?? [];
 
   async function commit() {
     if (!message.trim()) {
@@ -153,7 +208,7 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
     }
   }
 
-  const hasSafetySummary = risky.length > 0 || diff.warnings.length > 0;
+  const hasSafetySummary = risky.length > 0 || diff.warnings.length > 0 || globalFixes.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -204,6 +259,13 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                   </li>
                 ))}
               </ul>
+              {globalFixes.length > 0 && (
+                <div className="mt-1.5 space-y-1.5 text-xs">
+                  {globalFixes.map((fix) => (
+                    <QuickFixBlock key={fix.objectName} fix={fix} onApply={(f) => void applyQuickFix(f)} busy={fixing === fix.objectName} />
+                  ))}
+                </div>
+              )}
               {risky.length > 0 && (
                 <button className="mt-1.5 text-[11.5px] text-amber-300 underline hover:text-amber-100" onClick={() => setTab('safety')}>
                   {t('workingTree.openSafetyTab')}
@@ -272,6 +334,32 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                   </button>
                 )}
               </div>
+              <div className="flex overflow-hidden rounded-md border border-kraken-line" role="group" aria-label={t('workingTree.grouping')}>
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 px-1.5 py-0.5 text-[11px] ${
+                    !grouped ? 'bg-teal-500/20 text-teal-200' : 'text-gray-400 hover:bg-kraken-hover hover:text-gray-200'
+                  }`}
+                  onClick={() => setGrouped(false)}
+                  aria-pressed={!grouped}
+                  title={t('workingTree.flatList')}
+                  aria-label={t('workingTree.flatList')}
+                >
+                  <List size={12} />
+                </button>
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 border-l border-kraken-line px-1.5 py-0.5 text-[11px] ${
+                    grouped ? 'bg-teal-500/20 text-teal-200' : 'text-gray-400 hover:bg-kraken-hover hover:text-gray-200'
+                  }`}
+                  onClick={() => setGrouped(true)}
+                  aria-pressed={grouped}
+                  title={t('workingTree.groupByEntity')}
+                  aria-label={t('workingTree.groupByEntity')}
+                >
+                  <FolderTree size={12} />
+                </button>
+              </div>
               <div className="flex items-center gap-1" role="group" aria-label={t('workingTree.typeFilter')}>
                 {CHANGE_TYPES.filter((type) => typeCounts.has(type)).map((type) => (
                   <button
@@ -302,7 +390,11 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                 onDiscard={(i) => setDiscarding([i])}
                 selected={selected}
                 onToggleSelect={toggle}
+                onSelectMany={selectMany}
                 filter={filter}
+                grouped={grouped}
+                onQuickFix={(f) => void applyQuickFix(f)}
+                quickFixBusy={fixing}
               />
             </div>
           </>
@@ -340,8 +432,8 @@ export function WorkingTreeInspector({ env, workingTree, author, onAuthorChange,
                       <div className="mt-1.5 space-y-1.5 pl-7">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <SafetyBadges report={c.safety} />
-                          {!!c.safety.alternatives?.length && (
-                            <ZeroDowntimeButton used={patternUsed.has(i)} onClick={() => usePattern(c)} />
+                          {(!!c.safety.alternatives?.length || !!c.downAlternatives?.length) && (
+                            <ZeroDowntimeButton used={patternUsed.has(i)} onClick={() => usePattern(c)} label={t('safety.useInEditor')} />
                           )}
                         </div>
                         <div className="text-xs">

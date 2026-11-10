@@ -11,6 +11,15 @@ import type {
 
 const AUDIT_POLL_MS = 5000;
 
+/** How long the last refresh took: in the browser (all requests) and on the server (working tree / catalog). */
+export interface RefreshTiming {
+  totalMs: number;
+  serverMs: number | null;
+  introspectionMs: number | null;
+  /** epoch millis of the end of the refresh */
+  at: number;
+}
+
 export interface AppData {
   environments: EnvironmentView[];
   activeEnv: EnvironmentView | null;
@@ -22,6 +31,8 @@ export interface AppData {
   loading: boolean;
   /** error of loading the working tree / snapshot of the active environment */
   envError: string | null;
+  /** duration of the last full refresh ("Refreshed in 120 ms") */
+  timing: RefreshTiming | null;
   refresh: () => Promise<void>;
   setActive: (id: string) => Promise<void>;
 }
@@ -36,6 +47,8 @@ export function useAppData(onError: (message: string) => void): AppData {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [envError, setEnvError] = useState<string | null>(null);
+  const [timing, setTiming] = useState<RefreshTiming | null>(null);
+  const lastServer = useRef<{ serverMs: number | null; introspectionMs: number | null }>({ serverMs: null, introspectionMs: null });
   const activeIdRef = useRef<string | null>(null);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -59,9 +72,12 @@ export function useAppData(onError: (message: string) => void): AppData {
       return;
     }
     try {
-      const [wt, snap] = await Promise.all([api.workingTree(env.id), api.snapshot(env.id)]);
+      // one request reads the catalog once: the diff and the schema explorer use the same live snapshot
+      const wt = await api.workingTree(env.id, true);
       if (activeIdRef.current !== env.id) return;
-      setWorkingTree(wt);
+      const snap = wt.snapshot ?? (await api.snapshot(env.id));
+      lastServer.current = { serverMs: wt.durationMs ?? null, introspectionMs: wt.introspectionMs ?? null };
+      setWorkingTree({ ...wt, snapshot: undefined });
       setSnapshot(snap);
       setAuditLog(wt.auditLog);
       setEnvError(null);
@@ -72,11 +88,14 @@ export function useAppData(onError: (message: string) => void): AppData {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    const started = performance.now();
+    lastServer.current = { serverMs: null, introspectionMs: null };
     try {
       const [envs, g] = await Promise.all([api.environments(), api.graph()]);
       setEnvironments(envs);
       setGraph(g);
       await loadActive(envs.find((e) => e.active) ?? envs[0] ?? null);
+      setTiming({ totalMs: Math.round(performance.now() - started), ...lastServer.current, at: Date.now() });
     } catch (e) {
       onErrorRef.current((e as Error).message);
     } finally {
@@ -114,9 +133,10 @@ export function useAppData(onError: (message: string) => void): AppData {
         if (activeIdRef.current !== envId) return;
         if (auditKey(log) !== lastAuditKey.current) {
           setAuditLog(log);
-          const [wt, snap] = await Promise.all([api.workingTree(envId), api.snapshot(envId)]);
+          const wt = await api.workingTree(envId, true);
+          const snap = wt.snapshot ?? (await api.snapshot(envId));
           if (activeIdRef.current === envId) {
-            setWorkingTree(wt);
+            setWorkingTree({ ...wt, snapshot: undefined });
             setSnapshot(snap);
           }
         }
@@ -128,7 +148,7 @@ export function useAppData(onError: (message: string) => void): AppData {
   }, [status?.initialized, status?.reachable, status?.environmentId]);
 
   const activeEnv = environments.find((e) => e.active) ?? environments[0] ?? null;
-  return { environments, activeEnv, graph, status, workingTree, snapshot, auditLog, loading, envError, refresh, setActive };
+  return { environments, activeEnv, graph, status, workingTree, snapshot, auditLog, loading, envError, timing, refresh, setActive };
 }
 
 function auditKey(log: AuditLogEntry[]): string {

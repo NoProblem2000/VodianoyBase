@@ -240,14 +240,27 @@ public class MigrationSafetyAnalyzer {
     }
 
     /**
-     * Sets {@link ChangeItem#getSafety()} of every change from its UP SQL.
+     * Sets {@link ChangeItem#getSafety()} of every change from its UP SQL and the zero-downtime form of its DOWN SQL
+     * (assuming the DOWN runs on the same database).
      *
      * @param schema the database the UP migration would run on (structure and size statistics)
      */
     public void annotate(SchemaDiffResult diff, DatabaseSnapshot schema) {
+        annotate(diff, schema, schema);
+    }
+
+    /**
+     * Sets {@link ChangeItem#getSafety()} of every change from its UP SQL, and {@link ChangeItem#getZeroDowntimeDownSql()}
+     * / {@link ChangeItem#getDownAlternatives()} from its DOWN SQL.
+     *
+     * @param schema     the database the UP migration would run on (structure and size statistics)
+     * @param downSchema the database the DOWN migration would run on (for the working tree: the live database)
+     */
+    public void annotate(SchemaDiffResult diff, DatabaseSnapshot schema, DatabaseSnapshot downSchema) {
         if (diff == null) {
             return;
         }
+        annotateDown(diff, downSchema);
         Context ctx = new Context(schema);
         for (ChangeItem item : diff.getChanges()) {
             if (item.getUpSql() == null || item.getUpSql().isBlank()) {
@@ -269,6 +282,82 @@ public class MigrationSafetyAnalyzer {
             }
             item.setSafety(aggregated);
         }
+    }
+
+    /**
+     * Zero-downtime form of the DOWN SQL of every change (v1.9.1). The DOWN of a dropped foreign key / CHECK re-adds
+     * it, the DOWN of a dropped index re-creates it - on a populated table of a production database both lock the
+     * table for the whole scan / build. So, whatever the size statistics say:
+     * <ul>
+     *   <li>{@code ALTER TABLE t ADD CONSTRAINT c FOREIGN KEY / CHECK ...} becomes {@code ... NOT VALID;} plus
+     *       {@code -- pgvc:step} {@code ALTER TABLE t VALIDATE CONSTRAINT c;} (SHARE UPDATE EXCLUSIVE, writes go on);</li>
+     *   <li>{@code CREATE [UNIQUE] INDEX} becomes {@code CREATE [UNIQUE] INDEX CONCURRENTLY} in a step of its own;</li>
+     * </ul>
+     * except on objects the same DOWN script creates (an empty new table needs neither) and on partitioned tables,
+     * where PostgreSQL supports neither form. Other rewrites of the analyser (e.g. DROP INDEX CONCURRENTLY on a big
+     * table) are kept as well.
+     */
+    private void annotateDown(SchemaDiffResult diff, DatabaseSnapshot downSchema) {
+        Context ctx = new Context(downSchema);
+        for (ChangeItem item : diff.getChanges()) {
+            item.setZeroDowntimeDownSql(null);
+            item.getDownAlternatives().clear();
+            if (item.getDownSql() == null || item.getDownSql().isBlank()) {
+                continue;
+            }
+            String combined = item.getDownSql();
+            for (String statement : SqlScripts.statements(item.getDownSql())) {
+                String pattern = downPattern(statement, ctx);
+                SafetyReport r = analyzeStatement(statement, ctx);
+                String replacement = pattern != null ? pattern : r.getZeroDowntimeAlternativeSql();
+                if (replacement != null && combined.contains(statement)) {
+                    item.getDownAlternatives().add(new SqlAlternative(statement, replacement));
+                    combined = combined.replace(statement, replacement);
+                }
+            }
+            if (!item.getDownAlternatives().isEmpty()) {
+                item.setZeroDowntimeDownSql(combined);
+            }
+        }
+    }
+
+    /** The DOWN rewrite of one statement (see {@link #annotateDown}), null when it does not apply. */
+    private String downPattern(String statement, Context ctx) {
+        String n = SqlScripts.normalize(statement);
+        Matcher m;
+        if ((m = CREATE_INDEX.matcher(n)).find()) {
+            if (m.group(2) != null || m.group(4) != null) {
+                return null; // already CONCURRENTLY / ON ONLY (index of a partitioned parent)
+            }
+            String key = ctx.resolve(m.group(5));
+            TableModel table = ctx.table(key);
+            if (ctx.isNew(key) || table == null || table.isPartitioned()) {
+                return null;
+            }
+            return step(Pattern.compile("(?i)^(\\s*CREATE\\s+(?:UNIQUE\\s+)?INDEX)\\s+")
+                    .matcher(statement.strip()).replaceFirst("$1 CONCURRENTLY "));
+        }
+        if ((m = ALTER_TABLE.matcher(n)).matches()) {
+            List<String> actions = splitTopLevel(m.group(2));
+            if (actions.size() != 1) {
+                return null;
+            }
+            Matcher c = ADD_CONSTRAINT.matcher(actions.get(0).strip());
+            if (!c.matches() || c.group(1) == null || NOT_VALID.matcher(actions.get(0)).find()) {
+                return null;
+            }
+            String kind = c.group(2).toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
+            if (!kind.equals("FOREIGN KEY") && !kind.equals("CHECK")) {
+                return null;
+            }
+            String key = ctx.resolve(m.group(1));
+            TableModel table = ctx.table(key);
+            if (ctx.isNew(key) || table == null || table.isPartitioned()) {
+                return null;
+            }
+            return notValidPattern(statement, m.group(1), c.group(1));
+        }
+        return null;
     }
 
     /** Copy of {@code structure} whose tables carry the size statistics of {@code sizes} (matched by name). */
@@ -466,7 +555,8 @@ public class MigrationSafetyAnalyzer {
                     if (!notValid && !newTable) {
                         e.work(Work.SCAN);
                         e.notes.add(text("safety.note.fkScan"));
-                        if (name != null && original != null) {
+                        // NOT VALID is not supported on partitioned tables (PostgreSQL < 18)
+                        if (name != null && original != null && (e.table == null || !e.table.isPartitioned())) {
                             e.alternative = notValidPattern(original, rawTable, name);
                         }
                     }
@@ -476,7 +566,8 @@ public class MigrationSafetyAnalyzer {
                     if (!notValid && !newTable) {
                         e.work(Work.SCAN);
                         e.notes.add(text("safety.note.checkScan"));
-                        if (name != null && original != null) {
+                        // NOT VALID is not supported on partitioned tables (PostgreSQL < 18)
+                        if (name != null && original != null && (e.table == null || !e.table.isPartitioned())) {
                             e.alternative = notValidPattern(original, rawTable, name);
                         }
                     }

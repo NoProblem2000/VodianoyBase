@@ -16,7 +16,9 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { EnvironmentView, PgVcStatus } from '../api/types';
+import type { RefreshTiming } from '../hooks/useAppData';
 import { LANGS, useI18n } from '../i18n';
+import { SchemaQuickPicker } from './SchemaQuickPicker';
 
 interface Props {
   environments: EnvironmentView[];
@@ -37,6 +39,15 @@ interface Props {
   onReferenceData: () => void;
   onGitExport: () => void;
   onDocs: () => void;
+  /** duration of the last refresh, shown next to the refresh button */
+  timing?: RefreshTiming | null;
+  /** the tracked schemas of the active environment were changed in the quick selector */
+  onSchemasChanged?: () => void;
+}
+
+/** "120 ms" / "1.4 s" */
+function duration(ms: number, t: ReturnType<typeof useI18n>['t']): string {
+  return ms < 1000 ? t('topBar.ms', { ms }) : t('topBar.seconds', { s: (ms / 1000).toFixed(1) });
 }
 
 export function TopBar(p: Props) {
@@ -72,6 +83,9 @@ export function TopBar(p: Props) {
           ))}
         </select>
       </div>
+      {p.activeEnv && p.status?.reachable && (
+        <SchemaQuickPicker key={p.activeEnv.id} env={p.activeEnv} onChanged={() => p.onSchemasChanged?.()} />
+      )}
       <button className="btn btn-ghost px-2" onClick={p.onManageEnvironments} title={t('topBar.manageEnvironments')}>
         <Settings2 size={16} />
         <span className="hidden lg:inline">{t('topBar.environments')}</span>
@@ -79,7 +93,28 @@ export function TopBar(p: Props) {
 
       <div className="flex-1" />
 
-      <button className="btn btn-ghost px-2" onClick={p.onRefresh} disabled={p.loading} title={t('topBar.refresh')}>
+      {p.timing && !p.loading && (
+        <span
+          className="hidden whitespace-nowrap text-[11px] text-gray-500 min-[1400px]:inline"
+          data-testid="refresh-timing"
+          title={[
+            t('topBar.timingTotal', { time: duration(p.timing.totalMs, t) }),
+            p.timing.introspectionMs !== null ? t('topBar.timingCatalog', { time: duration(p.timing.introspectionMs, t) }) : null,
+            p.timing.serverMs !== null ? t('topBar.timingServer', { time: duration(p.timing.serverMs, t) }) : null,
+          ]
+            .filter(Boolean)
+            .join('\n')}
+        >
+          {t('topBar.refreshedIn', { time: duration(p.timing.totalMs, t) })}
+        </span>
+      )}
+      <button
+        className="btn btn-ghost px-2"
+        onClick={p.onRefresh}
+        disabled={p.loading}
+        title={p.timing ? `${t('topBar.refresh')} · ${t('topBar.refreshedIn', { time: duration(p.timing.totalMs, t) })}` : t('topBar.refresh')}
+        aria-label={t('topBar.refresh')}
+      >
         <RefreshCw size={15} className={p.loading ? 'animate-spin' : ''} />
       </button>
       <button className="btn" onClick={p.onNewMigration} disabled={!ready}>

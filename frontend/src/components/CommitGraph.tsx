@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   BaseEdge,
   Handle,
@@ -35,6 +35,8 @@ type CommitNodeData = {
   hash: string;
   selected: boolean;
   badges: { id: string; name: string; color: string; active: boolean }[];
+  /** switches the active environment (double click on a badge), absent when switching is not offered */
+  activate?: (envId: string) => void;
 };
 type CommitFlowNode = Node<CommitNodeData, 'commit'>;
 
@@ -60,7 +62,13 @@ function CommitNodeView({ data }: NodeProps<CommitFlowNode>) {
         style={{ left: data.labelLeft, width: data.labelWidth, boxShadow: data.selected ? `inset 2px 0 0 ${data.color}` : undefined }}
       >
         {data.badges.map((b) => (
-          <EnvBadge key={b.id} name={b.name} color={b.color} active={b.active} />
+          <EnvBadge
+            key={b.id}
+            name={b.name}
+            color={b.color}
+            active={b.active}
+            onActivate={data.activate ? () => data.activate!(b.id) : undefined}
+          />
         ))}
         <span className={`min-w-0 flex-1 truncate ${wip ? 'font-medium italic text-amber-200' : 'text-gray-100'}`}>
           {data.message}
@@ -105,6 +113,11 @@ interface Props {
   onCommitContextMenu?: (hash: string, x: number, y: number) => void;
   /** no hover tooltip (e.g. while a context menu is open) */
   tooltipsDisabled?: boolean;
+  /**
+   * double click on the HEAD badge of another environment (or on the row of a commit that carries one): switch the
+   * active environment to it
+   */
+  onActivateEnvironment?: (envId: string) => void;
 }
 
 interface Hover {
@@ -125,7 +138,13 @@ export function CommitGraph({
   onSelect,
   onCommitContextMenu,
   tooltipsDisabled,
+  onActivateEnvironment,
 }: Props) {
+  // the node data keeps one stable callback; the latest handler is read when it runs
+  const activateRef = useRef(onActivateEnvironment);
+  activateRef.current = onActivateEnvironment;
+  const canActivate = !!onActivateEnvironment;
+  const activate = useCallback((envId: string) => activateRef.current?.(envId), []);
   const [hover, setHover] = useState<Hover | null>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
@@ -232,6 +251,7 @@ export function CommitGraph({
           badges: environments
             .filter((e) => e.head === c.hash)
             .map((e) => ({ id: e.id, name: e.name, color: e.colorBadge, active: e.id === activeEnvId })),
+          activate: canActivate ? activate : undefined,
         },
       });
       if (c.parentHash && layout.byHash.has(c.parentHash)) {
@@ -245,7 +265,7 @@ export function CommitGraph({
       }
     }
     return { nodes, edges };
-  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale]);
+  }, [layout, environments, activeEnvId, showWorkingTree, workingTreeChanges, selectedId, width, t, tn, locale, canActivate, activate]);
 
   const hovered = hover ? nodes.find((n) => n.id === hover.id && n.data.kind === 'commit') : undefined;
 
@@ -276,6 +296,14 @@ export function CommitGraph({
         onNodeClick={(_event, node) => {
           hoverEnd();
           onSelect(node.id);
+        }}
+        onNodeDoubleClick={(_event, node) => {
+          // the row of a commit that is the HEAD of another environment: switch to that environment
+          const other = (node.data as CommitNodeData).badges?.find((b) => !b.active);
+          if (other && onActivateEnvironment) {
+            hoverEnd();
+            onActivateEnvironment(other.id);
+          }
         }}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();

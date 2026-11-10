@@ -293,16 +293,28 @@ class ExtendedObjectsDiffTest {
     // ------------------------------------------------------------------ extensions
 
     @Test
-    void extensionsAreCreatedFirstAndUpdated() {
+    void extensionsAreCreatedFirstAndTheirVersionIsIgnored() {
         DatabaseSnapshot head = db("a").extension("citext", "public", "1.5").build();
         DatabaseSnapshot live = db("b").extension("citext", "public", "1.6").extension("pgcrypto", "public", "1.3")
+                .extension("hstore", "ext", "1.8")
                 .table(table(10, "users", col(1, "email", "citext"))).build();
 
         SchemaDiffResult r = engine.compare(head, live, true);
 
-        assertOrdered(r.getUpSql(), "ALTER EXTENSION \"citext\" UPDATE TO '1.6';",
-                "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\" WITH SCHEMA public;", "CREATE TABLE public.users");
+        // v1.9.1: citext is installed on both sides - another version is not a change, in either direction
+        assertTrue(r.getChanges().stream().noneMatch(c -> c.getObjectName().equals("citext")), r.getChanges().toString());
+        assertFalse(r.getUpSql().contains("UPDATE TO"), r.getUpSql());
+        assertFalse(r.getDownSql().contains("UPDATE TO"), r.getDownSql());
+        assertOrdered(r.getUpSql(), "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";", "CREATE TABLE public.users");
+        // an extension outside public keeps its schema
+        assertTrue(r.getUpSql().contains("CREATE EXTENSION IF NOT EXISTS \"hstore\" WITH SCHEMA ext;"), r.getUpSql());
         assertTrue(r.getDownSql().contains("DROP EXTENSION IF EXISTS \"pgcrypto\";"), r.getDownSql());
+
+        // the reverse comparison (what the DOWN of a rollback is built from) does not downgrade either
+        SchemaDiffResult back = engine.compare(live, head, true);
+        assertFalse(back.getUpSql().contains("UPDATE TO"), back.getUpSql());
+        assertTrue(engine.compare(db("a").extension("citext", "public", "1.5").build(),
+                db("b").extension("citext", "public", "1.6").build(), true).getChanges().isEmpty());
     }
 
     // ------------------------------------------------------------------ comments

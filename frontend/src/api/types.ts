@@ -1,12 +1,21 @@
 // Mirrors of the backend DTOs (see src/main/java/com/vodianoy/pgvc).
 
+/** trackedSchemas value meaning "every user schema of the database" */
+export const ALL_USER_SCHEMAS = 'ALL_USER_SCHEMAS';
+
 export interface EnvironmentView {
   id: string;
   name: string;
+  /** server host, port and database (parsed from the JDBC URL for environments of older versions) */
+  host?: string | null;
+  port?: number | null;
+  databaseName?: string | null;
   jdbcUrl: string;
   username: string;
   hasPassword: boolean;
   schemaName: string;
+  /** schemas under version control, [ALL_USER_SCHEMAS] for every user schema */
+  trackedSchemas?: string[];
   colorBadge: string;
   active: boolean;
 }
@@ -14,12 +23,60 @@ export interface EnvironmentView {
 export interface EnvironmentInput {
   id?: string;
   name: string;
-  jdbcUrl: string;
+  /** server connection; when host is empty the JDBC URL is used */
+  host?: string;
+  port?: number;
+  databaseName?: string;
+  jdbcUrl?: string;
   username: string;
   /** undefined keeps the stored password when updating */
   password?: string;
   schemaName: string;
+  trackedSchemas?: string[];
   colorBadge: string;
+}
+
+/** Server connection of the database / schema browser of the environment editor. */
+export interface DiscoveryRequest {
+  /** id of the edited environment: its stored password is used when password is undefined */
+  id?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  databaseName?: string;
+  jdbcUrl?: string;
+}
+
+export interface DiscoveredDatabase {
+  name: string;
+  comment: string | null;
+  prettySize: string | null;
+  canConnect: boolean;
+}
+
+export interface DiscoveredSchema {
+  name: string;
+  comment: string | null;
+  owner: string | null;
+  tableCount: number;
+  /** created by an extension (not version controlled) */
+  extension: boolean;
+}
+
+/** A ready-made fix of a problem found in the live schema. */
+export interface QuickFix {
+  kind: string;
+  /** e.g. mdc.mnemo_schemes.id */
+  objectName: string;
+  message: string;
+  sql: string;
+}
+
+export interface QuickFixResult {
+  environmentId: string;
+  objectName: string;
+  sql: string;
 }
 
 export interface ConnectionTestResult {
@@ -98,6 +155,12 @@ export interface ChangeItem {
   /** estimated rows / size of the table that held the lost data */
   lostRows?: number;
   lostPrettySize?: string;
+  /** zero-downtime form of downSql (NOT VALID + VALIDATE, CREATE INDEX CONCURRENTLY) */
+  zeroDowntimeDownSql?: string;
+  /** statements of downSql that zeroDowntimeDownSql replaces */
+  downAlternatives?: SqlAlternative[];
+  /** fixes of a problem the change shows (e.g. a default using the sequence of another schema) */
+  quickFixes?: QuickFix[];
 }
 
 export type DataLoss = 'ALREADY_LOST' | 'WILL_BE_LOST';
@@ -112,6 +175,8 @@ export interface SchemaDiffResult {
   upSql: string;
   downSql: string;
   warnings: string[];
+  /** fixes of problems of the live schema no change belongs to */
+  quickFixes?: QuickFix[];
 }
 
 export interface WorkingTreeStatus {
@@ -119,6 +184,11 @@ export interface WorkingTreeStatus {
   head: string | null;
   diff: SchemaDiffResult;
   auditLog: AuditLogEntry[];
+  /** server time of reading the live catalog / of the whole working tree */
+  introspectionMs?: number;
+  durationMs?: number;
+  /** the live snapshot the diff was computed from (includeSnapshot=true) */
+  snapshot?: DatabaseSnapshot;
 }
 
 export interface CommitNode {
