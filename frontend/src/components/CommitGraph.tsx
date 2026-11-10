@@ -293,17 +293,17 @@ export function CommitGraph({
         minZoom={0.6}
         maxZoom={1.5}
         defaultViewport={{ x: 20, y: 24, zoom: 1 }}
-        onNodeClick={(_event, node) => {
+        onNodeClick={(event, node) => {
           hoverEnd();
-          onSelect(node.id);
-        }}
-        onNodeDoubleClick={(_event, node) => {
-          // the row of a commit that is the HEAD of another environment: switch to that environment
-          const other = (node.data as CommitNodeData).badges?.find((b) => !b.active);
-          if (other && onActivateEnvironment) {
-            hoverEnd();
-            onActivateEnvironment(other.id);
+          if (event.detail >= 2) {
+            // double click on the row of a commit that is the HEAD of another environment: switch to it
+            const other = (node.data as CommitNodeData).badges?.find((b) => !b.active);
+            if (other && onActivateEnvironment) {
+              onActivateEnvironment(other.id);
+              return;
+            }
           }
+          onSelect(node.id);
         }}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();

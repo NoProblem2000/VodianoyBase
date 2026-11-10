@@ -38,9 +38,12 @@ export function EnvBadge({
       }
       data-env-badge={name}
       data-active={active || undefined}
-      onDoubleClick={
+      onClick={
         switchable
           ? (e) => {
+              // the second click of a double click (e.detail = click count): more reliable inside the graph than a
+              // dblclick listener, which the first click's re-render (selection) can miss
+              if (e.detail < 2) return;
               e.stopPropagation();
               e.preventDefault();
               onActivate!();

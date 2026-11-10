@@ -88,6 +88,9 @@ export function ChangeList({
 
   function renderChange(c: ChangeItem, i: number, nested: boolean) {
     const hasPattern = !!onUsePattern && (!!c.safety?.alternatives?.length || !!c.downAlternatives?.length);
+    const hasBadges = !!c.dataLoss || !!c.safety || !!c.quickFixes?.length || hasPattern;
+    // a warning explained by a quick fix is shown once, in the quick fix block
+    const warnings = (c.warnings ?? []).filter((w) => !c.quickFixes?.some((f) => f.message === w));
     return (
       <li key={`${c.objectType}-${c.objectName}-${c.changeType}-${i}`} className={nested ? 'pl-5' : ''} data-change-index={i}>
         <div className="group flex items-start">
@@ -100,44 +103,48 @@ export function ChangeList({
               aria-label={`${t('workingTree.select')}: ${c.objectName}`}
             />
           )}
-          <button
-            className="flex min-w-0 flex-1 items-start gap-2 px-1 py-1.5 text-left hover:bg-kraken-hover disabled:hover:bg-transparent"
-            onClick={() => setOpen(open === i ? null : i)}
-            disabled={!expandable}
-          >
-            <ChangeBadge type={c.changeType} />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline gap-2">
-                <span className="truncate font-mono text-[12.5px] text-gray-100">{c.objectName}</span>
-                <span className="shrink-0 text-[10.5px] uppercase text-gray-500">{t(`objectType.${c.objectType}`)}</span>
+          <div className="min-w-0 flex-1 hover:bg-kraken-hover/60">
+            <button
+              className={`flex w-full min-w-0 items-start gap-2 px-1 pt-1.5 text-left disabled:cursor-default ${hasBadges ? '' : 'pb-1.5'}`}
+              onClick={() => setOpen(open === i ? null : i)}
+              disabled={!expandable}
+              aria-expanded={expandable ? open === i : undefined}
+            >
+              <ChangeBadge type={c.changeType} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2">
+                  <span className="truncate font-mono text-[12.5px] text-gray-100">{c.objectName}</span>
+                  <span className="shrink-0 text-[10.5px] uppercase text-gray-500">{t(`objectType.${c.objectType}`)}</span>
+                </span>
+                <span className="block truncate text-xs text-gray-400" title={c.details}>
+                  {c.details}
+                </span>
               </span>
-              <span className="block truncate text-xs text-gray-400" title={c.details}>
-                {c.details}
-              </span>
-              {(c.dataLoss || c.safety || hasPattern || !!c.quickFixes?.length) && (
-                <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                  <DataLossBadge change={c} />
-                  {c.safety && <SafetyBadges report={c.safety} hideDataLoss={!!c.dataLoss} />}
-                  {!!c.quickFixes?.length && (
-                    <span
-                      className="inline-flex h-[18px] items-center gap-1 rounded border border-sky-700/80 bg-sky-950/50 px-1.5 text-[10px] font-semibold text-sky-200"
-                      title={c.quickFixes.map((f) => f.message).join('\n')}
-                      data-quick-fix={c.quickFixes[0].kind}
-                    >
-                      <Wrench size={10} />
-                      {t('quickFix.badge')}
-                    </span>
-                  )}
-                  {hasPattern && (
-                    <ZeroDowntimeButton used={patternUsed?.has(i)} onClick={() => onUsePattern!(c)} label={t('safety.useInEditor')} />
-                  )}
+              {expandable && (
+                <ChevronRight size={14} className={`mt-1 shrink-0 text-gray-500 transition-transform ${open === i ? 'rotate-90' : ''}`} />
+              )}
+            </button>
+            {/* badges and actions sit outside the row button: a button inside a button does not get its clicks */}
+            {hasBadges && (
+            <div className="flex flex-wrap items-center gap-1.5 pb-1.5 pl-[30px] pr-1 pt-1">
+              {c.dataLoss && <DataLossBadge change={c} />}
+              {c.safety && <SafetyBadges report={c.safety} hideDataLoss={!!c.dataLoss} />}
+              {!!c.quickFixes?.length && (
+                <span
+                  className="inline-flex h-[18px] items-center gap-1 rounded border border-sky-700/80 bg-sky-950/50 px-1.5 text-[10px] font-semibold text-sky-200"
+                  title={c.quickFixes.map((f) => f.message).join('\n')}
+                  data-quick-fix={c.quickFixes[0].kind}
+                >
+                  <Wrench size={10} />
+                  {t('quickFix.badge')}
                 </span>
               )}
-            </span>
-            {expandable && (
-              <ChevronRight size={14} className={`mt-1 shrink-0 text-gray-500 transition-transform ${open === i ? 'rotate-90' : ''}`} />
+              {hasPattern && (
+                <ZeroDowntimeButton used={patternUsed?.has(i)} onClick={() => onUsePattern!(c)} label={t('safety.useInEditor')} />
+              )}
+            </div>
             )}
-          </button>
+          </div>
           {onDiscard && (
             <button
               type="button"
@@ -152,13 +159,13 @@ export function ChangeList({
         </div>
         {expandable && open === i && (
           <div className="mb-2 ml-7 space-y-1.5 text-xs">
-            {!!c.warnings?.length && (
+            {warnings.length > 0 && (
               <ul
                 className={`space-y-0.5 rounded border px-2 py-1.5 ${
                   c.dataLoss === 'ALREADY_LOST' ? 'border-red-800 bg-red-950/40 text-red-100' : 'border-amber-800/70 bg-amber-950/25 text-amber-100'
                 }`}
               >
-                {c.warnings.map((w, k) => (
+                {warnings.map((w, k) => (
                   <li key={k}>{w}</li>
                 ))}
               </ul>
